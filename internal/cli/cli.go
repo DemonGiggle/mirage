@@ -28,6 +28,8 @@ func Run(args []string, stdout, stderr io.Writer) error {
 		return nil
 	case "__backend-exec":
 		return runner.RunBackendHelper(args[1:], stdout, stderr)
+	case "__cgroup-exec":
+		return runner.RunCgroupHelper(args[1:], stdout, stderr)
 	case "preset":
 		return runPreset(args[1:], stdout)
 	case "doctor":
@@ -88,6 +90,7 @@ func runDoctor(stdout io.Writer) error {
 	} else {
 		_, _ = fmt.Fprintln(stdout, "- observed isolated networking: available (strace found on PATH)")
 	}
+	_, _ = fmt.Fprintln(stdout, "- cgroup v2 resource controls: available via delegated systemd user scopes when systemd-run is present")
 	_, _ = fmt.Fprintln(stdout, "- network presets: available")
 	_, _ = fmt.Fprintln(stdout, "- warn mode recorder: available for network connect attempts")
 	_, _ = fmt.Fprintln(stdout, "- host log export: available")

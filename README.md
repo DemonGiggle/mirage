@@ -64,6 +64,7 @@ Go is a good fit here because it gives us:
 - `unshare` available on `PATH` for namespace-backed runs
 - `strace` available on the effective execution `PATH` for observed isolated
   networking and the isolated-network end-to-end tests
+- `systemd-run` with a working user manager session for delegated `--memory` and `--pids`
 
 ### Build
 
@@ -254,8 +255,11 @@ This repository now has:
 - a first Linux namespace runner for isolated process-tree execution
 - explicit rootfs runtime layout preparation for `/proc`, `/tmp`, and `/run`
 - read-only and read-write bind mount enforcement in the namespace backend
+- cgroup v2 enforcement for memory and PID limits via delegated systemd user scopes
 - observed network policy enforcement for isolated-mode connect attempts
 - host-side warn-mode recording for observed network connect attempts
 - end-to-end CLI tests for preview and log export
 
-What is still missing is the fuller sandbox backend: pivot-root style rootfs handoff, routable isolated networking, and cgroup isolation are still planned rather than enforced.
+What is still missing is the fuller sandbox backend: pivot-root style rootfs
+handoff and routable isolated networking are still planned rather than
+enforced.
