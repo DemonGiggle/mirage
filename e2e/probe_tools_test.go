@@ -201,7 +201,83 @@ func TestProbeTCPConnectHonorsNetworkMode(t *testing.T) {
 // Will verify that read-only and read-write bind mounts enforce the intended
 // visibility and mutability boundaries once bind mounts are implemented.
 func TestProbeBindMountReadOnlyBoundary(t *testing.T) {
-	t.Skip("pending bind mount enforcement in namespace backend")
+	requireNamespaceBackend(t)
+
+	repoRoot := projectRoot(t)
+	rootfs := t.TempDir()
+	buildProbeIntoRootfs(t, repoRoot, "./cmd/probe-file-read", rootfs, "probe-file-read")
+	buildProbeIntoRootfs(t, repoRoot, "./cmd/probe-file-write", rootfs, "probe-file-write")
+
+	hostReadOnly := t.TempDir()
+	hostWritable := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(hostReadOnly, "fixture.txt"), []byte("ro-data"), 0o644); err != nil {
+		t.Fatalf("write read-only fixture: %v", err)
+	}
+
+	output, err := runMirage(t, repoRoot,
+		"run",
+		"--rootfs", rootfs,
+		"--net", "host",
+		"--ro-bind", hostReadOnly+":/ro",
+		"--rw-bind", hostWritable+":/rw",
+		"--",
+		"/probe-file-read",
+		"/ro/fixture.txt",
+	)
+	if err != nil {
+		t.Fatalf("expected read-only bind read to succeed: %v\noutput:\n%s", err, output)
+	}
+	if !strings.Contains(output, "read-ok path=/ro/fixture.txt") {
+		t.Fatalf("unexpected read-only bind read output:\n%s", output)
+	}
+
+	output, err = runMirage(t, repoRoot,
+		"run",
+		"--rootfs", rootfs,
+		"--net", "host",
+		"--ro-bind", hostReadOnly+":/ro",
+		"--rw-bind", hostWritable+":/rw",
+		"--",
+		"/probe-file-write",
+		"/ro/blocked.txt",
+		"blocked",
+	)
+	if err == nil {
+		t.Fatalf("expected read-only bind write to fail, got output:\n%s", output)
+	}
+	if !strings.Contains(output, "write-failed path=/ro/blocked.txt") {
+		t.Fatalf("unexpected read-only bind write output:\n%s", output)
+	}
+	if _, statErr := os.Stat(filepath.Join(hostReadOnly, "blocked.txt")); !os.IsNotExist(statErr) {
+		t.Fatalf("expected no host write through read-only bind, stat err=%v", statErr)
+	}
+
+	output, err = runMirage(t, repoRoot,
+		"run",
+		"--rootfs", rootfs,
+		"--net", "host",
+		"--ro-bind", hostReadOnly+":/ro",
+		"--rw-bind", hostWritable+":/rw",
+		"--",
+		"/probe-file-write",
+		"/rw/created.txt",
+		"rw-data",
+	)
+	if err != nil {
+		t.Fatalf("expected writable bind write to succeed: %v\noutput:\n%s", err, output)
+	}
+	if !strings.Contains(output, "write-ok path=/rw/created.txt") {
+		t.Fatalf("unexpected writable bind output:\n%s", output)
+	}
+
+	written, err := os.ReadFile(filepath.Join(hostWritable, "created.txt"))
+	if err != nil {
+		t.Fatalf("read writable bind output: %v", err)
+	}
+	if string(written) != "rw-data" {
+		t.Fatalf("unexpected writable bind content: %q", string(written))
+	}
 }
 
 // Will verify that isolated networking only permits explicitly allowed

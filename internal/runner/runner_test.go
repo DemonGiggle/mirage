@@ -97,3 +97,49 @@ func TestResolveCommandBinaryMentionsRootfsWhenPathLookupFails(t *testing.T) {
 		}
 	}
 }
+
+func TestParseBindMount(t *testing.T) {
+	t.Run("read-only", func(t *testing.T) {
+		got, err := parseBindMount("/host/data:/workspace/data", true)
+		if err != nil {
+			t.Fatalf("parseBindMount returned error: %v", err)
+		}
+		if got.Source != "/host/data" || got.Target != "/workspace/data" || !got.ReadOnly {
+			t.Fatalf("unexpected bind mount: %#v", got)
+		}
+	})
+
+	t.Run("rejects invalid entries", func(t *testing.T) {
+		cases := []string{
+			"missing-colon",
+			"relative-source:/workspace",
+			"/host:relative-target",
+			"/host:/",
+		}
+		for _, entry := range cases {
+			if _, err := parseBindMount(entry, false); err == nil {
+				t.Fatalf("expected parseBindMount(%q) to fail", entry)
+			}
+		}
+	})
+}
+
+func TestPrepareBindTargetRejectsTypeMismatch(t *testing.T) {
+	dir := t.TempDir()
+
+	fileTarget := filepath.Join(dir, "file-target")
+	if err := os.WriteFile(fileTarget, []byte("data"), 0o644); err != nil {
+		t.Fatalf("write file target: %v", err)
+	}
+	if err := prepareBindTarget(fileTarget, true); err == nil || !strings.Contains(err.Error(), "target exists as a file") {
+		t.Fatalf("expected file/dir mismatch error, got %v", err)
+	}
+
+	dirTarget := filepath.Join(dir, "dir-target")
+	if err := os.MkdirAll(dirTarget, 0o755); err != nil {
+		t.Fatalf("mkdir dir target: %v", err)
+	}
+	if err := prepareBindTarget(dirTarget, false); err == nil || !strings.Contains(err.Error(), "target exists as a directory") {
+		t.Fatalf("expected dir/file mismatch error, got %v", err)
+	}
+}
