@@ -96,6 +96,10 @@ When you use a custom `--rootfs`, that root filesystem has to contain the
 command you are launching and any runtime files it needs. For quick local
 sanity checks, `--rootfs /` is the simplest option.
 
+When bind mounts target `--rootfs /`, `mirage` expects the guest mount point to
+already exist on the host root. It will not create new host-side mountpoint
+files or directories for you.
+
 Bind mounts use `host:guest` pairs. The host path must be absolute and exist on
 the host, and the guest path must be an absolute path inside the sandbox.
 

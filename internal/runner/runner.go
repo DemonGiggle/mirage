@@ -16,8 +16,16 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unsafe"
 
 	"github.com/DemonGiggle/mirage/internal/spec"
+)
+
+const (
+	mountAttrReadOnly = 0x00000001
+	atRecursive       = 0x00008000
+	atFDCWDUintptr    = ^uintptr(99)
+	sysMountSetattr   = 442
 )
 
 func Execute(cfg spec.Config, stdout, stderr io.Writer) error {
@@ -330,14 +338,14 @@ func applyBindMount(rootfs string, mount bindMount) error {
 		return fmt.Errorf("prepare bind mount source %q: %w", mount.Source, err)
 	}
 	targetPath := bindMountTargetPath(rootfs, mount.Target)
-	if err := prepareBindTarget(targetPath, sourceInfo.IsDir()); err != nil {
+	if err := prepareBindTarget(rootfs, targetPath, sourceInfo.IsDir()); err != nil {
 		return fmt.Errorf("prepare bind mount target %q: %w", targetPath, err)
 	}
 	if err := syscall.Mount(mount.Source, targetPath, "", syscall.MS_BIND|syscall.MS_REC, ""); err != nil {
 		return fmt.Errorf("bind mount %q to %q: %w", mount.Source, mount.Target, err)
 	}
 	if mount.ReadOnly {
-		if err := syscall.Mount("", targetPath, "", syscall.MS_BIND|syscall.MS_REMOUNT|syscall.MS_RDONLY|syscall.MS_REC, ""); err != nil {
+		if err := remountBindReadOnly(targetPath); err != nil {
 			return fmt.Errorf("remount read-only bind %q at %q: %w", mount.Source, mount.Target, err)
 		}
 	}
@@ -351,9 +359,12 @@ func bindMountTargetPath(rootfs string, target string) string {
 	return filepath.Join(rootfs, strings.TrimPrefix(target, "/"))
 }
 
-func prepareBindTarget(targetPath string, sourceIsDir bool) error {
-	info, err := os.Stat(targetPath)
+func prepareBindTarget(rootfs string, targetPath string, sourceIsDir bool) error {
+	info, err := os.Lstat(targetPath)
 	if err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return errors.New("target exists as a symlink")
+		}
 		if sourceIsDir && !info.IsDir() {
 			return errors.New("target exists as a file")
 		}
@@ -364,6 +375,9 @@ func prepareBindTarget(targetPath string, sourceIsDir bool) error {
 	}
 	if !os.IsNotExist(err) {
 		return err
+	}
+	if rootfs == "/" {
+		return errors.New("target does not exist under host rootfs; create it explicitly before mounting")
 	}
 
 	if sourceIsDir {
@@ -378,6 +392,35 @@ func prepareBindTarget(targetPath string, sourceIsDir bool) error {
 		return err
 	}
 	return file.Close()
+}
+
+func remountBindReadOnly(targetPath string) error {
+	if err := mountSetattrReadOnly(targetPath); err == nil {
+		return nil
+	} else if !errors.Is(err, syscall.ENOSYS) && !errors.Is(err, syscall.EINVAL) && !errors.Is(err, syscall.EOPNOTSUPP) {
+		return err
+	}
+	return syscall.Mount("", targetPath, "", syscall.MS_BIND|syscall.MS_REMOUNT|syscall.MS_RDONLY|syscall.MS_REC, "")
+}
+
+func mountSetattrReadOnly(targetPath string) error {
+	type mountAttr struct {
+		AttrSet     uint64
+		AttrClr     uint64
+		Propagation uint64
+		UsernsFd    uint64
+	}
+
+	attr := mountAttr{AttrSet: mountAttrReadOnly}
+	targetPtr, err := syscall.BytePtrFromString(targetPath)
+	if err != nil {
+		return err
+	}
+	_, _, errno := syscall.Syscall6(sysMountSetattr, atFDCWDUintptr, uintptr(unsafe.Pointer(targetPtr)), uintptr(atRecursive), uintptr(unsafe.Pointer(&attr)), unsafe.Sizeof(attr), 0)
+	if errno != 0 {
+		return errno
+	}
+	return nil
 }
 
 func ensureDir(path string, mode os.FileMode) error {

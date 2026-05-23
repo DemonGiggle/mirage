@@ -98,6 +98,29 @@ func TestResolveCommandBinaryMentionsRootfsWhenPathLookupFails(t *testing.T) {
 	}
 }
 
+func TestPrepareBindTargetRejectsSymlink(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "link")
+	if err := os.Symlink("/tmp/outside", target); err != nil {
+		t.Fatalf("create symlink target: %v", err)
+	}
+
+	err := prepareBindTarget(dir, target, false)
+	if err == nil || !strings.Contains(err.Error(), "target exists as a symlink") {
+		t.Fatalf("expected symlink rejection, got %v", err)
+	}
+}
+
+func TestPrepareBindTargetRequiresExistingTargetUnderHostRoot(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "missing")
+
+	err := prepareBindTarget("/", target, false)
+	if err == nil || !strings.Contains(err.Error(), "target does not exist under host rootfs") {
+		t.Fatalf("expected host-root missing target rejection, got %v", err)
+	}
+}
+
 func TestParseBindMount(t *testing.T) {
 	t.Run("read-only", func(t *testing.T) {
 		got, err := parseBindMount("/host/data:/workspace/data", true)
@@ -131,7 +154,7 @@ func TestPrepareBindTargetRejectsTypeMismatch(t *testing.T) {
 	if err := os.WriteFile(fileTarget, []byte("data"), 0o644); err != nil {
 		t.Fatalf("write file target: %v", err)
 	}
-	if err := prepareBindTarget(fileTarget, true); err == nil || !strings.Contains(err.Error(), "target exists as a file") {
+	if err := prepareBindTarget(dir, fileTarget, true); err == nil || !strings.Contains(err.Error(), "target exists as a file") {
 		t.Fatalf("expected file/dir mismatch error, got %v", err)
 	}
 
@@ -139,7 +162,7 @@ func TestPrepareBindTargetRejectsTypeMismatch(t *testing.T) {
 	if err := os.MkdirAll(dirTarget, 0o755); err != nil {
 		t.Fatalf("mkdir dir target: %v", err)
 	}
-	if err := prepareBindTarget(dirTarget, false); err == nil || !strings.Contains(err.Error(), "target exists as a directory") {
+	if err := prepareBindTarget(dir, dirTarget, false); err == nil || !strings.Contains(err.Error(), "target exists as a directory") {
 		t.Fatalf("expected dir/file mismatch error, got %v", err)
 	}
 }
