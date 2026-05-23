@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -16,10 +17,38 @@ func TestPresetList(t *testing.T) {
 	}
 
 	got := out.String()
-	for _, name := range []string{"offline", "github", "openai"} {
+	for _, name := range []string{"offline", "github", "openai", "openclaw-offline", "openclaw-openai"} {
 		if !strings.Contains(got, name) {
 			t.Fatalf("expected preset list to contain %q, got %q", name, got)
 		}
+	}
+}
+
+func TestPresetListWithPresetFile(t *testing.T) {
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+
+	presetFile := filepath.Join(t.TempDir(), "presets.json")
+	if err := os.WriteFile(presetFile, []byte(`{
+  "presets": [
+    {
+      "name": "team-openai",
+      "network": "isolated",
+      "allow_hosts": ["example.com:443"],
+      "description": "Team preset"
+    }
+  ]
+}`), 0o644); err != nil {
+		t.Fatalf("write preset file: %v", err)
+	}
+
+	if err := Run([]string{"preset", "list", "--preset-file", presetFile}, &out, &errBuf); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	got := out.String()
+	if !strings.Contains(got, "team-openai") {
+		t.Fatalf("expected preset list to contain team preset, got %q", got)
 	}
 }
 
@@ -52,6 +81,46 @@ func TestRunDryRun(t *testing.T) {
 	}
 	if !strings.Contains(got, "note: one sandbox = one isolated process tree") {
 		t.Fatalf("expected dry run output to mention process tree model, got %q", got)
+	}
+}
+
+func TestRunDryRunWithPresetFile(t *testing.T) {
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+
+	presetFile := filepath.Join(t.TempDir(), "presets.json")
+	if err := os.WriteFile(presetFile, []byte(`{
+  "presets": [
+    {
+      "name": "team-openai",
+      "network": "isolated",
+      "allow_hosts": ["example.com:443"],
+      "description": "Team preset"
+    }
+  ]
+}`), 0o644); err != nil {
+		t.Fatalf("write preset file: %v", err)
+	}
+
+	err := Run([]string{
+		"run",
+		"--rootfs", "/srv/rootfs",
+		"--preset-file", presetFile,
+		"--preset", "team-openai",
+		"--dry-run",
+		"--",
+		"echo", "hello",
+	}, &out, &errBuf)
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	got := out.String()
+	if !strings.Contains(got, "preset-file: "+presetFile) {
+		t.Fatalf("expected dry run output to mention preset file, got %q", got)
+	}
+	if !strings.Contains(got, "allow-host:") || !strings.Contains(got, "example.com:443") {
+		t.Fatalf("expected dry run output to mention preset host, got %q", got)
 	}
 }
 
