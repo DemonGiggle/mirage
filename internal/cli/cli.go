@@ -84,7 +84,7 @@ func runDoctor(stdout io.Writer) error {
 	_, _ = fmt.Fprintln(stdout, "- namespace backend: available (linux, initial)")
 	_, _ = fmt.Fprintln(stdout, "- rootfs isolation: available via chroot backend")
 	_, _ = fmt.Fprintln(stdout, "- network presets: available")
-	_, _ = fmt.Fprintln(stdout, "- warn mode recorder: planned")
+	_, _ = fmt.Fprintln(stdout, "- warn mode recorder: available for network connect attempts")
 	_, _ = fmt.Fprintln(stdout, "- host log export: available")
 	return nil
 }
@@ -138,9 +138,6 @@ func runSandbox(args []string, stdout, stderr io.Writer) error {
 	if resolved.DryRun {
 		_, _ = fmt.Fprintln(stdout, "execution: skipped (--dry-run)")
 		return nil
-	}
-	if resolved.NetworkMode == spec.NetworkIsolated {
-		_, _ = fmt.Fprintln(stderr, "warning: isolated network namespace is active, but allow rules are not enforced yet")
 	}
 	if resolved.RootFS == "" {
 		return errors.New("execution backend requires rootfs")

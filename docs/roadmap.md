@@ -31,6 +31,7 @@
 - add a minimal `isolated` mode
 - add warn-mode event logging
 - convert skipped network allow-rule and warn-mode probes into enforced regression tests
+- refine isolated-mode policy from observed connect enforcement toward routable allow-listed egress
 
 ## Phase 4
 

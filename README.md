@@ -131,7 +131,7 @@ Built-in OpenClaw-oriented presets now include:
 For the early versions, network policy should stay simple:
 
 - `none`: no network access
-- `isolated`: separate netns with explicit allow rules
+- `isolated`: separate netns with observed connect-attempt policy enforcement
 - `host`: no network namespace isolation
 
 Presets provide a better first experience than raw firewall rule authoring. The project should eventually support a workflow like this:
@@ -174,6 +174,8 @@ This repository now has:
 - dry-run preview output
 - host-side stdout/stderr log export
 - a first Linux namespace runner for isolated process-tree execution
+- observed network policy enforcement for isolated-mode connect attempts
+- host-side warn-mode recording for observed network connect attempts
 - end-to-end CLI tests for preview and log export
 
-What is still missing is the fuller sandbox backend: bind mounts, stronger rootfs handoff, explicit network allow-rule enforcement, and cgroup isolation are still planned rather than enforced.
+What is still missing is the fuller sandbox backend: bind mounts, stronger rootfs handoff, routable isolated networking, and cgroup isolation are still planned rather than enforced.
