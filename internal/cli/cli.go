@@ -49,7 +49,7 @@ Usage:
   mirage version
 
 Examples:
-  mirage run --rootfs /srv/rootfs --net none -- echo hello
+  mirage run --rootfs / --net none -- echo hello
   mirage run --rootfs /srv/rootfs --preset openai --warn net -- app
   mirage run --rootfs /srv/rootfs --preset-file ./presets.json --preset team-openai -- app
 `)

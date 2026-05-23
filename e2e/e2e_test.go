@@ -172,6 +172,38 @@ func TestRunFailsWhenCwdDoesNotExistInsideRootfs(t *testing.T) {
 	}
 }
 
+func TestRunMissingCommandShowsRootfsHint(t *testing.T) {
+	requireNamespaceBackend(t)
+
+	repoRoot := projectRoot(t)
+	rootfs := t.TempDir()
+
+	cmd := exec.Command(
+		"go", "run", "./cmd/mirage",
+		"run",
+		"--rootfs", rootfs,
+		"--net", "host",
+		"--",
+		"echo", "hello",
+	)
+	cmd.Dir = repoRoot
+
+	output, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("expected missing command run to fail, got output:\n%s", string(output))
+	}
+
+	got := string(output)
+	for _, needle := range []string{
+		`resolve command "echo" inside rootfs "`,
+		`install the executable in the rootfs, set PATH for the sandbox, or invoke it by absolute path inside the rootfs`,
+	} {
+		if !strings.Contains(got, needle) {
+			t.Fatalf("expected missing command failure to mention %q, got:\n%s", needle, got)
+		}
+	}
+}
+
 func TestRunMountsProcInsidePreparedRootfs(t *testing.T) {
 	requireNamespaceBackend(t)
 
