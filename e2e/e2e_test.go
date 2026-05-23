@@ -196,8 +196,8 @@ func TestRunWarnsWhenIsolatedNetworkRulesAreNotEnforced(t *testing.T) {
 	}
 
 	got := string(output)
-	if !strings.Contains(got, "warning: isolated network namespace is active, but allow rules are not enforced yet") {
-		t.Fatalf("expected isolated network warning, got:\n%s", got)
+	if !strings.Contains(got, "note: network backend: dedicated net namespace with observed policy enforcement") {
+		t.Fatalf("expected isolated network note, got:\n%s", got)
 	}
 	if !strings.Contains(got, "isolated-ok") {
 		t.Fatalf("expected workload output, got:\n%s", got)
@@ -209,6 +209,53 @@ func TestRunWarnsWhenIsolatedNetworkRulesAreNotEnforced(t *testing.T) {
 	}
 	if string(stdoutData) != "isolated-ok" {
 		t.Fatalf("unexpected isolated stdout log content: %q", string(stdoutData))
+	}
+}
+
+func TestRunIsolatedNetworkRejectsUndeclaredConnectAttempt(t *testing.T) {
+	requireNamespaceBackend(t)
+
+	repoRoot := projectRoot(t)
+	cmd := exec.Command(
+		"go", "run", "./cmd/mirage",
+		"run",
+		"--rootfs", "/",
+		"--net", "isolated",
+		"--",
+		"bash", "-lc", "echo >/dev/tcp/203.0.113.10/443 || true",
+	)
+	cmd.Dir = repoRoot
+
+	output, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("expected undeclared isolated connect attempt to fail policy, got output:\n%s", string(output))
+	}
+	if !strings.Contains(string(output), "isolated network policy blocked attempted connections: 203.0.113.10:443") {
+		t.Fatalf("unexpected policy failure output:\n%s", string(output))
+	}
+}
+
+func TestRunIsolatedNetworkAllowsDeclaredConnectAttempt(t *testing.T) {
+	requireNamespaceBackend(t)
+
+	repoRoot := projectRoot(t)
+	cmd := exec.Command(
+		"go", "run", "./cmd/mirage",
+		"run",
+		"--rootfs", "/",
+		"--net", "isolated",
+		"--allow-host", "203.0.113.10:443",
+		"--",
+		"bash", "-lc", "echo >/dev/tcp/203.0.113.10/443 || true",
+	)
+	cmd.Dir = repoRoot
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("expected declared isolated connect attempt to pass policy: %v\noutput:\n%s", err, string(output))
+	}
+	if !strings.Contains(string(output), "note: network backend: dedicated net namespace with observed policy enforcement") {
+		t.Fatalf("expected observed-policy note, got:\n%s", string(output))
 	}
 }
 
