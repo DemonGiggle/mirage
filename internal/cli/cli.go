@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 
 	"github.com/DemonGiggle/mirage/internal/runner"
@@ -50,13 +51,27 @@ Usage:
 Examples:
   mirage run --rootfs /srv/rootfs --net none -- echo hello
   mirage run --rootfs /srv/rootfs --preset openai --warn net -- app
+  mirage run --rootfs /srv/rootfs --preset-file ./presets.json --preset team-openai -- app
 `)
 }
 
 func runPreset(args []string, stdout io.Writer) error {
 	if len(args) == 0 || args[0] == "list" {
-		for _, name := range spec.PresetNames() {
-			preset := spec.KnownPresets[name]
+		fs := flag.NewFlagSet("preset list", flag.ContinueOnError)
+		fs.SetOutput(io.Discard)
+
+		var presetFile string
+		fs.StringVar(&presetFile, "preset-file", "", "Path to a local preset JSON file")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+
+		presets, err := spec.AvailablePresets(presetFile)
+		if err != nil {
+			return err
+		}
+		for _, name := range presetNames(presets) {
+			preset := presets[name]
 			_, _ = fmt.Fprintf(stdout, "%s\t%s\t%s\n", preset.Name, preset.NetworkMode, preset.Description)
 		}
 		return nil
@@ -90,6 +105,7 @@ func runSandbox(args []string, stdout, stderr io.Writer) error {
 	fs.Var(stringSliceValue{target: &cfg.Env}, "env", "Environment variable in KEY=VALUE form")
 	fs.StringVar((*string)(&cfg.NetworkMode), "net", "", "Network mode: none, isolated, host")
 	fs.StringVar(&cfg.Preset, "preset", "", "Named preset to apply before inline overrides")
+	fs.StringVar(&cfg.PresetFile, "preset-file", "", "Path to a local preset JSON file")
 	fs.StringVar(&warnCSV, "warn", "", "Warn modes, currently supports: net")
 	fs.StringVar(&cfg.StdoutLog, "stdout-log", "", "Write workload stdout to a host-side log file")
 	fs.StringVar(&cfg.StderrLog, "stderr-log", "", "Write workload stderr to a host-side log file")
@@ -146,6 +162,15 @@ func splitCSV(raw string) []string {
 		out = append(out, part)
 	}
 	return out
+}
+
+func presetNames(presets map[string]spec.Preset) []string {
+	names := make([]string, 0, len(presets))
+	for name := range presets {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 type stringSliceValue struct {

@@ -98,7 +98,33 @@ mirage doctor
 mirage preset list
 mirage run --dry-run --preset offline -- echo hello
 mirage run --rootfs /tmp/demo --net host --stdout-log /tmp/app.out --stderr-log /tmp/app.err -- ./app
+mirage run --rootfs /srv/rootfs --preset-file ./presets.json --preset team-openai -- app
 ```
+
+## Preset Files
+
+`mirage` can merge built-in presets with a local JSON preset file:
+
+```json
+{
+  "presets": [
+    {
+      "name": "team-openai",
+      "network": "isolated",
+      "allow_hosts": ["api.openai.com:443", "github.com:443"],
+      "description": "Team preset for OpenAI-backed agent work"
+    }
+  ]
+}
+```
+
+Use it with `mirage preset list --preset-file ./presets.json` or
+`mirage run --preset-file ./presets.json --preset team-openai -- ...`.
+
+Built-in OpenClaw-oriented presets now include:
+
+- `openclaw-offline`
+- `openclaw-openai`
 
 ## Network Philosophy
 

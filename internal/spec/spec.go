@@ -1,8 +1,10 @@
 package spec
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 )
@@ -15,7 +17,7 @@ const (
 	NetworkHost     NetworkMode = "host"
 )
 
-var KnownPresets = map[string]Preset{
+var BuiltInPresets = map[string]Preset{
 	"offline": {
 		Name:        "offline",
 		NetworkMode: NetworkNone,
@@ -33,19 +35,31 @@ var KnownPresets = map[string]Preset{
 		AllowHosts:  []string{"api.openai.com:443", "chatgpt.com:443"},
 		Description: "Allow the minimum expected OpenAI endpoints over HTTPS.",
 	},
+	"openclaw-offline": {
+		Name:        "openclaw-offline",
+		NetworkMode: NetworkNone,
+		Description: "OpenClaw-oriented offline preset for local-only agent work.",
+	},
+	"openclaw-openai": {
+		Name:        "openclaw-openai",
+		NetworkMode: NetworkIsolated,
+		AllowHosts:  []string{"api.openai.com:443", "chatgpt.com:443", "github.com:443"},
+		Description: "OpenClaw-oriented preset for OpenAI agent work plus GitHub access.",
+	},
 }
 
 type Preset struct {
-	Name        string
-	NetworkMode NetworkMode
-	AllowHosts  []string
-	Description string
+	Name        string      `json:"name"`
+	NetworkMode NetworkMode `json:"network"`
+	AllowHosts  []string    `json:"allow_hosts"`
+	Description string      `json:"description"`
 }
 
 type Config struct {
 	RootFS      string
 	NetworkMode NetworkMode
 	Preset      string
+	PresetFile  string
 	Warn        []string
 	ROBind      []string
 	RWBind      []string
@@ -64,8 +78,8 @@ type Config struct {
 }
 
 func PresetNames() []string {
-	names := make([]string, 0, len(KnownPresets))
-	for name := range KnownPresets {
+	names := make([]string, 0, len(BuiltInPresets))
+	for name := range BuiltInPresets {
 		names = append(names, name)
 	}
 	sort.Strings(names)
@@ -76,7 +90,11 @@ func ApplyPreset(cfg Config) (Config, error) {
 	if cfg.Preset == "" {
 		return cfg, nil
 	}
-	preset, ok := KnownPresets[cfg.Preset]
+	presets, err := AvailablePresets(cfg.PresetFile)
+	if err != nil {
+		return cfg, err
+	}
+	preset, ok := presets[cfg.Preset]
 	if !ok {
 		return cfg, fmt.Errorf("unknown preset %q", cfg.Preset)
 	}
@@ -87,6 +105,61 @@ func ApplyPreset(cfg Config) (Config, error) {
 		cfg.AllowHosts = append([]string{}, preset.AllowHosts...)
 	}
 	return cfg, nil
+}
+
+func AvailablePresets(presetFile string) (map[string]Preset, error) {
+	presets := make(map[string]Preset, len(BuiltInPresets))
+	for name, preset := range BuiltInPresets {
+		presets[name] = preset
+	}
+	if presetFile == "" {
+		return presets, nil
+	}
+
+	loaded, err := LoadPresetFile(presetFile)
+	if err != nil {
+		return nil, err
+	}
+	for name, preset := range loaded {
+		presets[name] = preset
+	}
+	return presets, nil
+}
+
+type presetFileDocument struct {
+	Presets []Preset `json:"presets"`
+}
+
+func LoadPresetFile(path string) (map[string]Preset, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read preset file %q: %w", path, err)
+	}
+
+	var doc presetFileDocument
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return nil, fmt.Errorf("parse preset file %q: %w", path, err)
+	}
+	if len(doc.Presets) == 0 {
+		return nil, fmt.Errorf("preset file %q does not define any presets", path)
+	}
+
+	out := make(map[string]Preset, len(doc.Presets))
+	for _, preset := range doc.Presets {
+		if preset.Name == "" {
+			return nil, fmt.Errorf("preset file %q contains a preset without a name", path)
+		}
+		if _, exists := out[preset.Name]; exists {
+			return nil, fmt.Errorf("preset file %q defines duplicate preset %q", path, preset.Name)
+		}
+		switch preset.NetworkMode {
+		case NetworkNone, NetworkIsolated, NetworkHost:
+		default:
+			return nil, fmt.Errorf("preset file %q preset %q has invalid network mode %q", path, preset.Name, preset.NetworkMode)
+		}
+		out[preset.Name] = preset
+	}
+	return out, nil
 }
 
 func Validate(cfg Config) error {
@@ -130,6 +203,9 @@ func Summary(cfg Config) string {
 	fmt.Fprintf(&b, "net: %s\n", cfg.NetworkMode)
 	if cfg.Preset != "" {
 		fmt.Fprintf(&b, "preset: %s\n", cfg.Preset)
+	}
+	if cfg.PresetFile != "" {
+		fmt.Fprintf(&b, "preset-file: %s\n", cfg.PresetFile)
 	}
 	if len(cfg.Warn) > 0 {
 		fmt.Fprintf(&b, "warn: %s\n", strings.Join(cfg.Warn, ", "))
