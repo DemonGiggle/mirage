@@ -157,11 +157,32 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 		return runObservedCommand(command, policy, stdout, stderr)
 	}
 
-	binary, err := exec.LookPath(command[0])
+	binary, err := resolveCommandBinary(command[0], rootfs)
 	if err != nil {
-		return fmt.Errorf("resolve command %q: %w", command[0], err)
+		return err
 	}
 	return syscall.Exec(binary, command, os.Environ())
+}
+
+func resolveCommandBinary(commandName string, rootfs string) (string, error) {
+	binary, err := exec.LookPath(commandName)
+	if err == nil {
+		return binary, nil
+	}
+	if rootfs != "" && rootfs != "/" && !strings.ContainsRune(commandName, os.PathSeparator) {
+		pathHint := "using the current PATH"
+		if os.Getenv("PATH") == "" {
+			pathHint = "with an empty PATH"
+		}
+		return "", fmt.Errorf(
+			"resolve command %q inside rootfs %q %s: %w; install the executable in the rootfs, set PATH for the sandbox, or invoke it by absolute path inside the rootfs",
+			commandName,
+			rootfs,
+			pathHint,
+			err,
+		)
+	}
+	return "", fmt.Errorf("resolve command %q: %w", commandName, err)
 }
 
 func buildUnshareArgs(cfg spec.Config) ([]string, error) {

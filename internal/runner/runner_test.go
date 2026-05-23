@@ -77,3 +77,23 @@ func TestResolveAllowHosts(t *testing.T) {
 		}
 	}
 }
+
+func TestResolveCommandBinaryMentionsRootfsWhenPathLookupFails(t *testing.T) {
+	t.Setenv("PATH", "/bin:/usr/bin")
+
+	_, err := resolveCommandBinary("definitely-missing-command", "/tmp/test-rootfs")
+	if err == nil {
+		t.Fatal("expected missing command lookup to fail")
+	}
+
+	got := err.Error()
+	for _, needle := range []string{
+		`resolve command "definitely-missing-command" inside rootfs "/tmp/test-rootfs"`,
+		`using the current PATH`,
+		`install the executable in the rootfs, set PATH for the sandbox, or invoke it by absolute path inside the rootfs`,
+	} {
+		if !strings.Contains(got, needle) {
+			t.Fatalf("expected error to contain %q, got %q", needle, got)
+		}
+	}
+}

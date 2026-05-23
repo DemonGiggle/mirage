@@ -92,6 +92,10 @@ You can also run the CLI directly from source:
 go run ./cmd/mirage --help
 ```
 
+When you use a custom `--rootfs`, that root filesystem has to contain the
+command you are launching and any runtime files it needs. For quick local
+sanity checks, `--rootfs /` is the simplest option.
+
 ### Test
 
 Run the full test suite:
@@ -152,8 +156,8 @@ mirage run \
 ```bash
 mirage doctor
 mirage preset list
-mirage run --dry-run --preset offline -- echo hello
-mirage run --rootfs /tmp/demo --net host --stdout-log /tmp/app.out --stderr-log /tmp/app.err -- ./app
+mirage run --dry-run --rootfs / --preset offline -- echo hello
+mirage run --rootfs / --net host --stdout-log /tmp/app.out --stderr-log /tmp/app.err -- /bin/sh -c "printf 'out'; printf 'err' >&2"
 mirage run --rootfs /srv/rootfs --preset-file ./presets.json --preset team-openai -- app
 ```
 
