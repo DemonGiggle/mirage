@@ -101,7 +101,7 @@ func TestResolveCommandBinaryMentionsRootfsWhenPathLookupFails(t *testing.T) {
 func TestEnsureObservedNetworkToolAvailable(t *testing.T) {
 	t.Setenv("PATH", "")
 
-	err := ensureObservedNetworkToolAvailable()
+	err := EnsureObservedNetworkToolAvailable()
 	if err == nil {
 		t.Fatal("expected missing strace check to fail")
 	}

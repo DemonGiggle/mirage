@@ -326,7 +326,7 @@ func shouldObserveNetwork(policy networkPolicy) bool {
 }
 
 func runObservedCommand(command []string, policy networkPolicy, stdout, stderr io.Writer) error {
-	if err := ensureObservedNetworkToolAvailable(); err != nil {
+	if err := EnsureObservedNetworkToolAvailable(); err != nil {
 		return err
 	}
 
@@ -367,7 +367,7 @@ func runObservedCommand(command []string, policy networkPolicy, stdout, stderr i
 	return nil
 }
 
-func ensureObservedNetworkToolAvailable() error {
+func EnsureObservedNetworkToolAvailable() error {
 	if _, err := exec.LookPath("strace"); err != nil {
 		return fmt.Errorf("observed isolated networking requires strace on PATH: %w", err)
 	}
