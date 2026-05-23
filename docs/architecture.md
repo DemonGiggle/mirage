@@ -107,6 +107,7 @@ Current state:
 - the backend now prepares a minimal runtime layout under the chosen rootfs
 - `proc` is mounted explicitly
 - `tmpfs` is mounted for `/tmp` and `/run`
+- read-only and read-write bind mounts are applied before sandbox handoff
 - handoff still finishes with `chroot`
 
 `pivot_root` remains the cleaner long-term path.

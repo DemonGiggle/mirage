@@ -62,7 +62,8 @@ Go is a good fit here because it gives us:
 - Linux
 - Go 1.24.4 or newer
 - `unshare` available on `PATH` for namespace-backed runs
-- `strace` available on `PATH` for the isolated-network end-to-end tests
+- `strace` available on the effective execution `PATH` for observed isolated
+  networking and the isolated-network end-to-end tests
 - `systemd-run` with a working user manager session for delegated `--memory` and `--pids`
 
 ### Build
@@ -97,6 +98,13 @@ When you use a custom `--rootfs`, that root filesystem has to contain the
 command you are launching and any runtime files it needs. For quick local
 sanity checks, `--rootfs /` is the simplest option.
 
+When bind mounts target `--rootfs /`, `mirage` expects the guest mount point to
+already exist on the host root. It will not create new host-side mountpoint
+files or directories for you.
+
+Bind mounts use `host:guest` pairs. The host path must be absolute and exist on
+the host, and the guest path must be an absolute path inside the sandbox.
+
 ### Test
 
 Run the full test suite:
@@ -106,7 +114,13 @@ go test ./...
 ```
 
 The end-to-end isolated-network tests shell out to `strace`, so they require
-`strace` to be installed on the host.
+`strace` to be resolvable from the effective execution environment. When you use
+`--rootfs /`, that means the host `PATH`. When you use a custom `--rootfs`, the
+runner still needs to be able to resolve `strace` from the command environment
+that launches the observed workload.
+
+The current observed implementation of `--net isolated` and `--warn net`
+depends on that same `strace` availability.
 
 ### Formatting
 
@@ -236,9 +250,12 @@ This repository now has:
 - host-side stdout/stderr log export
 - a first Linux namespace runner for isolated process-tree execution
 - explicit rootfs runtime layout preparation for `/proc`, `/tmp`, and `/run`
+- read-only and read-write bind mount enforcement in the namespace backend
 - cgroup v2 enforcement for memory and PID limits via delegated systemd user scopes
 - observed network policy enforcement for isolated-mode connect attempts
 - host-side warn-mode recording for observed network connect attempts
 - end-to-end CLI tests for preview and log export
 
-What is still missing is the fuller sandbox backend: bind mounts, pivot-root style rootfs handoff, and routable isolated networking are still planned rather than enforced.
+What is still missing is the fuller sandbox backend: pivot-root style rootfs
+handoff and routable isolated networking are still planned rather than
+enforced.
