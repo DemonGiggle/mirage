@@ -85,6 +85,11 @@ func runDoctor(stdout io.Writer) error {
 	_, _ = fmt.Fprintln(stdout, "mirage doctor")
 	_, _ = fmt.Fprintln(stdout, "- namespace backend: available (linux, initial)")
 	_, _ = fmt.Fprintln(stdout, "- rootfs isolation: available via mounted runtime layout plus chroot handoff")
+	if err := runner.EnsureObservedNetworkToolAvailable(); err != nil {
+		_, _ = fmt.Fprintf(stdout, "- observed isolated networking: unavailable (%v)\n", err)
+	} else {
+		_, _ = fmt.Fprintln(stdout, "- observed isolated networking: available (strace found on PATH)")
+	}
 	_, _ = fmt.Fprintln(stdout, "- cgroup v2 resource controls: available via delegated systemd user scopes when systemd-run is present")
 	_, _ = fmt.Fprintln(stdout, "- network presets: available")
 	_, _ = fmt.Fprintln(stdout, "- warn mode recorder: available for network connect attempts")

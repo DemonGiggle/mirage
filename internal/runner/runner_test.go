@@ -167,6 +167,18 @@ func TestPrepareBindTargetRejectsTypeMismatch(t *testing.T) {
 	}
 }
 
+func TestEnsureObservedNetworkToolAvailable(t *testing.T) {
+	t.Setenv("PATH", "")
+
+	err := EnsureObservedNetworkToolAvailable()
+	if err == nil {
+		t.Fatal("expected missing strace check to fail")
+	}
+	if !strings.Contains(err.Error(), "observed isolated networking requires strace on PATH") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestDelegatedScopeArgs(t *testing.T) {
 	args := delegatedScopeArgs("mirage", "__cgroup-exec", "--memory", "128M", "--pids", "7", "--", "unshare", "--fork", "cmd")
 	got := strings.Join(args, " ")

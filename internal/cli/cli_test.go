@@ -171,3 +171,22 @@ func TestRunDryRunShowsLogExport(t *testing.T) {
 		t.Fatalf("expected host log export note, got %q", got)
 	}
 }
+
+func TestDoctorReportsObservedNetworkingUnavailableWithoutStrace(t *testing.T) {
+	t.Setenv("PATH", "")
+
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+
+	if err := Run([]string{"doctor"}, &out, &errBuf); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	got := out.String()
+	if !strings.Contains(got, "observed isolated networking: unavailable") {
+		t.Fatalf("expected doctor output to report observed networking as unavailable, got %q", got)
+	}
+	if !strings.Contains(got, "requires strace on PATH") {
+		t.Fatalf("expected doctor output to mention missing strace, got %q", got)
+	}
+}
