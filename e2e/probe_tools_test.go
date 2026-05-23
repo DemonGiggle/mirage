@@ -208,6 +208,7 @@ func TestProbeBindMountReadOnlyBoundary(t *testing.T) {
 // destinations once allow-host / allow-cidr / allow-port are enforced.
 func TestProbeIsolatedNetworkAllowHostRules(t *testing.T) {
 	requireNamespaceBackend(t)
+	requireObservedNetworkBackend(t)
 
 	repoRoot := projectRoot(t)
 	probePath := buildProbe(t, repoRoot, "./cmd/probe-tcp-connect")
@@ -243,6 +244,7 @@ func TestProbeIsolatedNetworkAllowHostRules(t *testing.T) {
 // that can later drive preset refinement.
 func TestProbeWarnModeRecordsDeniedNetworkAttempt(t *testing.T) {
 	requireNamespaceBackend(t)
+	requireObservedNetworkBackend(t)
 
 	repoRoot := projectRoot(t)
 	stateDir := t.TempDir()

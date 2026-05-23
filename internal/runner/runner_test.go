@@ -97,3 +97,15 @@ func TestResolveCommandBinaryMentionsRootfsWhenPathLookupFails(t *testing.T) {
 		}
 	}
 }
+
+func TestEnsureObservedNetworkToolAvailable(t *testing.T) {
+	t.Setenv("PATH", "")
+
+	err := ensureObservedNetworkToolAvailable()
+	if err == nil {
+		t.Fatal("expected missing strace check to fail")
+	}
+	if !strings.Contains(err.Error(), "observed isolated networking requires strace on PATH") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}

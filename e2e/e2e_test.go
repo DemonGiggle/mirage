@@ -267,6 +267,7 @@ func TestRunUsesTmpfsForSandboxTmp(t *testing.T) {
 
 func TestRunWarnsWhenIsolatedNetworkRulesAreNotEnforced(t *testing.T) {
 	requireNamespaceBackend(t)
+	requireObservedNetworkBackend(t)
 
 	repoRoot := projectRoot(t)
 	tmp := t.TempDir()
@@ -307,6 +308,7 @@ func TestRunWarnsWhenIsolatedNetworkRulesAreNotEnforced(t *testing.T) {
 
 func TestRunIsolatedNetworkRejectsUndeclaredConnectAttempt(t *testing.T) {
 	requireNamespaceBackend(t)
+	requireObservedNetworkBackend(t)
 
 	repoRoot := projectRoot(t)
 	cmd := exec.Command(
@@ -330,6 +332,7 @@ func TestRunIsolatedNetworkRejectsUndeclaredConnectAttempt(t *testing.T) {
 
 func TestRunIsolatedNetworkAllowsDeclaredConnectAttempt(t *testing.T) {
 	requireNamespaceBackend(t)
+	requireObservedNetworkBackend(t)
 
 	repoRoot := projectRoot(t)
 	cmd := exec.Command(
@@ -376,4 +379,12 @@ func requireNamespaceBackend(t *testing.T) {
 	}
 
 	t.Fatalf("namespace capability probe failed unexpectedly: %v\noutput:\n%s", err, msg)
+}
+
+func requireObservedNetworkBackend(t *testing.T) {
+	t.Helper()
+
+	if _, err := exec.LookPath("strace"); err != nil {
+		t.Skip("observed isolated network backend requires strace on PATH")
+	}
 }

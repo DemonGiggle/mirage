@@ -326,6 +326,10 @@ func shouldObserveNetwork(policy networkPolicy) bool {
 }
 
 func runObservedCommand(command []string, policy networkPolicy, stdout, stderr io.Writer) error {
+	if err := ensureObservedNetworkToolAvailable(); err != nil {
+		return err
+	}
+
 	traceFile, err := os.CreateTemp("", "mirage-strace-*.log")
 	if err != nil {
 		return fmt.Errorf("create network trace file: %w", err)
@@ -359,6 +363,13 @@ func runObservedCommand(command []string, policy networkPolicy, stdout, stderr i
 	}
 	if runErr != nil {
 		return runErr
+	}
+	return nil
+}
+
+func ensureObservedNetworkToolAvailable() error {
+	if _, err := exec.LookPath("strace"); err != nil {
+		return fmt.Errorf("observed isolated networking requires strace on PATH: %w", err)
 	}
 	return nil
 }

@@ -107,6 +107,9 @@ go test ./...
 The end-to-end isolated-network tests shell out to `strace`, so they require
 `strace` to be installed on the host.
 
+The current observed implementation of `--net isolated` and `--warn net` also
+depends on `strace` being available on the host.
+
 ### Formatting
 
 CI checks that Go files are `gofmt`-formatted before running the tests:
