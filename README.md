@@ -96,6 +96,13 @@ When you use a custom `--rootfs`, that root filesystem has to contain the
 command you are launching and any runtime files it needs. For quick local
 sanity checks, `--rootfs /` is the simplest option.
 
+When bind mounts target `--rootfs /`, `mirage` expects the guest mount point to
+already exist on the host root. It will not create new host-side mountpoint
+files or directories for you.
+
+Bind mounts use `host:guest` pairs. The host path must be absolute and exist on
+the host, and the guest path must be an absolute path inside the sandbox.
+
 ### Test
 
 Run the full test suite:
@@ -235,8 +242,9 @@ This repository now has:
 - host-side stdout/stderr log export
 - a first Linux namespace runner for isolated process-tree execution
 - explicit rootfs runtime layout preparation for `/proc`, `/tmp`, and `/run`
+- read-only and read-write bind mount enforcement in the namespace backend
 - observed network policy enforcement for isolated-mode connect attempts
 - host-side warn-mode recording for observed network connect attempts
 - end-to-end CLI tests for preview and log export
 
-What is still missing is the fuller sandbox backend: bind mounts, pivot-root style rootfs handoff, routable isolated networking, and cgroup isolation are still planned rather than enforced.
+What is still missing is the fuller sandbox backend: pivot-root style rootfs handoff, routable isolated networking, and cgroup isolation are still planned rather than enforced.

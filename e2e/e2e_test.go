@@ -204,6 +204,36 @@ func TestRunMissingCommandShowsRootfsHint(t *testing.T) {
 	}
 }
 
+func TestRunFailsWhenBindMountSourceDoesNotExist(t *testing.T) {
+	requireNamespaceBackend(t)
+
+	repoRoot := projectRoot(t)
+	rootfs := t.TempDir()
+	buildProbeBinary(t, repoRoot, "./cmd/probe-file-read", filepath.Join(rootfs, "probe-file-read"))
+	missingSource := filepath.Join(t.TempDir(), "missing-source")
+
+	cmd := exec.Command(
+		"go", "run", "./cmd/mirage",
+		"run",
+		"--rootfs", rootfs,
+		"--net", "host",
+		"--ro-bind", missingSource+":/mounted",
+		"--",
+		"/probe-file-read", "/mounted/data.txt",
+	)
+	cmd.Dir = repoRoot
+
+	output, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("expected missing bind mount source run to fail, got output:\n%s", string(output))
+	}
+
+	got := string(output)
+	if !strings.Contains(got, `prepare bind mount source "`) || !strings.Contains(got, "no such file or directory") {
+		t.Fatalf("expected missing bind source failure, got:\n%s", got)
+	}
+}
+
 func TestRunMountsProcInsidePreparedRootfs(t *testing.T) {
 	requireNamespaceBackend(t)
 

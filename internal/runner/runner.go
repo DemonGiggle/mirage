@@ -16,16 +16,21 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unsafe"
 
 	"github.com/DemonGiggle/mirage/internal/spec"
+)
+
+const (
+	mountAttrReadOnly = 0x00000001
+	atRecursive       = 0x00008000
+	atFDCWDUintptr    = ^uintptr(99)
+	sysMountSetattr   = 442
 )
 
 func Execute(cfg spec.Config, stdout, stderr io.Writer) error {
 	if runtimeUnsupported() {
 		return errors.New("sandbox backend currently supports Linux only")
-	}
-	if len(cfg.ROBind) > 0 || len(cfg.RWBind) > 0 {
-		return errors.New("bind mounts are not implemented in the backend yet")
 	}
 
 	unshareArgs, err := buildUnshareArgs(cfg)
@@ -60,6 +65,12 @@ func Execute(cfg spec.Config, stdout, stderr io.Writer) error {
 	}
 	for _, item := range resolvedAllowHosts {
 		backendArgs = append(backendArgs, "--resolved-allow-host", item)
+	}
+	for _, item := range cfg.ROBind {
+		backendArgs = append(backendArgs, "--ro-bind", item)
+	}
+	for _, item := range cfg.RWBind {
+		backendArgs = append(backendArgs, "--rw-bind", item)
 	}
 	backendArgs = append(backendArgs, "--")
 	backendArgs = append(backendArgs, cfg.Command...)
@@ -103,6 +114,8 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 	var allowCIDRs []string
 	var allowPorts []string
 	var resolvedAllowHosts []string
+	var roBind []string
+	var rwBind []string
 
 	fs.StringVar(&rootfs, "rootfs", "", "backend rootfs")
 	fs.StringVar(&cwd, "cwd", "", "backend cwd")
@@ -112,6 +125,8 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 	fs.Var(stringSliceValue{target: &allowCIDRs}, "allow-cidr", "backend allowed cidr")
 	fs.Var(stringSliceValue{target: &allowPorts}, "allow-port", "backend allowed port")
 	fs.Var(stringSliceValue{target: &resolvedAllowHosts}, "resolved-allow-host", "backend resolved allow-host")
+	fs.Var(stringSliceValue{target: &roBind}, "ro-bind", "backend read-only bind mount")
+	fs.Var(stringSliceValue{target: &rwBind}, "rw-bind", "backend read-write bind mount")
 
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -130,10 +145,22 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 		}
 	}
 
+	if rootfs != "/" || len(roBind) > 0 || len(rwBind) > 0 {
+		if err := makeMountNamespacePrivate(); err != nil {
+			return err
+		}
+	}
 	if rootfs != "" && rootfs != "/" {
 		if err := prepareRootfsMountLayout(rootfs); err != nil {
 			return err
 		}
+	}
+	if len(roBind) > 0 || len(rwBind) > 0 {
+		if err := applyBindMounts(rootfs, roBind, rwBind); err != nil {
+			return err
+		}
+	}
+	if rootfs != "" && rootfs != "/" {
 		if err := syscall.Chroot(rootfs); err != nil {
 			return fmt.Errorf("chroot to %q: %w", rootfs, err)
 		}
@@ -234,6 +261,164 @@ func prepareRootfsMountLayout(rootfs string) error {
 	}
 	if err := mountTmpfs(filepath.Join(rootfs, "run"), "mode=0755"); err != nil {
 		return err
+	}
+	return nil
+}
+
+type bindMount struct {
+	Source   string
+	Target   string
+	ReadOnly bool
+}
+
+func makeMountNamespacePrivate() error {
+	if err := syscall.Mount("", "/", "", syscall.MS_REC|syscall.MS_PRIVATE, ""); err != nil {
+		return fmt.Errorf("set mount propagation private: %w", err)
+	}
+	return nil
+}
+
+func applyBindMounts(rootfs string, roEntries, rwEntries []string) error {
+	mounts, err := collectBindMounts(roEntries, rwEntries)
+	if err != nil {
+		return err
+	}
+	for _, mount := range mounts {
+		if err := applyBindMount(rootfs, mount); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func collectBindMounts(roEntries, rwEntries []string) ([]bindMount, error) {
+	var mounts []bindMount
+	for _, entry := range roEntries {
+		mount, err := parseBindMount(entry, true)
+		if err != nil {
+			return nil, err
+		}
+		mounts = append(mounts, mount)
+	}
+	for _, entry := range rwEntries {
+		mount, err := parseBindMount(entry, false)
+		if err != nil {
+			return nil, err
+		}
+		mounts = append(mounts, mount)
+	}
+	return mounts, nil
+}
+
+func parseBindMount(entry string, readOnly bool) (bindMount, error) {
+	source, target, ok := strings.Cut(entry, ":")
+	if !ok || source == "" || target == "" {
+		return bindMount{}, fmt.Errorf("parse bind mount %q: expected host:guest", entry)
+	}
+	if !filepath.IsAbs(source) {
+		return bindMount{}, fmt.Errorf("parse bind mount %q: host path must be absolute", entry)
+	}
+	if !filepath.IsAbs(target) {
+		return bindMount{}, fmt.Errorf("parse bind mount %q: guest path must be absolute", entry)
+	}
+	cleanTarget := filepath.Clean(target)
+	if cleanTarget == "/" {
+		return bindMount{}, fmt.Errorf("parse bind mount %q: guest path must not be /", entry)
+	}
+	return bindMount{
+		Source:   filepath.Clean(source),
+		Target:   cleanTarget,
+		ReadOnly: readOnly,
+	}, nil
+}
+
+func applyBindMount(rootfs string, mount bindMount) error {
+	sourceInfo, err := os.Stat(mount.Source)
+	if err != nil {
+		return fmt.Errorf("prepare bind mount source %q: %w", mount.Source, err)
+	}
+	targetPath := bindMountTargetPath(rootfs, mount.Target)
+	if err := prepareBindTarget(rootfs, targetPath, sourceInfo.IsDir()); err != nil {
+		return fmt.Errorf("prepare bind mount target %q: %w", targetPath, err)
+	}
+	if err := syscall.Mount(mount.Source, targetPath, "", syscall.MS_BIND|syscall.MS_REC, ""); err != nil {
+		return fmt.Errorf("bind mount %q to %q: %w", mount.Source, mount.Target, err)
+	}
+	if mount.ReadOnly {
+		if err := remountBindReadOnly(targetPath); err != nil {
+			return fmt.Errorf("remount read-only bind %q at %q: %w", mount.Source, mount.Target, err)
+		}
+	}
+	return nil
+}
+
+func bindMountTargetPath(rootfs string, target string) string {
+	if rootfs == "/" {
+		return target
+	}
+	return filepath.Join(rootfs, strings.TrimPrefix(target, "/"))
+}
+
+func prepareBindTarget(rootfs string, targetPath string, sourceIsDir bool) error {
+	info, err := os.Lstat(targetPath)
+	if err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return errors.New("target exists as a symlink")
+		}
+		if sourceIsDir && !info.IsDir() {
+			return errors.New("target exists as a file")
+		}
+		if !sourceIsDir && info.IsDir() {
+			return errors.New("target exists as a directory")
+		}
+		return nil
+	}
+	if !os.IsNotExist(err) {
+		return err
+	}
+	if rootfs == "/" {
+		return errors.New("target does not exist under host rootfs; create it explicitly before mounting")
+	}
+
+	if sourceIsDir {
+		return ensureDir(targetPath, 0o755)
+	}
+
+	if err := ensureDir(filepath.Dir(targetPath), 0o755); err != nil {
+		return err
+	}
+	file, err := os.OpenFile(targetPath, os.O_CREATE, 0o644)
+	if err != nil {
+		return err
+	}
+	return file.Close()
+}
+
+func remountBindReadOnly(targetPath string) error {
+	if err := mountSetattrReadOnly(targetPath); err == nil {
+		return nil
+	} else if !errors.Is(err, syscall.ENOSYS) && !errors.Is(err, syscall.EINVAL) && !errors.Is(err, syscall.EOPNOTSUPP) {
+		return err
+	}
+	return syscall.Mount("", targetPath, "", syscall.MS_BIND|syscall.MS_REMOUNT|syscall.MS_RDONLY|syscall.MS_REC, "")
+}
+
+func mountSetattrReadOnly(targetPath string) error {
+	type mountAttr struct {
+		AttrSet     uint64
+		AttrClr     uint64
+		Propagation uint64
+		UsernsFd    uint64
+	}
+
+	attr := mountAttr{AttrSet: mountAttrReadOnly}
+	targetPtr, err := syscall.BytePtrFromString(targetPath)
+	if err != nil {
+		return err
+	}
+	_, _, errno := syscall.Syscall6(sysMountSetattr, atFDCWDUintptr, uintptr(unsafe.Pointer(targetPtr)), uintptr(atRecursive), uintptr(unsafe.Pointer(&attr)), unsafe.Sizeof(attr), 0)
+	if errno != 0 {
+		return errno
 	}
 	return nil
 }
@@ -573,7 +758,7 @@ func PlanNotes(cfg spec.Config) []string {
 		notes = append(notes, fmt.Sprintf("host log export: %s", strings.Join(exports, "+")))
 	}
 	if len(cfg.ROBind) > 0 || len(cfg.RWBind) > 0 {
-		notes = append(notes, "bind mounts: parsed but not enforced yet")
+		notes = append(notes, "bind mounts: enforced read-only/read-write host path exposure")
 	}
 	if cfg.RootFS == "/" {
 		notes = append(notes, "rootfs backend: host root")
