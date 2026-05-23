@@ -115,6 +115,103 @@ func TestRunCreatesIsolatedProcessTree(t *testing.T) {
 	}
 }
 
+func TestRunFailsWhenRootfsDoesNotExist(t *testing.T) {
+	requireNamespaceBackend(t)
+
+	repoRoot := projectRoot(t)
+	missingRootfs := filepath.Join(t.TempDir(), "missing-rootfs")
+
+	cmd := exec.Command(
+		"go", "run", "./cmd/mirage",
+		"run",
+		"--rootfs", missingRootfs,
+		"--net", "host",
+		"--",
+		"/bin/sh", "-c", "true",
+	)
+	cmd.Dir = repoRoot
+
+	output, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("expected missing rootfs run to fail, got output:\n%s", string(output))
+	}
+
+	got := string(output)
+	if !strings.Contains(got, `chroot to "`) || !strings.Contains(got, "no such file or directory") {
+		t.Fatalf("expected missing rootfs chroot failure, got:\n%s", got)
+	}
+}
+
+func TestRunFailsWhenCwdDoesNotExistInsideRootfs(t *testing.T) {
+	requireNamespaceBackend(t)
+
+	repoRoot := projectRoot(t)
+	rootfs := t.TempDir()
+	probePath := filepath.Join(rootfs, "probe-file-read")
+	buildProbeBinary(t, repoRoot, "./cmd/probe-file-read", probePath)
+
+	cmd := exec.Command(
+		"go", "run", "./cmd/mirage",
+		"run",
+		"--rootfs", rootfs,
+		"--net", "host",
+		"--cwd", "/missing-dir",
+		"--",
+		"/probe-file-read", "/missing-file",
+	)
+	cmd.Dir = repoRoot
+
+	output, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("expected missing cwd run to fail, got output:\n%s", string(output))
+	}
+
+	got := string(output)
+	if !strings.Contains(got, `chdir to "/missing-dir"`) || !strings.Contains(got, "no such file or directory") {
+		t.Fatalf("expected missing cwd failure, got:\n%s", got)
+	}
+}
+
+func TestRunWarnsWhenIsolatedNetworkRulesAreNotEnforced(t *testing.T) {
+	requireNamespaceBackend(t)
+
+	repoRoot := projectRoot(t)
+	tmp := t.TempDir()
+	stdoutLog := filepath.Join(tmp, "stdout.log")
+
+	cmd := exec.Command(
+		"go", "run", "./cmd/mirage",
+		"run",
+		"--rootfs", "/",
+		"--net", "isolated",
+		"--stdout-log", stdoutLog,
+		"--",
+		"sh", "-c", "printf 'isolated-ok'",
+	)
+	cmd.Dir = repoRoot
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("expected isolated network run to succeed: %v\noutput:\n%s", err, string(output))
+	}
+
+	got := string(output)
+	if !strings.Contains(got, "warning: isolated network namespace is active, but allow rules are not enforced yet") {
+		t.Fatalf("expected isolated network warning, got:\n%s", got)
+	}
+	if !strings.Contains(got, "isolated-ok") {
+		t.Fatalf("expected workload output, got:\n%s", got)
+	}
+
+	stdoutData, err := os.ReadFile(stdoutLog)
+	if err != nil {
+		t.Fatalf("read isolated stdout log: %v", err)
+	}
+	if string(stdoutData) != "isolated-ok" {
+		t.Fatalf("unexpected isolated stdout log content: %q", string(stdoutData))
+	}
+}
+
 func projectRoot(t *testing.T) string {
 	t.Helper()
 	root, err := filepath.Abs("..")
