@@ -234,7 +234,7 @@ func delegatedScopeArgs(args ...string) []string {
 	return scopeArgs
 }
 
-func enterCgroupLeaf(memory string, pids int) (func(), error) {
+func enterCgroupLeaf(memory string, pids int) (cleanup func(), err error) {
 	cgroupPath, err := currentCgroupPath()
 	if err != nil {
 		return nil, err
@@ -246,10 +246,28 @@ func enterCgroupLeaf(memory string, pids int) (func(), error) {
 	}
 
 	selfPID := strconv.Itoa(os.Getpid())
+	selfInLeaf := false
+	cleanup = func() {
+		if selfInLeaf {
+			if err := os.WriteFile(filepath.Join(parentPath, "cgroup.procs"), []byte(selfPID), 0o644); err == nil {
+				selfInLeaf = false
+			}
+		}
+		if err := os.Remove(leafPath); err != nil && !os.IsNotExist(err) && !selfInLeaf {
+			_ = killCgroup(leafPath)
+			_ = os.Remove(leafPath)
+		}
+	}
+	defer func() {
+		if err != nil && cleanup != nil {
+			cleanup()
+		}
+	}()
+
 	if err := os.WriteFile(filepath.Join(leafPath, "cgroup.procs"), []byte(selfPID), 0o644); err != nil {
-		_ = os.Remove(leafPath)
 		return nil, fmt.Errorf("move helper into cgroup leaf: %w", err)
 	}
+	selfInLeaf = true
 
 	var controllers []string
 	if memory != "" {
@@ -267,7 +285,7 @@ func enterCgroupLeaf(memory string, pids int) (func(), error) {
 		if err := os.WriteFile(filepath.Join(leafPath, "memory.max"), []byte(memory+"\n"), 0o644); err != nil {
 			return nil, fmt.Errorf("set memory limit on %q: %w", leafPath, err)
 		}
-		if err := os.WriteFile(filepath.Join(leafPath, "memory.swap.max"), []byte("0\n"), 0o644); err != nil {
+		if err := writeOptionalCgroupFile(filepath.Join(leafPath, "memory.swap.max"), "0\n"); err != nil {
 			return nil, fmt.Errorf("disable swap for %q: %w", leafPath, err)
 		}
 	}
@@ -277,11 +295,21 @@ func enterCgroupLeaf(memory string, pids int) (func(), error) {
 		}
 	}
 
-	cleanup := func() {
-		_ = os.WriteFile(filepath.Join(parentPath, "cgroup.procs"), []byte(selfPID), 0o644)
-		_ = os.Remove(leafPath)
-	}
 	return cleanup, nil
+}
+
+func writeOptionalCgroupFile(path string, value string) error {
+	if err := os.WriteFile(path, []byte(value), 0o644); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
+func killCgroup(path string) error {
+	if err := writeOptionalCgroupFile(filepath.Join(path, "cgroup.kill"), "1\n"); err != nil {
+		return err
+	}
+	return nil
 }
 
 func currentCgroupPath() (string, error) {

@@ -110,3 +110,10 @@ func TestDelegatedScopeArgs(t *testing.T) {
 		}
 	}
 }
+
+func TestWriteOptionalCgroupFileIgnoresMissingFile(t *testing.T) {
+	err := writeOptionalCgroupFile(filepath.Join(t.TempDir(), "missing", "memory.swap.max"), "0\n")
+	if err != nil {
+		t.Fatalf("expected missing optional cgroup file to be ignored, got %v", err)
+	}
+}
