@@ -22,6 +22,7 @@
 - mount proc, tmpfs, and bind mounts
 - support rootfs handoff
 - execute target command inside sandbox
+- convert skipped bind-mount probes into enforced regression tests
 
 ## Phase 3
 
@@ -29,6 +30,7 @@
 - implement `none` and `host`
 - add a minimal `isolated` mode
 - add warn-mode event logging
+- convert skipped network allow-rule and warn-mode probes into enforced regression tests
 
 ## Phase 4
 
@@ -36,6 +38,7 @@
 - add OpenClaw-friendly presets
 - improve failure messages
 - add integration tests on Linux
+- convert skipped PID and memory limit probes into enforced regression tests
 
 ## Phase 5
 

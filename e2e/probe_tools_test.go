@@ -182,6 +182,30 @@ func TestProbeTCPConnectHonorsNetworkMode(t *testing.T) {
 	}
 }
 
+func TestProbeBindMountReadOnlyBoundary(t *testing.T) {
+	t.Skip("pending bind mount enforcement in namespace backend")
+}
+
+func TestProbeIsolatedNetworkAllowHostRules(t *testing.T) {
+	t.Skip("pending isolated network allow-rule enforcement")
+}
+
+func TestProbeWarnModeRecordsDeniedNetworkAttempt(t *testing.T) {
+	t.Skip("pending warn-mode event recording")
+}
+
+func TestProbePIDLimitEnforcement(t *testing.T) {
+	t.Skip("pending cgroup v2 pid limit enforcement")
+}
+
+func TestProbeMemoryLimitEnforcement(t *testing.T) {
+	t.Skip("pending cgroup v2 memory limit enforcement")
+}
+
+func TestProbeProcVisibilityHardening(t *testing.T) {
+	t.Skip("pending stronger proc and mount isolation hardening")
+}
+
 func buildProbe(t *testing.T, repoRoot, pkg string) string {
 	t.Helper()
 	out := filepath.Join(t.TempDir(), filepath.Base(pkg))
