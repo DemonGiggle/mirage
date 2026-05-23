@@ -279,13 +279,84 @@ func TestProbeWarnModeRecordsDeniedNetworkAttempt(t *testing.T) {
 // Will verify that sandbox workloads cannot exceed the configured process-count
 // ceiling once PID control is enforced through cgroups.
 func TestProbePIDLimitEnforcement(t *testing.T) {
-	t.Skip("pending cgroup v2 pid limit enforcement")
+	requireNamespaceBackend(t)
+	requireCgroupBackend(t)
+
+	repoRoot := projectRoot(t)
+	probePath := buildProbe(t, repoRoot, "./cmd/probe-spawn-many")
+
+	output, err := runMirage(t, repoRoot,
+		"run",
+		"--rootfs", "/",
+		"--net", "host",
+		"--pids", "2",
+		"--",
+		probePath,
+		"-count", "3",
+		"-sleep", "250ms",
+	)
+	if err == nil {
+		t.Fatalf("expected pid-limited run to fail, got output:\n%s", output)
+	}
+	if !strings.Contains(output, "spawn-failed") &&
+		!strings.Contains(output, "pthread_create failed") &&
+		!strings.Contains(output, "failed to create new OS thread") &&
+		!strings.Contains(output, "resource temporarily unavailable") {
+		t.Fatalf("expected pid-limit failure output, got:\n%s", output)
+	}
+
+	output, err = runMirage(t, repoRoot,
+		"run",
+		"--rootfs", "/",
+		"--net", "host",
+		"--pids", "32",
+		"--",
+		probePath,
+		"-count", "3",
+		"-sleep", "250ms",
+	)
+	if err != nil {
+		t.Fatalf("expected higher pid limit run to succeed: %v\noutput:\n%s", err, output)
+	}
+	if !strings.Contains(output, "spawn-ok count=3") {
+		t.Fatalf("unexpected pid-limit success output:\n%s", output)
+	}
 }
 
 // Will verify that sandbox workloads cannot exceed the configured memory limit
 // once memory control is enforced through cgroups.
 func TestProbeMemoryLimitEnforcement(t *testing.T) {
-	t.Skip("pending cgroup v2 memory limit enforcement")
+	requireNamespaceBackend(t)
+	requireCgroupBackend(t)
+
+	repoRoot := projectRoot(t)
+
+	output, err := runMirage(t, repoRoot,
+		"run",
+		"--rootfs", "/",
+		"--net", "host",
+		"--memory", "32M",
+		"--",
+		"python3", "-c", "a=[b'x'*1024*1024 for _ in range(128)]; print('memory-ok'); import time; time.sleep(0.25)",
+	)
+	if err == nil {
+		t.Fatalf("expected memory-limited run to fail, got output:\n%s", output)
+	}
+
+	output, err = runMirage(t, repoRoot,
+		"run",
+		"--rootfs", "/",
+		"--net", "host",
+		"--memory", "256M",
+		"--",
+		"python3", "-c", "a=[b'x'*1024*1024 for _ in range(16)]; print('memory-ok'); import time; time.sleep(0.25)",
+	)
+	if err != nil {
+		t.Fatalf("expected higher memory limit run to succeed: %v\noutput:\n%s", err, output)
+	}
+	if !strings.Contains(output, "memory-ok") {
+		t.Fatalf("unexpected memory-limit success output:\n%s", output)
+	}
 }
 
 // Will verify that procfs and related mount visibility do not leak broader host
@@ -327,4 +398,24 @@ func runMirage(t *testing.T, repoRoot string, args ...string) (string, error) {
 
 	output, err := cmd.CombinedOutput()
 	return string(output), err
+}
+
+func requireCgroupBackend(t *testing.T) {
+	t.Helper()
+
+	cmd := exec.Command("systemd-run", "--user", "--scope", "--quiet", "--collect", "--", "sh", "-c", "true")
+	output, err := cmd.CombinedOutput()
+	if err == nil {
+		return
+	}
+
+	msg := string(output)
+	if strings.Contains(msg, "command not found") ||
+		strings.Contains(msg, "Failed to connect to bus") ||
+		strings.Contains(msg, "No medium found") ||
+		strings.Contains(msg, "Access denied") {
+		t.Skipf("cgroup backend unsupported in this test environment: %s", strings.TrimSpace(msg))
+	}
+
+	t.Fatalf("cgroup capability probe failed unexpectedly: %v\noutput:\n%s", err, msg)
 }

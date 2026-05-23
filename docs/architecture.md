@@ -103,6 +103,7 @@ For rootfs handling, the preferred direction is:
 
 Current state:
 
+- memory and PID limits can be enforced through delegated cgroup v2 user scopes
 - the backend now prepares a minimal runtime layout under the chosen rootfs
 - `proc` is mounted explicitly
 - `tmpfs` is mounted for `/tmp` and `/run`

@@ -28,6 +28,8 @@ func Run(args []string, stdout, stderr io.Writer) error {
 		return nil
 	case "__backend-exec":
 		return runner.RunBackendHelper(args[1:], stdout, stderr)
+	case "__cgroup-exec":
+		return runner.RunCgroupHelper(args[1:], stdout, stderr)
 	case "preset":
 		return runPreset(args[1:], stdout)
 	case "doctor":
@@ -83,6 +85,7 @@ func runDoctor(stdout io.Writer) error {
 	_, _ = fmt.Fprintln(stdout, "mirage doctor")
 	_, _ = fmt.Fprintln(stdout, "- namespace backend: available (linux, initial)")
 	_, _ = fmt.Fprintln(stdout, "- rootfs isolation: available via mounted runtime layout plus chroot handoff")
+	_, _ = fmt.Fprintln(stdout, "- cgroup v2 resource controls: available via delegated systemd user scopes when systemd-run is present")
 	_, _ = fmt.Fprintln(stdout, "- network presets: available")
 	_, _ = fmt.Fprintln(stdout, "- warn mode recorder: available for network connect attempts")
 	_, _ = fmt.Fprintln(stdout, "- host log export: available")

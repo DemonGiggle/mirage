@@ -97,3 +97,16 @@ func TestResolveCommandBinaryMentionsRootfsWhenPathLookupFails(t *testing.T) {
 		}
 	}
 }
+
+func TestDelegatedScopeArgs(t *testing.T) {
+	args := delegatedScopeArgs("mirage", "__cgroup-exec", "--memory", "128M", "--pids", "7", "--", "unshare", "--fork", "cmd")
+	got := strings.Join(args, " ")
+	for _, needle := range []string{
+		"--user --scope --quiet --collect -p Delegate=yes",
+		"-- mirage __cgroup-exec --memory 128M --pids 7 -- unshare --fork cmd",
+	} {
+		if !strings.Contains(got, needle) {
+			t.Fatalf("expected delegated scope args to contain %q, got %q", needle, got)
+		}
+	}
+}

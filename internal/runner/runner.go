@@ -64,7 +64,26 @@ func Execute(cfg spec.Config, stdout, stderr io.Writer) error {
 	backendArgs = append(backendArgs, "--")
 	backendArgs = append(backendArgs, cfg.Command...)
 
-	cmd := exec.Command("unshare", append(unshareArgs, backendArgs...)...)
+	commandName := "unshare"
+	commandArgs := append(unshareArgs, backendArgs...)
+	var cmd *exec.Cmd
+	if requiresCgroupScope(cfg) {
+		cgroupArgs := []string{self, "__cgroup-exec"}
+		if cfg.Memory != "" {
+			cgroupArgs = append(cgroupArgs, "--memory", cfg.Memory)
+		}
+		if cfg.Pids > 0 {
+			cgroupArgs = append(cgroupArgs, "--pids", strconv.Itoa(cfg.Pids))
+		}
+		cgroupArgs = append(cgroupArgs, "--", commandName)
+		cgroupArgs = append(cgroupArgs, commandArgs...)
+		cmd, err = buildDelegatedScopeCommand(cgroupArgs...)
+		if err != nil {
+			return err
+		}
+	} else {
+		cmd = exec.Command(commandName, commandArgs...)
+	}
 
 	stdoutCloser, stdoutTarget, err := prepareLogWriter(cfg.StdoutLog, stdout)
 	if err != nil {
@@ -84,6 +103,40 @@ func Execute(cfg spec.Config, stdout, stderr io.Writer) error {
 
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("backend command failed: %w", err)
+	}
+	return nil
+}
+
+func RunCgroupHelper(args []string, stdout, stderr io.Writer) error {
+	fs := flag.NewFlagSet("__cgroup-exec", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+
+	var memory string
+	var pids int
+
+	fs.StringVar(&memory, "memory", "", "cgroup memory limit")
+	fs.IntVar(&pids, "pids", 0, "cgroup pid limit")
+
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	command := fs.Args()
+	if len(command) == 0 {
+		return errors.New("cgroup helper requires a command")
+	}
+
+	cleanup, err := enterCgroupLeaf(memory, pids)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	cmd := exec.Command(command[0], command[1:]...)
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	cmd.Env = os.Environ()
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("cgroup command failed: %w", err)
 	}
 	return nil
 }
@@ -162,6 +215,90 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 	return syscall.Exec(binary, command, os.Environ())
+}
+
+func requiresCgroupScope(cfg spec.Config) bool {
+	return cfg.Memory != "" || cfg.Pids > 0
+}
+
+func buildDelegatedScopeCommand(args ...string) (*exec.Cmd, error) {
+	if _, err := exec.LookPath("systemd-run"); err != nil {
+		return nil, fmt.Errorf("cgroup limits require systemd-run on PATH: %w", err)
+	}
+	return exec.Command("systemd-run", delegatedScopeArgs(args...)...), nil
+}
+
+func delegatedScopeArgs(args ...string) []string {
+	scopeArgs := []string{"--user", "--scope", "--quiet", "--collect", "-p", "Delegate=yes", "--"}
+	scopeArgs = append(scopeArgs, args...)
+	return scopeArgs
+}
+
+func enterCgroupLeaf(memory string, pids int) (func(), error) {
+	cgroupPath, err := currentCgroupPath()
+	if err != nil {
+		return nil, err
+	}
+	parentPath := filepath.Join("/sys/fs/cgroup", strings.TrimPrefix(cgroupPath, "/"))
+	leafPath := filepath.Join(parentPath, fmt.Sprintf("mirage-%d", os.Getpid()))
+	if err := os.Mkdir(leafPath, 0o755); err != nil {
+		return nil, fmt.Errorf("create cgroup leaf %q: %w", leafPath, err)
+	}
+
+	selfPID := strconv.Itoa(os.Getpid())
+	if err := os.WriteFile(filepath.Join(leafPath, "cgroup.procs"), []byte(selfPID), 0o644); err != nil {
+		_ = os.Remove(leafPath)
+		return nil, fmt.Errorf("move helper into cgroup leaf: %w", err)
+	}
+
+	var controllers []string
+	if memory != "" {
+		controllers = append(controllers, "+memory")
+	}
+	if pids > 0 {
+		controllers = append(controllers, "+pids")
+	}
+	if len(controllers) > 0 {
+		if err := os.WriteFile(filepath.Join(parentPath, "cgroup.subtree_control"), []byte(strings.Join(controllers, " ")+"\n"), 0o644); err != nil {
+			return nil, fmt.Errorf("enable cgroup controllers on %q: %w", parentPath, err)
+		}
+	}
+	if memory != "" {
+		if err := os.WriteFile(filepath.Join(leafPath, "memory.max"), []byte(memory+"\n"), 0o644); err != nil {
+			return nil, fmt.Errorf("set memory limit on %q: %w", leafPath, err)
+		}
+		if err := os.WriteFile(filepath.Join(leafPath, "memory.swap.max"), []byte("0\n"), 0o644); err != nil {
+			return nil, fmt.Errorf("disable swap for %q: %w", leafPath, err)
+		}
+	}
+	if pids > 0 {
+		if err := os.WriteFile(filepath.Join(leafPath, "pids.max"), []byte(strconv.Itoa(pids)+"\n"), 0o644); err != nil {
+			return nil, fmt.Errorf("set pid limit on %q: %w", leafPath, err)
+		}
+	}
+
+	cleanup := func() {
+		_ = os.WriteFile(filepath.Join(parentPath, "cgroup.procs"), []byte(selfPID), 0o644)
+		_ = os.Remove(leafPath)
+	}
+	return cleanup, nil
+}
+
+func currentCgroupPath() (string, error) {
+	data, err := os.ReadFile("/proc/self/cgroup")
+	if err != nil {
+		return "", fmt.Errorf("read current cgroup: %w", err)
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, "0::") {
+			path := strings.TrimPrefix(line, "0::")
+			if path == "" {
+				return "/", nil
+			}
+			return path, nil
+		}
+	}
+	return "", errors.New("resolve current cgroup: unified cgroup v2 path not found")
 }
 
 func resolveCommandBinary(commandName string, rootfs string) (string, error) {
@@ -574,6 +711,16 @@ func PlanNotes(cfg spec.Config) []string {
 	}
 	if len(cfg.ROBind) > 0 || len(cfg.RWBind) > 0 {
 		notes = append(notes, "bind mounts: parsed but not enforced yet")
+	}
+	if cfg.Memory != "" || cfg.Pids > 0 {
+		var limits []string
+		if cfg.Memory != "" {
+			limits = append(limits, "memory="+cfg.Memory)
+		}
+		if cfg.Pids > 0 {
+			limits = append(limits, fmt.Sprintf("pids=%d", cfg.Pids))
+		}
+		notes = append(notes, fmt.Sprintf("cgroup v2: enforced via delegated systemd user-scope leaf cgroup (%s)", strings.Join(limits, ", ")))
 	}
 	if cfg.RootFS == "/" {
 		notes = append(notes, "rootfs backend: host root")
