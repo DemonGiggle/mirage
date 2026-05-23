@@ -55,6 +55,62 @@ Go is a good fit here because it gives us:
 - easy integration with existing host binaries like `mount`, `unshare`, `nft`, and `ip`
 - low runtime overhead
 
+## Development
+
+### Prerequisites
+
+- Linux
+- Go 1.24.4 or newer
+- `unshare` available on `PATH` for namespace-backed runs
+- `strace` available on `PATH` for the isolated-network end-to-end tests
+
+### Build
+
+Build the CLI binary:
+
+```bash
+go build -o ./bin/mirage ./cmd/mirage
+```
+
+Build every package in the repository:
+
+```bash
+go build ./...
+```
+
+### Run
+
+After building the CLI, you can sanity-check the local binary with:
+
+```bash
+./bin/mirage doctor
+```
+
+You can also run the CLI directly from source:
+
+```bash
+go run ./cmd/mirage --help
+```
+
+### Test
+
+Run the full test suite:
+
+```bash
+go test ./...
+```
+
+The end-to-end isolated-network tests shell out to `strace`, so they require
+`strace` to be installed on the host.
+
+### Formatting
+
+CI checks that Go files are `gofmt`-formatted before running the tests:
+
+```bash
+gofmt -w $(find . -name '*.go' -print)
+```
+
 ## Terminology
 
 These terms will appear repeatedly in the project docs:
