@@ -137,7 +137,7 @@ func TestRunFailsWhenRootfsDoesNotExist(t *testing.T) {
 	}
 
 	got := string(output)
-	if !strings.Contains(got, `chroot to "`) || !strings.Contains(got, "no such file or directory") {
+	if !strings.Contains(got, `prepare rootfs "`) || !strings.Contains(got, "no such file or directory") {
 		t.Fatalf("expected missing rootfs chroot failure, got:\n%s", got)
 	}
 }
@@ -169,6 +169,67 @@ func TestRunFailsWhenCwdDoesNotExistInsideRootfs(t *testing.T) {
 	got := string(output)
 	if !strings.Contains(got, `chdir to "/missing-dir"`) || !strings.Contains(got, "no such file or directory") {
 		t.Fatalf("expected missing cwd failure, got:\n%s", got)
+	}
+}
+
+func TestRunMountsProcInsidePreparedRootfs(t *testing.T) {
+	requireNamespaceBackend(t)
+
+	repoRoot := projectRoot(t)
+	rootfs := t.TempDir()
+	buildProbeBinary(t, repoRoot, "./cmd/probe-file-read", filepath.Join(rootfs, "probe-file-read"))
+
+	cmd := exec.Command(
+		"go", "run", "./cmd/mirage",
+		"run",
+		"--rootfs", rootfs,
+		"--net", "host",
+		"--",
+		"/probe-file-read", "/proc/mounts",
+	)
+	cmd.Dir = repoRoot
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("expected proc mount read to succeed: %v\noutput:\n%s", err, string(output))
+	}
+	if !strings.Contains(string(output), "read-ok path=/proc/mounts") {
+		t.Fatalf("unexpected proc mount output:\n%s", string(output))
+	}
+}
+
+func TestRunUsesTmpfsForSandboxTmp(t *testing.T) {
+	requireNamespaceBackend(t)
+
+	repoRoot := projectRoot(t)
+	rootfs := t.TempDir()
+	buildProbeBinary(t, repoRoot, "./cmd/probe-file-write", filepath.Join(rootfs, "probe-file-write"))
+
+	hostTmp := filepath.Join(rootfs, "tmp")
+	if err := os.MkdirAll(hostTmp, 0o755); err != nil {
+		t.Fatalf("prepare host tmp: %v", err)
+	}
+
+	cmd := exec.Command(
+		"go", "run", "./cmd/mirage",
+		"run",
+		"--rootfs", rootfs,
+		"--net", "host",
+		"--",
+		"/probe-file-write", "/tmp/sandbox-only.txt", "sandbox-data",
+	)
+	cmd.Dir = repoRoot
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("expected tmpfs write to succeed: %v\noutput:\n%s", err, string(output))
+	}
+	if !strings.Contains(string(output), "write-ok path=/tmp/sandbox-only.txt") {
+		t.Fatalf("unexpected tmpfs write output:\n%s", string(output))
+	}
+
+	if _, err := os.Stat(filepath.Join(hostTmp, "sandbox-only.txt")); !os.IsNotExist(err) {
+		t.Fatalf("expected sandbox tmp write to stay off host rootfs, stat err=%v", err)
 	}
 }
 

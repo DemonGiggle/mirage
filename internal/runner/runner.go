@@ -131,6 +131,9 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 	}
 
 	if rootfs != "" && rootfs != "/" {
+		if err := prepareRootfsMountLayout(rootfs); err != nil {
+			return err
+		}
 		if err := syscall.Chroot(rootfs); err != nil {
 			return fmt.Errorf("chroot to %q: %w", rootfs, err)
 		}
@@ -167,7 +170,6 @@ func buildUnshareArgs(cfg spec.Config) ([]string, error) {
 		"--map-root-user",
 		"--fork",
 		"--pid",
-		"--mount-proc",
 		"--mount",
 		"--uts",
 		"--ipc",
@@ -182,6 +184,58 @@ func buildUnshareArgs(cfg spec.Config) ([]string, error) {
 	}
 
 	return args, nil
+}
+
+func prepareRootfsMountLayout(rootfs string) error {
+	info, err := os.Stat(rootfs)
+	if err != nil {
+		return fmt.Errorf("prepare rootfs %q: %w", rootfs, err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("prepare rootfs %q: not a directory", rootfs)
+	}
+
+	if err := ensureDir(filepath.Join(rootfs, "proc"), 0o755); err != nil {
+		return fmt.Errorf("prepare proc mountpoint: %w", err)
+	}
+	if err := ensureDir(filepath.Join(rootfs, "tmp"), 0o1777); err != nil {
+		return fmt.Errorf("prepare tmp mountpoint: %w", err)
+	}
+	if err := ensureDir(filepath.Join(rootfs, "run"), 0o755); err != nil {
+		return fmt.Errorf("prepare run mountpoint: %w", err)
+	}
+
+	if err := mountProc(filepath.Join(rootfs, "proc")); err != nil {
+		return err
+	}
+	if err := mountTmpfs(filepath.Join(rootfs, "tmp"), "mode=1777"); err != nil {
+		return err
+	}
+	if err := mountTmpfs(filepath.Join(rootfs, "run"), "mode=0755"); err != nil {
+		return err
+	}
+	return nil
+}
+
+func ensureDir(path string, mode os.FileMode) error {
+	if err := os.MkdirAll(path, mode); err != nil {
+		return err
+	}
+	return os.Chmod(path, mode)
+}
+
+func mountProc(target string) error {
+	if err := syscall.Mount("proc", target, "proc", 0, ""); err != nil {
+		return fmt.Errorf("mount proc at %q: %w", target, err)
+	}
+	return nil
+}
+
+func mountTmpfs(target string, data string) error {
+	if err := syscall.Mount("tmpfs", target, "tmpfs", 0, data); err != nil {
+		return fmt.Errorf("mount tmpfs at %q: %w", target, err)
+	}
+	return nil
 }
 
 type networkPolicy struct {
@@ -503,7 +557,7 @@ func PlanNotes(cfg spec.Config) []string {
 	if cfg.RootFS == "/" {
 		notes = append(notes, "rootfs backend: host root")
 	} else {
-		notes = append(notes, "rootfs backend: chroot inside user namespace")
+		notes = append(notes, "rootfs backend: mounted runtime layout plus chroot handoff")
 	}
 	return notes
 }

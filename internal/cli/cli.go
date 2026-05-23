@@ -82,7 +82,7 @@ func runPreset(args []string, stdout io.Writer) error {
 func runDoctor(stdout io.Writer) error {
 	_, _ = fmt.Fprintln(stdout, "mirage doctor")
 	_, _ = fmt.Fprintln(stdout, "- namespace backend: available (linux, initial)")
-	_, _ = fmt.Fprintln(stdout, "- rootfs isolation: available via chroot backend")
+	_, _ = fmt.Fprintln(stdout, "- rootfs isolation: available via mounted runtime layout plus chroot handoff")
 	_, _ = fmt.Fprintln(stdout, "- network presets: available")
 	_, _ = fmt.Fprintln(stdout, "- warn mode recorder: available for network connect attempts")
 	_, _ = fmt.Fprintln(stdout, "- host log export: available")
