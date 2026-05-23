@@ -166,3 +166,23 @@ func TestPrepareBindTargetRejectsTypeMismatch(t *testing.T) {
 		t.Fatalf("expected dir/file mismatch error, got %v", err)
 	}
 }
+
+func TestDelegatedScopeArgs(t *testing.T) {
+	args := delegatedScopeArgs("mirage", "__cgroup-exec", "--memory", "128M", "--pids", "7", "--", "unshare", "--fork", "cmd")
+	got := strings.Join(args, " ")
+	for _, needle := range []string{
+		"--user --scope --quiet --collect -p Delegate=yes",
+		"-- mirage __cgroup-exec --memory 128M --pids 7 -- unshare --fork cmd",
+	} {
+		if !strings.Contains(got, needle) {
+			t.Fatalf("expected delegated scope args to contain %q, got %q", needle, got)
+		}
+	}
+}
+
+func TestWriteOptionalCgroupFileIgnoresMissingFile(t *testing.T) {
+	err := writeOptionalCgroupFile(filepath.Join(t.TempDir(), "missing", "memory.swap.max"), "0\n")
+	if err != nil {
+		t.Fatalf("expected missing optional cgroup file to be ignored, got %v", err)
+	}
+}
