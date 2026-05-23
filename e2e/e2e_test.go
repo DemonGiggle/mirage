@@ -9,6 +9,8 @@ import (
 )
 
 func TestRunExportsLogsToHost(t *testing.T) {
+	requireNamespaceBackend(t)
+
 	repoRoot := projectRoot(t)
 	tmp := t.TempDir()
 	stdoutLog := filepath.Join(tmp, "stdout.log")
@@ -85,6 +87,8 @@ func TestRunDryRunE2E(t *testing.T) {
 }
 
 func TestRunCreatesIsolatedProcessTree(t *testing.T) {
+	requireNamespaceBackend(t)
+
 	repoRoot := projectRoot(t)
 
 	cmd := exec.Command(
@@ -118,4 +122,21 @@ func projectRoot(t *testing.T) string {
 		t.Fatalf("resolve project root: %v", err)
 	}
 	return root
+}
+
+func requireNamespaceBackend(t *testing.T) {
+	t.Helper()
+
+	cmd := exec.Command("unshare", "--user", "--map-root-user", "--pid", "--fork", "sh", "-c", "true")
+	output, err := cmd.CombinedOutput()
+	if err == nil {
+		return
+	}
+
+	msg := string(output)
+	if strings.Contains(msg, "Operation not permitted") || strings.Contains(msg, "write failed /proc/self/uid_map") {
+		t.Skipf("namespace backend unsupported in this test environment: %s", strings.TrimSpace(msg))
+	}
+
+	t.Fatalf("namespace capability probe failed unexpectedly: %v\noutput:\n%s", err, msg)
 }

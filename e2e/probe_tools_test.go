@@ -13,6 +13,8 @@ import (
 // Verifies that a workload can spawn child processes without leaving the same
 // sandbox-owned process tree.
 func TestProbeSpawnChildStaysInSandboxTree(t *testing.T) {
+	requireNamespaceBackend(t)
+
 	repoRoot := projectRoot(t)
 	probePath := buildProbe(t, repoRoot, "./cmd/probe-spawn-child")
 
@@ -38,6 +40,8 @@ func TestProbeSpawnChildStaysInSandboxTree(t *testing.T) {
 // Verifies that file reads succeed for content inside the sandbox rootfs and
 // fail for host paths outside the exposed filesystem view.
 func TestProbeFileReadRespectsRootfsBoundary(t *testing.T) {
+	requireNamespaceBackend(t)
+
 	repoRoot := projectRoot(t)
 	rootfs := t.TempDir()
 	buildProbeIntoRootfs(t, repoRoot, "./cmd/probe-file-read", rootfs, "probe-file-read")
@@ -87,6 +91,8 @@ func TestProbeFileReadRespectsRootfsBoundary(t *testing.T) {
 // Verifies that file writes stay confined to the sandbox rootfs and do not
 // create or modify files on the host outside that boundary.
 func TestProbeFileWriteRespectsRootfsBoundary(t *testing.T) {
+	requireNamespaceBackend(t)
+
 	repoRoot := projectRoot(t)
 	rootfs := t.TempDir()
 	buildProbeIntoRootfs(t, repoRoot, "./cmd/probe-file-write", rootfs, "probe-file-write")
@@ -136,6 +142,8 @@ func TestProbeFileWriteRespectsRootfsBoundary(t *testing.T) {
 // Verifies that basic outbound TCP behavior matches the selected network mode:
 // host networking should connect, while net=none should fail closed.
 func TestProbeTCPConnectHonorsNetworkMode(t *testing.T) {
+	requireNamespaceBackend(t)
+
 	repoRoot := projectRoot(t)
 	probePath := buildProbe(t, repoRoot, "./cmd/probe-tcp-connect")
 
