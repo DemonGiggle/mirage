@@ -10,6 +10,8 @@ import (
 	"time"
 )
 
+// Verifies that a workload can spawn child processes without leaving the same
+// sandbox-owned process tree.
 func TestProbeSpawnChildStaysInSandboxTree(t *testing.T) {
 	repoRoot := projectRoot(t)
 	probePath := buildProbe(t, repoRoot, "./cmd/probe-spawn-child")
@@ -33,6 +35,8 @@ func TestProbeSpawnChildStaysInSandboxTree(t *testing.T) {
 	}
 }
 
+// Verifies that file reads succeed for content inside the sandbox rootfs and
+// fail for host paths outside the exposed filesystem view.
 func TestProbeFileReadRespectsRootfsBoundary(t *testing.T) {
 	repoRoot := projectRoot(t)
 	rootfs := t.TempDir()
@@ -80,6 +84,8 @@ func TestProbeFileReadRespectsRootfsBoundary(t *testing.T) {
 	}
 }
 
+// Verifies that file writes stay confined to the sandbox rootfs and do not
+// create or modify files on the host outside that boundary.
 func TestProbeFileWriteRespectsRootfsBoundary(t *testing.T) {
 	repoRoot := projectRoot(t)
 	rootfs := t.TempDir()
@@ -127,6 +133,8 @@ func TestProbeFileWriteRespectsRootfsBoundary(t *testing.T) {
 	}
 }
 
+// Verifies that basic outbound TCP behavior matches the selected network mode:
+// host networking should connect, while net=none should fail closed.
 func TestProbeTCPConnectHonorsNetworkMode(t *testing.T) {
 	repoRoot := projectRoot(t)
 	probePath := buildProbe(t, repoRoot, "./cmd/probe-tcp-connect")
@@ -182,26 +190,38 @@ func TestProbeTCPConnectHonorsNetworkMode(t *testing.T) {
 	}
 }
 
+// Will verify that read-only and read-write bind mounts enforce the intended
+// visibility and mutability boundaries once bind mounts are implemented.
 func TestProbeBindMountReadOnlyBoundary(t *testing.T) {
 	t.Skip("pending bind mount enforcement in namespace backend")
 }
 
+// Will verify that isolated networking only permits explicitly allowed
+// destinations once allow-host / allow-cidr / allow-port are enforced.
 func TestProbeIsolatedNetworkAllowHostRules(t *testing.T) {
 	t.Skip("pending isolated network allow-rule enforcement")
 }
 
+// Will verify that denied network attempts produce durable warn-mode records
+// that can later drive preset refinement.
 func TestProbeWarnModeRecordsDeniedNetworkAttempt(t *testing.T) {
 	t.Skip("pending warn-mode event recording")
 }
 
+// Will verify that sandbox workloads cannot exceed the configured process-count
+// ceiling once PID control is enforced through cgroups.
 func TestProbePIDLimitEnforcement(t *testing.T) {
 	t.Skip("pending cgroup v2 pid limit enforcement")
 }
 
+// Will verify that sandbox workloads cannot exceed the configured memory limit
+// once memory control is enforced through cgroups.
 func TestProbeMemoryLimitEnforcement(t *testing.T) {
 	t.Skip("pending cgroup v2 memory limit enforcement")
 }
 
+// Will verify that procfs and related mount visibility do not leak broader host
+// state than the sandbox should expose.
 func TestProbeProcVisibilityHardening(t *testing.T) {
 	t.Skip("pending stronger proc and mount isolation hardening")
 }
