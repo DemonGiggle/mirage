@@ -121,12 +121,24 @@ That is much friendlier than forcing users to handcraft packet filter rules on d
 ## Repository Layout
 
 - `cmd/mirage`: CLI entrypoint
+- `cmd/probe-*`: single-purpose sandbox probe binaries for escape and isolation testing
 - `e2e`: end-to-end CLI tests
 - `internal/cli`: argument parsing and command dispatch
 - `internal/runner`: host-side execution and log export bridge
 - `internal/spec`: sandbox config structures and validation
 - `docs/architecture.md`: implementation direction
 - `docs/roadmap.md`: staged plan
+
+## Probe Tools
+
+The repository also carries a small probe suite meant to run inside `mirage`.
+
+- `probe-file-read`: attempts to read exactly one file path
+- `probe-file-write`: attempts to write exactly one file path
+- `probe-tcp-connect`: attempts exactly one outbound TCP connection
+- `probe-spawn-child`: spawns one child process and reports the parent/child relationship
+
+These are intentionally narrow. Each probe should test one isolation property, fail loudly, and stay easy to reason about in end-to-end tests.
 
 ## Current Status
 
