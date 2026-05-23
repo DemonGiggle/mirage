@@ -221,6 +221,10 @@ The repository also carries a small probe suite meant to run inside `mirage`.
 
 - `probe-file-read`: attempts to read exactly one file path
 - `probe-file-write`: attempts to write exactly one file path
+- `probe-env-read`: reads exactly one environment variable
+- `probe-http-get`: performs exactly one outbound HTTP GET
+- `probe-list-procs`: lists visible numeric `/proc` entries
+- `probe-readlink`: reads exactly one symlink target
 - `probe-tcp-connect`: attempts exactly one outbound TCP connection
 - `probe-spawn-child`: spawns one child process and reports the parent/child relationship
 
