@@ -2,9 +2,12 @@ package e2e
 
 import (
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -195,6 +198,150 @@ func TestProbeTCPConnectHonorsNetworkMode(t *testing.T) {
 	}
 	if !strings.Contains(output, "connect-failed") {
 		t.Fatalf("expected connect-failed output, got:\n%s", output)
+	}
+}
+
+// Verifies that explicitly provided environment variables are visible inside the
+// sandbox while missing values fail loudly.
+func TestProbeEnvReadSeesExplicitEnv(t *testing.T) {
+	requireNamespaceBackend(t)
+
+	repoRoot := projectRoot(t)
+	probePath := buildProbe(t, repoRoot, "./cmd/probe-env-read")
+
+	output, err := runMirage(t, repoRoot,
+		"run",
+		"--rootfs", "/",
+		"--net", "host",
+		"--env", "MIRAGE_SAMPLE_ENV=sandbox-value",
+		"--",
+		probePath,
+		"MIRAGE_SAMPLE_ENV",
+	)
+	if err != nil {
+		t.Fatalf("expected env probe to succeed: %v\noutput:\n%s", err, output)
+	}
+	if !strings.Contains(output, "env-ok name=MIRAGE_SAMPLE_ENV value=sandbox-value") {
+		t.Fatalf("unexpected env probe success output:\n%s", output)
+	}
+
+	output, err = runMirage(t, repoRoot,
+		"run",
+		"--rootfs", "/",
+		"--net", "host",
+		"--",
+		probePath,
+		"MIRAGE_SAMPLE_ENV",
+	)
+	if err == nil {
+		t.Fatalf("expected env probe to fail without explicit env, got output:\n%s", output)
+	}
+	if !strings.Contains(output, "env-missing name=MIRAGE_SAMPLE_ENV") {
+		t.Fatalf("unexpected env probe failure output:\n%s", output)
+	}
+}
+
+// Verifies that proc visibility reflects the sandbox PID namespace rather than
+// the host process list.
+func TestProbeListProcsReflectsSandboxPIDNamespace(t *testing.T) {
+	requireNamespaceBackend(t)
+
+	repoRoot := projectRoot(t)
+	rootfs := t.TempDir()
+	buildProbeIntoRootfs(t, repoRoot, "./cmd/probe-list-procs", rootfs, "probe-list-procs")
+
+	output, err := runMirage(t, repoRoot,
+		"run",
+		"--rootfs", rootfs,
+		"--net", "host",
+		"--",
+		"/probe-list-procs",
+	)
+	if err != nil {
+		t.Fatalf("expected proc probe to succeed: %v\noutput:\n%s", err, output)
+	}
+	if !strings.Contains(output, "proc-ok count=") || !strings.Contains(output, "pids=1") {
+		t.Fatalf("unexpected proc probe output:\n%s", output)
+	}
+
+	hostPID := strconv.Itoa(os.Getpid())
+	if strings.Contains(strings.TrimSpace(output), "pids="+hostPID) || strings.Contains(output, ","+hostPID) {
+		t.Fatalf("expected host pid %s to stay out of sandbox proc listing, got:\n%s", hostPID, output)
+	}
+}
+
+// Verifies that a symlink target can be inspected from inside the sandbox with
+// a dedicated narrow probe.
+func TestProbeReadlinkReportsSymlinkTarget(t *testing.T) {
+	requireNamespaceBackend(t)
+
+	repoRoot := projectRoot(t)
+	rootfs := t.TempDir()
+	buildProbeIntoRootfs(t, repoRoot, "./cmd/probe-readlink", rootfs, "probe-readlink")
+
+	if err := os.WriteFile(filepath.Join(rootfs, "target.txt"), []byte("target"), 0o644); err != nil {
+		t.Fatalf("write readlink target: %v", err)
+	}
+	if err := os.Symlink("target.txt", filepath.Join(rootfs, "link.txt")); err != nil {
+		t.Fatalf("create symlink: %v", err)
+	}
+
+	output, err := runMirage(t, repoRoot,
+		"run",
+		"--rootfs", rootfs,
+		"--net", "host",
+		"--",
+		"/probe-readlink",
+		"/link.txt",
+	)
+	if err != nil {
+		t.Fatalf("expected readlink probe to succeed: %v\noutput:\n%s", err, output)
+	}
+	if !strings.Contains(output, "readlink-ok path=/link.txt target=target.txt") {
+		t.Fatalf("unexpected readlink probe output:\n%s", output)
+	}
+}
+
+// Verifies that HTTP-level egress follows the selected network mode.
+func TestProbeHTTPGetHonorsNetworkMode(t *testing.T) {
+	requireNamespaceBackend(t)
+
+	repoRoot := projectRoot(t)
+	probePath := buildProbe(t, repoRoot, "./cmd/probe-http-get")
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+
+	output, err := runMirage(t, repoRoot,
+		"run",
+		"--rootfs", "/",
+		"--net", "host",
+		"--",
+		probePath,
+		server.URL,
+	)
+	if err != nil {
+		t.Fatalf("expected host-network HTTP GET to succeed: %v\noutput:\n%s", err, output)
+	}
+	if !strings.Contains(output, "http-ok url="+server.URL+" status=200") {
+		t.Fatalf("unexpected HTTP success output:\n%s", output)
+	}
+
+	output, err = runMirage(t, repoRoot,
+		"run",
+		"--rootfs", "/",
+		"--net", "none",
+		"--",
+		probePath,
+		server.URL,
+	)
+	if err == nil {
+		t.Fatalf("expected no-network HTTP GET to fail, got output:\n%s", output)
+	}
+	if !strings.Contains(output, "http-failed url="+server.URL) {
+		t.Fatalf("unexpected HTTP failure output:\n%s", output)
 	}
 }
 
