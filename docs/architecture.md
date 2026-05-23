@@ -101,7 +101,14 @@ For rootfs handling, the preferred direction is:
 - apply bind mounts
 - switch root with `pivot_root` where practical
 
-`chroot` can be used as an early fallback, but `pivot_root` is the cleaner long-term path.
+Current state:
+
+- the backend now prepares a minimal runtime layout under the chosen rootfs
+- `proc` is mounted explicitly
+- `tmpfs` is mounted for `/tmp` and `/run`
+- handoff still finishes with `chroot`
+
+`pivot_root` remains the cleaner long-term path.
 
 The process model should stay explicit:
 
