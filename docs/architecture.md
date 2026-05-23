@@ -8,9 +8,24 @@
 - isolated process tree
 - optionally isolated network stack
 - explicit mount exposure
+- host-visible workload log export
 - constrained resources
 
 The design target is not academic sandbox purity. The design target is a useful, repeatable isolation wrapper for local developer and agent workflows.
+
+## Glossary
+
+- `control plane`: the part of `mirage` that parses CLI input, resolves presets, validates options, and builds a final execution spec
+- `sandbox backend`: the part of `mirage` that actually enforces isolation with Linux primitives such as namespaces, rootfs setup, mounts, network rules, and cgroups
+- `host passthrough`: a fallback execution path where `mirage` performs planning and validation, but the final command still runs directly on the host without namespace isolation
+- `isolated process tree`: the full set of processes started by the sandbox entrypoint, including all child and grandchild processes it later spawns
+- `rootfs`: the filesystem tree exposed as `/` to the sandboxed process
+- `bind mount`: an explicit mapping from a host path into the sandbox, usually read-only or read-write
+- `network preset`: a named policy bundle that gives the sandbox a default network stance
+- `warn mode`: an observation mode that records denied or suspicious accesses so they can later become allow rules or presets
+- `host log export`: a mechanism for teeing workload stdout and stderr into host-visible files
+
+These words are not just documentation jargon. They define the boundary between what `mirage` already does today and what the real isolation engine still needs to enforce.
 
 ## Architecture Diagram
 
@@ -88,6 +103,12 @@ For rootfs handling, the preferred direction is:
 
 `chroot` can be used as an early fallback, but `pivot_root` is the cleaner long-term path.
 
+The process model should stay explicit:
+
+- one sandbox corresponds to one isolated process tree
+- the entry command is only the root of that tree
+- any subprocess spawned later should inherit the same sandbox boundary automatically
+
 ### 3. Filesystem Exposure
 
 Host data should only enter the sandbox through explicit mounts.
@@ -99,6 +120,17 @@ Mount types:
 - `tmpfs`: ephemeral writable scratch
 
 For OpenClaw, this matters a lot. A useful default profile would usually avoid mounting the whole `~/.openclaw` tree as writable.
+
+### 3.5. Host Log Export
+
+The host should be able to collect stdout and stderr from the workload even when the process is running inside a tighter envelope.
+
+Early direction:
+
+- allow explicit host-side stdout and stderr log targets
+- keep log export opt-in rather than always-on
+- preserve normal console output while teeing logs to files
+- keep this mechanism stable so it survives the later namespace runner swap
 
 ### 4. Network Policy
 

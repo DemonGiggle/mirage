@@ -53,6 +53,8 @@ type Config struct {
 	AllowCIDRs  []string
 	AllowPorts  []string
 	Env         []string
+	StdoutLog   string
+	StderrLog   string
 	Cwd         string
 	Hostname    string
 	Memory      string
@@ -109,6 +111,9 @@ func Validate(cfg Config) error {
 		if warn != "net" {
 			problems = append(problems, fmt.Errorf("unsupported warn mode %q", warn))
 		}
+	}
+	if cfg.StdoutLog != "" && cfg.StderrLog != "" && cfg.StdoutLog == cfg.StderrLog {
+		problems = append(problems, errors.New("stdout-log and stderr-log must be different paths"))
 	}
 	if cfg.Pids < 0 {
 		problems = append(problems, errors.New("pids must be zero or positive"))
@@ -176,6 +181,12 @@ func Summary(cfg Config) string {
 		for _, item := range cfg.Env {
 			fmt.Fprintf(&b, "  - %s\n", item)
 		}
+	}
+	if cfg.StdoutLog != "" {
+		fmt.Fprintf(&b, "stdout-log: %s\n", cfg.StdoutLog)
+	}
+	if cfg.StderrLog != "" {
+		fmt.Fprintf(&b, "stderr-log: %s\n", cfg.StderrLog)
 	}
 	fmt.Fprintf(&b, "command: %s\n", strings.Join(cfg.Command, " "))
 	return b.String()

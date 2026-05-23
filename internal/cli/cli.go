@@ -7,6 +7,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/DemonGiggle/mirage/internal/runner"
 	"github.com/DemonGiggle/mirage/internal/spec"
 )
 
@@ -24,6 +25,8 @@ func Run(args []string, stdout, stderr io.Writer) error {
 	case "version":
 		_, _ = fmt.Fprintf(stdout, "mirage %s\n", version)
 		return nil
+	case "__backend-exec":
+		return runner.RunBackendHelper(args[1:], stdout, stderr)
 	case "preset":
 		return runPreset(args[1:], stdout)
 	case "doctor":
@@ -63,10 +66,11 @@ func runPreset(args []string, stdout io.Writer) error {
 
 func runDoctor(stdout io.Writer) error {
 	_, _ = fmt.Fprintln(stdout, "mirage doctor")
-	_, _ = fmt.Fprintln(stdout, "- namespace backend: planned")
-	_, _ = fmt.Fprintln(stdout, "- rootfs isolation: planned")
-	_, _ = fmt.Fprintln(stdout, "- network presets: planned")
+	_, _ = fmt.Fprintln(stdout, "- namespace backend: available (linux, initial)")
+	_, _ = fmt.Fprintln(stdout, "- rootfs isolation: available via chroot backend")
+	_, _ = fmt.Fprintln(stdout, "- network presets: available")
 	_, _ = fmt.Fprintln(stdout, "- warn mode recorder: planned")
+	_, _ = fmt.Fprintln(stdout, "- host log export: available")
 	return nil
 }
 
@@ -87,6 +91,8 @@ func runSandbox(args []string, stdout, stderr io.Writer) error {
 	fs.StringVar((*string)(&cfg.NetworkMode), "net", "", "Network mode: none, isolated, host")
 	fs.StringVar(&cfg.Preset, "preset", "", "Named preset to apply before inline overrides")
 	fs.StringVar(&warnCSV, "warn", "", "Warn modes, currently supports: net")
+	fs.StringVar(&cfg.StdoutLog, "stdout-log", "", "Write workload stdout to a host-side log file")
+	fs.StringVar(&cfg.StderrLog, "stderr-log", "", "Write workload stderr to a host-side log file")
 	fs.StringVar(&cfg.Cwd, "cwd", "", "Working directory inside the sandbox")
 	fs.StringVar(&cfg.Hostname, "hostname", "", "Hostname inside the sandbox")
 	fs.StringVar(&cfg.Memory, "memory", "", "Memory limit, for example 512M")
@@ -110,11 +116,20 @@ func runSandbox(args []string, stdout, stderr io.Writer) error {
 
 	_, _ = fmt.Fprintln(stdout, "mirage run preview")
 	_, _ = fmt.Fprint(stdout, spec.Summary(resolved))
+	for _, note := range runner.PlanNotes(resolved) {
+		_, _ = fmt.Fprintf(stdout, "note: %s\n", note)
+	}
 	if resolved.DryRun {
 		_, _ = fmt.Fprintln(stdout, "execution: skipped (--dry-run)")
 		return nil
 	}
-	return errors.New("execution backend not implemented yet")
+	if resolved.NetworkMode == spec.NetworkIsolated {
+		_, _ = fmt.Fprintln(stderr, "warning: isolated network namespace is active, but allow rules are not enforced yet")
+	}
+	if resolved.RootFS == "" {
+		return errors.New("execution backend requires rootfs")
+	}
+	return runner.Execute(resolved, stdout, stderr)
 }
 
 func splitCSV(raw string) []string {

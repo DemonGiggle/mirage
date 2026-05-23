@@ -55,6 +55,20 @@ Go is a good fit here because it gives us:
 - easy integration with existing host binaries like `mount`, `unshare`, `nft`, and `ip`
 - low runtime overhead
 
+## Terminology
+
+These terms will appear repeatedly in the project docs:
+
+- `control plane`: the CLI-facing layer that parses flags, resolves presets, validates config, and decides what should happen
+- `sandbox backend`: the execution engine that actually applies isolation primitives such as namespaces, rootfs switching, mounts, firewall rules, and cgroups
+- `host passthrough`: a fallback mode where `mirage` still validates and orchestrates execution, but ultimately runs the target command on the host without namespace isolation
+- `isolated process tree`: the full set of processes rooted at the sandbox entry command, including later child processes spawned by that workload
+- `rootfs`: the filesystem tree that becomes the process view of `/` inside the sandbox
+- `bind mount`: an explicit mapping of a host path into the sandbox, typically as read-only or read-write
+- `network preset`: a reusable policy bundle such as `offline` or `openai` that sets a baseline egress stance
+- `warn mode`: an observation mode that records denied or suspicious network attempts so the user can refine future presets
+- `host log export`: sending workload stdout and stderr to host-visible files while still showing normal console output
+
 ## Command Model
 
 The first CLI pass is centered around a few simple verbs:
@@ -83,6 +97,7 @@ mirage run \
 mirage doctor
 mirage preset list
 mirage run --dry-run --preset offline -- echo hello
+mirage run --rootfs /tmp/demo --net host --stdout-log /tmp/app.out --stderr-log /tmp/app.err -- ./app
 ```
 
 ## Network Philosophy
@@ -106,12 +121,21 @@ That is much friendlier than forcing users to handcraft packet filter rules on d
 ## Repository Layout
 
 - `cmd/mirage`: CLI entrypoint
+- `e2e`: end-to-end CLI tests
 - `internal/cli`: argument parsing and command dispatch
+- `internal/runner`: host-side execution and log export bridge
 - `internal/spec`: sandbox config structures and validation
 - `docs/architecture.md`: implementation direction
 - `docs/roadmap.md`: staged plan
 
 ## Current Status
 
-This repository currently contains the initial design skeleton and CLI scaffolding. The execution backend is not implemented yet.
+This repository now has:
 
+- preset-aware config parsing and validation
+- dry-run preview output
+- host-side stdout/stderr log export
+- a first Linux namespace runner for isolated process-tree execution
+- end-to-end CLI tests for preview and log export
+
+What is still missing is the fuller sandbox backend: bind mounts, stronger rootfs handoff, explicit network allow-rule enforcement, and cgroup isolation are still planned rather than enforced.

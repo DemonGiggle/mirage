@@ -13,6 +13,8 @@
 - implement dry-run output
 - add preset resolution
 - add `doctor` checks for required host tools
+- add host-side stdout/stderr log export
+- add end-to-end CLI coverage for preview and execution plumbing
 
 ## Phase 2
 
@@ -40,4 +42,3 @@
 - persist observed network attempts
 - derive suggested allow lists
 - support reusable local preset files
-
