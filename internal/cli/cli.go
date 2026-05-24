@@ -192,6 +192,57 @@ func runDoctor(args []string, stdout, stderr io.Writer) error {
 			return fmt.Errorf("unknown preset %q", preset)
 		}
 		_, _ = fmt.Fprintf(stdout, "- preset: %s (%s)\n", resolvedPreset.Name, resolvedPreset.NetworkMode)
+		if resolvedPreset.Rootfs.RecommendedTemplate != "" {
+			_, _ = fmt.Fprintf(stdout, "- preset recommended rootfs template: %s\n", resolvedPreset.Rootfs.RecommendedTemplate)
+		}
+		if resolvedPreset.Rootfs.RecommendedCwd != "" {
+			_, _ = fmt.Fprintf(stdout, "- preset recommended working directory: %s\n", resolvedPreset.Rootfs.RecommendedCwd)
+		}
+		if len(resolvedPreset.Rootfs.RequiredCommands) > 0 {
+			_, _ = fmt.Fprintf(stdout, "- preset required rootfs commands: %s\n", strings.Join(resolvedPreset.Rootfs.RequiredCommands, ", "))
+		}
+		presetRequiredCommands := uniqueStrings(resolvedPreset.Rootfs.RequiredCommands)
+		report, err := rootfs.ValidateRootfs(rootfsPath, "", cwd)
+		_, _ = fmt.Fprintf(stdout, "- rootfs path: %s\n", report.Rootfs)
+		for _, status := range report.RuntimePaths {
+			_, _ = fmt.Fprintf(stdout, "- runtime path %s: %s\n", status.Path, status.Status)
+		}
+		if report.WorkingDir != "" {
+			_, _ = fmt.Fprintf(stdout, "- working directory: %s\n", report.WorkingDir)
+		}
+		var problems []error
+		if err != nil {
+			problems = append(problems, err)
+		}
+
+		commandsToValidate := uniqueStrings(append([]string{command}, presetRequiredCommands...))
+		for _, commandToValidate := range commandsToValidate {
+			if commandToValidate == "" {
+				continue
+			}
+			commandReport, err := rootfs.ValidateRootfs(rootfsPath, commandToValidate, "")
+			if err != nil {
+				problems = append(problems, err)
+				continue
+			}
+			if commandToValidate == command {
+				_, _ = fmt.Fprintf(stdout, "- resolved command: %s\n", commandReport.ResolvedCommand)
+				if commandReport.Interpreter != "" {
+					_, _ = fmt.Fprintf(stdout, "- ELF interpreter: %s\n", commandReport.Interpreter)
+				}
+				if commandReport.DependencyCount > 0 {
+					_, _ = fmt.Fprintf(stdout, "- shared libraries: ok (%d resolved)\n", commandReport.DependencyCount)
+				}
+				continue
+			}
+			_, _ = fmt.Fprintf(stdout, "- preset required command %s: ok (%s)\n", commandToValidate, commandReport.ResolvedCommand)
+		}
+		if len(problems) > 0 {
+			_, _ = fmt.Fprintln(stdout, "- rootfs validation: failed")
+			return errors.Join(problems...)
+		}
+		_, _ = fmt.Fprintln(stdout, "- rootfs validation: ok")
+		return nil
 	}
 
 	report, err := rootfs.ValidateRootfs(rootfsPath, command, cwd)
@@ -217,6 +268,32 @@ func runDoctor(args []string, stdout, stderr io.Writer) error {
 	}
 	_, _ = fmt.Fprintln(stdout, "- rootfs validation: ok")
 	return nil
+}
+
+func uniqueStrings(items []string) []string {
+	var out []string
+	for _, item := range items {
+		if item == "" {
+			continue
+		}
+		if strings.Contains(item, ",") {
+			item = strings.TrimSpace(item)
+		}
+		if slicesContainsString(out, item) {
+			continue
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+func slicesContainsString(items []string, want string) bool {
+	for _, item := range items {
+		if item == want {
+			return true
+		}
+	}
+	return false
 }
 
 func runSandbox(args []string, stdout, stderr io.Writer) error {

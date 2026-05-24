@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -38,21 +39,38 @@ var BuiltInPresets = map[string]Preset{
 	"openclaw-offline": {
 		Name:        "openclaw-offline",
 		NetworkMode: NetworkNone,
+		Rootfs: RootfsExpectations{
+			RecommendedTemplate: "openclaw",
+			RequiredCommands:    []string{"node"},
+			RecommendedCwd:      "/workspace",
+		},
 		Description: "OpenClaw-oriented offline preset for local-only agent work.",
 	},
 	"openclaw-openai": {
 		Name:        "openclaw-openai",
 		NetworkMode: NetworkIsolated,
 		AllowHosts:  []string{"api.openai.com:443", "chatgpt.com:443", "github.com:443"},
+		Rootfs: RootfsExpectations{
+			RecommendedTemplate: "openclaw",
+			RequiredCommands:    []string{"node"},
+			RecommendedCwd:      "/workspace",
+		},
 		Description: "OpenClaw-oriented preset for OpenAI agent work plus GitHub access.",
 	},
 }
 
+type RootfsExpectations struct {
+	RecommendedTemplate string   `json:"template,omitempty"`
+	RequiredCommands    []string `json:"required_commands,omitempty"`
+	RecommendedCwd      string   `json:"recommended_cwd,omitempty"`
+}
+
 type Preset struct {
-	Name        string      `json:"name"`
-	NetworkMode NetworkMode `json:"network"`
-	AllowHosts  []string    `json:"allow_hosts"`
-	Description string      `json:"description"`
+	Name        string             `json:"name"`
+	NetworkMode NetworkMode        `json:"network"`
+	AllowHosts  []string           `json:"allow_hosts"`
+	Rootfs      RootfsExpectations `json:"rootfs,omitempty"`
+	Description string             `json:"description"`
 }
 
 type Config struct {
@@ -157,9 +175,41 @@ func LoadPresetFile(path string) (map[string]Preset, error) {
 		default:
 			return nil, fmt.Errorf("preset file %q preset %q has invalid network mode %q", path, preset.Name, preset.NetworkMode)
 		}
+		preset.Rootfs.RecommendedTemplate = strings.TrimSpace(preset.Rootfs.RecommendedTemplate)
+		preset.Rootfs.RecommendedCwd = strings.TrimSpace(preset.Rootfs.RecommendedCwd)
+		if preset.Rootfs.RecommendedCwd != "" && !filepath.IsAbs(preset.Rootfs.RecommendedCwd) {
+			return nil, fmt.Errorf("preset file %q preset %q has invalid recommended rootfs cwd %q", path, preset.Name, preset.Rootfs.RecommendedCwd)
+		}
+		preset.Rootfs.RequiredCommands = normalizeCommands(preset.Rootfs.RequiredCommands)
+		for _, command := range preset.Rootfs.RequiredCommands {
+			if command == "" {
+				return nil, fmt.Errorf("preset file %q preset %q has an empty required rootfs command", path, preset.Name)
+			}
+		}
 		out[preset.Name] = preset
 	}
 	return out, nil
+}
+
+func normalizeCommands(commands []string) []string {
+	var out []string
+	for _, command := range commands {
+		command = strings.TrimSpace(command)
+		if command == "" || slicesContains(out, command) {
+			continue
+		}
+		out = append(out, command)
+	}
+	return out
+}
+
+func slicesContains(items []string, want string) bool {
+	for _, item := range items {
+		if item == want {
+			return true
+		}
+	}
+	return false
 }
 
 func Validate(cfg Config) error {

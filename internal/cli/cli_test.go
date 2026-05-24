@@ -251,3 +251,34 @@ func TestDoctorValidatesRootfsCommand(t *testing.T) {
 		}
 	}
 }
+
+func TestDoctorUsesPresetRootfsRequirements(t *testing.T) {
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+
+	rootfsPath := filepath.Join(t.TempDir(), "rootfs")
+	template, ok := rootfs.LookupTemplate("basic")
+	if !ok {
+		t.Fatal("expected basic template to exist")
+	}
+	if err := rootfs.Generate(rootfsPath, template); err != nil {
+		t.Fatalf("Generate returned error: %v", err)
+	}
+
+	err := Run([]string{
+		"doctor",
+		"--rootfs", rootfsPath,
+		"--preset", "openclaw-openai",
+	}, &out, &errBuf)
+	if err == nil {
+		t.Fatal("expected preset rootfs validation to fail on missing node")
+	}
+
+	got := out.String()
+	if !strings.Contains(got, "preset recommended rootfs template: openclaw") {
+		t.Fatalf("expected preset template hint, got %q", got)
+	}
+	if !strings.Contains(err.Error(), `command "node"`) {
+		t.Fatalf("expected missing preset command error, got %v", err)
+	}
+}
