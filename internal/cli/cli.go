@@ -59,6 +59,7 @@ Examples:
   mirage rootfs init --template basic --output /srv/mirage/basic-rootfs
   mirage doctor --rootfs /srv/mirage/basic-rootfs --command /bin/ls
   mirage run --rootfs / --net none -- echo hello
+  mirage run --rootfs /srv/systemd-rootfs --net host --runtime-mode init -- /usr/lib/systemd/systemd
   mirage run --rootfs /srv/rootfs --preset openai --warn net -- app
   mirage run --rootfs /srv/rootfs --preset-file ./presets.json --preset team-openai -- app
 `)
@@ -310,6 +311,7 @@ func runSandbox(args []string, stdout, stderr io.Writer) error {
 	fs.Var(stringSliceValue{target: &cfg.AllowPorts}, "allow-port", "Allow egress to port or proto/port")
 	fs.Var(stringSliceValue{target: &cfg.Env}, "env", "Environment variable in KEY=VALUE form")
 	fs.StringVar((*string)(&cfg.NetworkMode), "net", "", "Network mode: none, isolated, host")
+	fs.StringVar((*string)(&cfg.RuntimeMode), "runtime-mode", string(spec.RuntimeModeDirect), "Runtime mode: direct, init")
 	fs.StringVar(&cfg.Preset, "preset", "", "Named preset to apply before inline overrides")
 	fs.StringVar(&cfg.PresetFile, "preset-file", "", "Path to a local preset JSON file")
 	fs.StringVar(&warnCSV, "warn", "", "Warn modes, currently supports: net")

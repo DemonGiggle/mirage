@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/DemonGiggle/mirage/internal/spec"
 )
 
 func TestExtractConnectAddressIPv4(t *testing.T) {
@@ -196,5 +198,22 @@ func TestWriteOptionalCgroupFileIgnoresMissingFile(t *testing.T) {
 	err := writeOptionalCgroupFile(filepath.Join(t.TempDir(), "missing", "memory.swap.max"), "0\n")
 	if err != nil {
 		t.Fatalf("expected missing optional cgroup file to be ignored, got %v", err)
+	}
+}
+
+func TestPlanNotesInitMode(t *testing.T) {
+	notes := PlanNotes(spec.Config{
+		RootFS:      "/",
+		NetworkMode: spec.NetworkHost,
+		RuntimeMode: spec.RuntimeModeInit,
+	})
+	got := strings.Join(notes, "\n")
+	for _, needle := range []string{
+		"execution mode: guest init command becomes sandbox PID 1",
+		"one sandbox = one isolated process tree rooted at guest init",
+	} {
+		if !strings.Contains(got, needle) {
+			t.Fatalf("expected plan notes to contain %q, got %q", needle, got)
+		}
 	}
 }
