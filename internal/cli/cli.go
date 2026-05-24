@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/DemonGiggle/mirage/internal/rootfs"
 	"github.com/DemonGiggle/mirage/internal/runner"
 	"github.com/DemonGiggle/mirage/internal/spec"
 )
@@ -32,6 +33,8 @@ func Run(args []string, stdout, stderr io.Writer) error {
 		return runner.RunCgroupHelper(args[1:], stdout, stderr)
 	case "preset":
 		return runPreset(args[1:], stdout)
+	case "rootfs":
+		return runRootfs(args[1:], stdout, stderr)
 	case "doctor":
 		return runDoctor(stdout)
 	case "run":
@@ -45,12 +48,14 @@ func printRootHelp(w io.Writer) {
 	_, _ = fmt.Fprint(w, `mirage is a lightweight Linux sandbox launcher.
 
 Usage:
+  mirage rootfs init --template <name> --output <path>
   mirage run [flags] -- <command> [args...]
   mirage doctor
   mirage preset list
   mirage version
 
 Examples:
+  mirage rootfs init --template basic --output /srv/mirage/basic-rootfs
   mirage run --rootfs / --net none -- echo hello
   mirage run --rootfs /srv/rootfs --preset openai --warn net -- app
   mirage run --rootfs /srv/rootfs --preset-file ./presets.json --preset team-openai -- app
@@ -79,6 +84,58 @@ func runPreset(args []string, stdout io.Writer) error {
 		return nil
 	}
 	return fmt.Errorf("unknown preset subcommand %q", args[0])
+}
+
+func runRootfs(args []string, stdout, stderr io.Writer) error {
+	if len(args) == 0 {
+		return errors.New("rootfs requires a subcommand")
+	}
+	switch args[0] {
+	case "init":
+		return runRootfsInit(args[1:], stdout, stderr)
+	default:
+		return fmt.Errorf("unknown rootfs subcommand %q", args[0])
+	}
+}
+
+func runRootfsInit(args []string, stdout, stderr io.Writer) error {
+	fs := flag.NewFlagSet("rootfs init", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+
+	var templateName string
+	var outputRoot string
+
+	fs.StringVar(&templateName, "template", "", "Built-in rootfs template name")
+	fs.StringVar(&outputRoot, "output", "", "Path to the generated rootfs directory")
+
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if templateName == "" {
+		return errors.New("rootfs init requires --template")
+	}
+	if outputRoot == "" {
+		return errors.New("rootfs init requires --output")
+	}
+	if len(fs.Args()) > 0 {
+		return fmt.Errorf("rootfs init does not accept positional arguments: %s", strings.Join(fs.Args(), " "))
+	}
+
+	template, ok := rootfs.LookupTemplate(templateName)
+	if !ok {
+		return fmt.Errorf("unknown rootfs template %q", templateName)
+	}
+	if err := rootfs.Generate(outputRoot, template); err != nil {
+		return err
+	}
+
+	_, _ = fmt.Fprintln(stdout, "mirage rootfs init")
+	_, _ = fmt.Fprintf(stdout, "template: %s\n", template.Name)
+	_, _ = fmt.Fprintf(stdout, "output: %s\n", outputRoot)
+	_, _ = fmt.Fprintf(stdout, "directories: %d\n", len(template.Directories))
+	_, _ = fmt.Fprintf(stdout, "binaries: %d\n", len(template.Binaries))
+	_, _ = fmt.Fprintf(stdout, "runtime-files: %d\n", len(template.RuntimeFiles))
+	return nil
 }
 
 func runDoctor(stdout io.Writer) error {

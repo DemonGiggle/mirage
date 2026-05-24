@@ -86,6 +86,52 @@ func TestRunDryRunE2E(t *testing.T) {
 	}
 }
 
+func TestRootfsInitGeneratesRunnableBasicRootfs(t *testing.T) {
+	requireNamespaceBackend(t)
+
+	repoRoot := projectRoot(t)
+	rootfs := filepath.Join(t.TempDir(), "basic-rootfs")
+
+	initCmd := exec.Command(
+		"go", "run", "./cmd/mirage",
+		"rootfs",
+		"init",
+		"--template", "basic",
+		"--output", rootfs,
+	)
+	initCmd.Dir = repoRoot
+
+	output, err := initCmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("mirage rootfs init failed: %v\noutput:\n%s", err, string(output))
+	}
+	if !strings.Contains(string(output), "template: basic") {
+		t.Fatalf("expected rootfs init output, got:\n%s", string(output))
+	}
+
+	runCmd := exec.Command(
+		"go", "run", "./cmd/mirage",
+		"run",
+		"--rootfs", rootfs,
+		"--net", "host",
+		"--",
+		"/bin/ls", "/",
+	)
+	runCmd.Dir = repoRoot
+
+	output, err = runCmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("expected generated rootfs run to succeed: %v\noutput:\n%s", err, string(output))
+	}
+
+	got := string(output)
+	for _, needle := range []string{"bin", "proc", "run", "tmp"} {
+		if !strings.Contains(got, needle) {
+			t.Fatalf("expected generated rootfs listing to contain %q, got:\n%s", needle, got)
+		}
+	}
+}
+
 func TestRunCreatesIsolatedProcessTree(t *testing.T) {
 	requireNamespaceBackend(t)
 

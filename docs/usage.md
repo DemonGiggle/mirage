@@ -35,6 +35,12 @@ Environment check:
 ./bin/mirage doctor
 ```
 
+Generate a runnable rootfs from a built-in template:
+
+```bash
+./bin/mirage rootfs init --template basic --output /srv/mirage/basic-rootfs
+```
+
 List presets:
 
 ```bash
@@ -52,6 +58,7 @@ Preview a run without executing it:
 The general form is:
 
 ```bash
+mirage rootfs init --template <name> --output <path>
 mirage run [sandbox options...] -- command [args...]
 ```
 
