@@ -273,11 +273,9 @@ func runDoctor(args []string, stdout, stderr io.Writer) error {
 func uniqueStrings(items []string) []string {
 	var out []string
 	for _, item := range items {
+		item = strings.TrimSpace(item)
 		if item == "" {
 			continue
-		}
-		if strings.Contains(item, ",") {
-			item = strings.TrimSpace(item)
 		}
 		if slicesContainsString(out, item) {
 			continue
