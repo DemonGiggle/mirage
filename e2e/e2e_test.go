@@ -132,6 +132,49 @@ func TestRootfsInitGeneratesRunnableBasicRootfs(t *testing.T) {
 	}
 }
 
+func TestDoctorValidatesGeneratedBasicRootfs(t *testing.T) {
+	repoRoot := projectRoot(t)
+	rootfs := filepath.Join(t.TempDir(), "basic-rootfs")
+
+	initCmd := exec.Command(
+		"go", "run", "./cmd/mirage",
+		"rootfs",
+		"init",
+		"--template", "basic",
+		"--output", rootfs,
+	)
+	initCmd.Dir = repoRoot
+
+	output, err := initCmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("mirage rootfs init failed: %v\noutput:\n%s", err, string(output))
+	}
+
+	doctorCmd := exec.Command(
+		"go", "run", "./cmd/mirage",
+		"doctor",
+		"--rootfs", rootfs,
+		"--command", "/bin/ls",
+	)
+	doctorCmd.Dir = repoRoot
+
+	output, err = doctorCmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("mirage doctor failed: %v\noutput:\n%s", err, string(output))
+	}
+
+	got := string(output)
+	for _, needle := range []string{
+		"resolved command: /bin/ls",
+		"shared libraries: ok",
+		"rootfs validation: ok",
+	} {
+		if !strings.Contains(got, needle) {
+			t.Fatalf("expected doctor output to contain %q, got:\n%s", needle, got)
+		}
+	}
+}
+
 func TestRunCreatesIsolatedProcessTree(t *testing.T) {
 	requireNamespaceBackend(t)
 

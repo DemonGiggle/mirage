@@ -41,6 +41,12 @@ Generate a runnable rootfs from a built-in template:
 ./bin/mirage rootfs init --template basic --output /srv/mirage/basic-rootfs
 ```
 
+Validate a rootfs before running inside it:
+
+```bash
+./bin/mirage doctor --rootfs /srv/mirage/basic-rootfs --command /bin/ls
+```
+
 List presets:
 
 ```bash

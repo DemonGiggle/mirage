@@ -65,6 +65,12 @@ Generate a runnable rootfs from the built-in basic template:
 ./bin/mirage rootfs init --template basic --output /srv/mirage/basic-rootfs
 ```
 
+Validate that rootfs before trying to run inside it:
+
+```bash
+./bin/mirage doctor --rootfs /srv/mirage/basic-rootfs --command /bin/ls
+```
+
 Run a simple command with the built-in offline preset:
 
 ```bash

@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/DemonGiggle/mirage/internal/rootfs"
 )
 
 func TestPresetList(t *testing.T) {
@@ -214,5 +216,38 @@ func TestDoctorReportsObservedNetworkingUnavailableWithoutStrace(t *testing.T) {
 	}
 	if !strings.Contains(got, "requires strace on PATH") {
 		t.Fatalf("expected doctor output to mention missing strace, got %q", got)
+	}
+}
+
+func TestDoctorValidatesRootfsCommand(t *testing.T) {
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+
+	rootfsPath := filepath.Join(t.TempDir(), "rootfs")
+	template, ok := rootfs.LookupTemplate("basic")
+	if !ok {
+		t.Fatal("expected basic template to exist")
+	}
+	if err := rootfs.Generate(rootfsPath, template); err != nil {
+		t.Fatalf("Generate returned error: %v", err)
+	}
+
+	err := Run([]string{
+		"doctor",
+		"--rootfs", rootfsPath,
+		"--command", "/bin/ls",
+	}, &out, &errBuf)
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	got := out.String()
+	for _, needle := range []string{
+		"resolved command: /bin/ls",
+		"rootfs validation: ok",
+	} {
+		if !strings.Contains(got, needle) {
+			t.Fatalf("expected doctor output to contain %q, got %q", needle, got)
+		}
 	}
 }
