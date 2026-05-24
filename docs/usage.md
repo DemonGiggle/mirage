@@ -82,6 +82,61 @@ When bind mounts target `--rootfs /`, `mirage` expects the guest path to
 already exist on the host root. It will not create new host-side mountpoints in
 that mode.
 
+## Rootfs Templates
+
+`mirage` now defines a rootfs template model that is intentionally separate from
+network presets.
+
+A V1 rootfs template describes:
+
+- template `version`, `name`, and `description`
+- directories that should exist in the generated rootfs
+- binaries copied either from an explicit host absolute path or from host `PATH`
+- whether each binary should bring along its shared-library dependency closure
+- runtime files copied from the host into the rootfs
+
+Built-in V1 templates currently include:
+
+- `basic`
+- `node`
+- `python`
+- `openclaw`
+
+Schema shape:
+
+```json
+{
+  "version": "v1",
+  "name": "basic",
+  "description": "Small runnable base rootfs with shell and core inspection tools.",
+  "directories": [
+    {"path": "/proc", "mode": 493},
+    {"path": "/tmp", "mode": 1023},
+    {"path": "/run", "mode": 493}
+  ],
+  "binaries": [
+    {
+      "target_path": "/bin/sh",
+      "lookup_name": "sh",
+      "copy_dependencies": true
+    },
+    {
+      "target_path": "/usr/bin/env",
+      "host_path": "/usr/bin/env",
+      "copy_dependencies": true
+    }
+  ],
+  "runtime_files": [
+    {"host_path": "/etc/hosts", "target_path": "/etc/hosts"},
+    {"host_path": "/etc/resolv.conf", "target_path": "/etc/resolv.conf"}
+  ]
+}
+```
+
+This schema is the shared input model for upcoming rootfs generation and
+rootfs-aware diagnostics. It remains distinct from network presets, which still
+only describe runtime policy defaults.
+
 ## Bind Mounts
 
 Bind mounts use `host:guest` pairs.

@@ -25,6 +25,8 @@ defense against a determined kernel-level adversary.
 - `sandbox backend`: the Linux-specific execution layer that applies
   namespaces, rootfs setup, mounts, network behavior, and cgroups
 - `rootfs`: the filesystem tree presented as `/` to the sandboxed process
+- `rootfs template`: a reusable description of files, directories, and binaries
+  that should exist in a generated rootfs
 - `bind mount`: an explicit mapping from a host path into the sandbox, either
   read-only or read-write
 - `network preset`: a named policy bundle that sets the default network stance
@@ -51,6 +53,7 @@ The CLI is responsible for:
 
 - parsing command-line flags
 - loading built-in and file-backed presets
+- resolving built-in rootfs templates where rootfs-oriented commands need them
 - merging inline overrides
 - validating incompatible or incomplete settings
 - producing dry-run output
@@ -123,6 +126,7 @@ architecture as incomplete rather than finished.
 
 The longer-term rootfs direction remains:
 
+- define reusable rootfs templates that stay separate from network presets
 - prepare a dedicated rootfs
 - mount required runtime paths explicitly
 - apply bind mounts
