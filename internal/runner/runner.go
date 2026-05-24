@@ -538,10 +538,16 @@ func prepareGuestDevLayout(rootfs string) error {
 }
 
 func prepareGuestRunLayout(rootfs string) error {
-	for _, dir := range []string{"/run/lock", "/run/systemd"} {
-		target := bindMountTargetPath(rootfs, dir)
-		if err := ensureMountpointDir(target, 0o755); err != nil {
-			return fmt.Errorf("prepare guest runtime directory %q: %w", dir, err)
+	for _, dir := range []struct {
+		path string
+		mode os.FileMode
+	}{
+		{path: "/run/lock", mode: 0o1777},
+		{path: "/run/systemd", mode: 0o755},
+	} {
+		target := bindMountTargetPath(rootfs, dir.path)
+		if err := ensureMountpointDir(target, dir.mode); err != nil {
+			return fmt.Errorf("prepare guest runtime directory %q: %w", dir.path, err)
 		}
 	}
 	return nil
