@@ -72,6 +72,9 @@ func AvailableTemplates() map[string]Template {
 
 func ValidateTemplate(template Template) error {
 	var problems []error
+	seenDirectories := make(map[string]struct{}, len(template.Directories))
+	seenBinaries := make(map[string]struct{}, len(template.Binaries))
+	seenRuntimeFiles := make(map[string]struct{}, len(template.RuntimeFiles))
 	if template.Version != TemplateVersionV1 {
 		problems = append(problems, fmt.Errorf("template %q must declare version %q", template.Name, TemplateVersionV1))
 	}
@@ -85,11 +88,21 @@ func ValidateTemplate(template Template) error {
 		if !filepath.IsAbs(dir.Path) {
 			problems = append(problems, fmt.Errorf("template %q directory %d path %q must be absolute", template.Name, idx, dir.Path))
 		}
+		if _, exists := seenDirectories[dir.Path]; exists {
+			problems = append(problems, fmt.Errorf("template %q directory path %q is duplicated", template.Name, dir.Path))
+			continue
+		}
+		seenDirectories[dir.Path] = struct{}{}
 	}
 	for idx, binary := range template.Binaries {
 		if !filepath.IsAbs(binary.TargetPath) {
 			problems = append(problems, fmt.Errorf("template %q binary %d target path %q must be absolute", template.Name, idx, binary.TargetPath))
 		}
+		if _, exists := seenBinaries[binary.TargetPath]; exists {
+			problems = append(problems, fmt.Errorf("template %q binary target path %q is duplicated", template.Name, binary.TargetPath))
+			continue
+		}
+		seenBinaries[binary.TargetPath] = struct{}{}
 		hasHostPath := binary.HostPath != ""
 		hasLookup := binary.LookupName != ""
 		switch {
@@ -108,6 +121,11 @@ func ValidateTemplate(template Template) error {
 		if !filepath.IsAbs(runtimeFile.TargetPath) {
 			problems = append(problems, fmt.Errorf("template %q runtime file %d target path %q must be absolute", template.Name, idx, runtimeFile.TargetPath))
 		}
+		if _, exists := seenRuntimeFiles[runtimeFile.TargetPath]; exists {
+			problems = append(problems, fmt.Errorf("template %q runtime file target path %q is duplicated", template.Name, runtimeFile.TargetPath))
+			continue
+		}
+		seenRuntimeFiles[runtimeFile.TargetPath] = struct{}{}
 	}
 	if len(problems) == 0 {
 		return nil

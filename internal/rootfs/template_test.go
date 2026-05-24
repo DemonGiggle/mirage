@@ -94,6 +94,55 @@ func TestValidateTemplateRejectsInvalidBinarySource(t *testing.T) {
 	}
 }
 
+func TestValidateTemplateRejectsDuplicatePaths(t *testing.T) {
+	template := Template{
+		Version:     TemplateVersionV1,
+		Name:        "broken",
+		Description: "Broken template",
+		Directories: []Directory{
+			{Path: "/workspace", Mode: 0o755},
+			{Path: "/workspace", Mode: 0o777},
+		},
+		Binaries: []Binary{
+			{
+				TargetPath:       "/bin/sh",
+				HostPath:         "/bin/sh",
+				CopyDependencies: true,
+			},
+			{
+				TargetPath:       "/bin/sh",
+				LookupName:       "bash",
+				CopyDependencies: true,
+			},
+		},
+		RuntimeFiles: []RuntimeFile{
+			{
+				HostPath:   "/etc/hosts",
+				TargetPath: "/etc/hosts",
+			},
+			{
+				HostPath:   "/etc/hosts",
+				TargetPath: "/etc/hosts",
+				Optional:   true,
+			},
+		},
+	}
+
+	err := ValidateTemplate(template)
+	if err == nil {
+		t.Fatal("expected duplicate paths to fail")
+	}
+	for _, needle := range []string{
+		`directory path "/workspace" is duplicated`,
+		`binary target path "/bin/sh" is duplicated`,
+		`runtime file target path "/etc/hosts" is duplicated`,
+	} {
+		if !strings.Contains(err.Error(), needle) {
+			t.Fatalf("expected error to contain %q, got %v", needle, err)
+		}
+	}
+}
+
 func TestOpenclawTemplateIncludesNodeAndGit(t *testing.T) {
 	template, ok := LookupTemplate("openclaw")
 	if !ok {
