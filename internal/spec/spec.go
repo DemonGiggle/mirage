@@ -18,6 +18,13 @@ const (
 	NetworkHost     NetworkMode = "host"
 )
 
+type RuntimeMode string
+
+const (
+	RuntimeModeDirect RuntimeMode = "direct"
+	RuntimeModeInit   RuntimeMode = "init"
+)
+
 var BuiltInPresets = map[string]Preset{
 	"offline": {
 		Name:        "offline",
@@ -78,6 +85,7 @@ type Preset struct {
 type Config struct {
 	RootFS      string
 	NetworkMode NetworkMode
+	RuntimeMode RuntimeMode
 	Preset      string
 	PresetFile  string
 	Warn        []string
@@ -225,6 +233,11 @@ func Validate(cfg Config) error {
 	if cfg.RootFS == "" {
 		problems = append(problems, errors.New("rootfs is required"))
 	}
+	switch NormalizeRuntimeMode(cfg.RuntimeMode) {
+	case RuntimeModeDirect, RuntimeModeInit:
+	default:
+		problems = append(problems, fmt.Errorf("invalid runtime mode %q", cfg.RuntimeMode))
+	}
 	switch cfg.NetworkMode {
 	case NetworkNone, NetworkIsolated, NetworkHost:
 	case "":
@@ -243,6 +256,9 @@ func Validate(cfg Config) error {
 			problems = append(problems, fmt.Errorf("unsupported warn mode %q", warn))
 		}
 	}
+	if NormalizeRuntimeMode(cfg.RuntimeMode) == RuntimeModeInit && (cfg.NetworkMode == NetworkIsolated || slicesContains(cfg.Warn, "net")) {
+		problems = append(problems, errors.New("runtime-mode init is incompatible with observed networking; use --net host or --net none without --warn net"))
+	}
 	if cfg.StdoutLog != "" && cfg.StderrLog != "" && cfg.StdoutLog == cfg.StderrLog {
 		problems = append(problems, errors.New("stdout-log and stderr-log must be different paths"))
 	}
@@ -259,6 +275,7 @@ func Summary(cfg Config) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "rootfs: %s\n", cfg.RootFS)
 	fmt.Fprintf(&b, "net: %s\n", cfg.NetworkMode)
+	fmt.Fprintf(&b, "runtime-mode: %s\n", NormalizeRuntimeMode(cfg.RuntimeMode))
 	if cfg.Preset != "" {
 		fmt.Fprintf(&b, "preset: %s\n", cfg.Preset)
 	}
@@ -324,4 +341,11 @@ func Summary(cfg Config) string {
 	}
 	fmt.Fprintf(&b, "command: %s\n", strings.Join(cfg.Command, " "))
 	return b.String()
+}
+
+func NormalizeRuntimeMode(mode RuntimeMode) RuntimeMode {
+	if mode == "" {
+		return RuntimeModeDirect
+	}
+	return mode
 }

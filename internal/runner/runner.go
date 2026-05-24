@@ -44,6 +44,7 @@ func Execute(cfg spec.Config, stdout, stderr io.Writer) error {
 	}
 
 	backendArgs := []string{self, "__backend-exec", "--rootfs", cfg.RootFS, "--net", string(cfg.NetworkMode)}
+	backendArgs = append(backendArgs, "--runtime-mode", string(spec.NormalizeRuntimeMode(cfg.RuntimeMode)))
 	if cfg.Cwd != "" {
 		backendArgs = append(backendArgs, "--cwd", cfg.Cwd)
 	}
@@ -163,6 +164,7 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 	var cwd string
 	var hostname string
 	var netMode string
+	var runtimeMode string
 	var warnModes []string
 	var allowCIDRs []string
 	var allowPorts []string
@@ -174,6 +176,7 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 	fs.StringVar(&cwd, "cwd", "", "backend cwd")
 	fs.StringVar(&hostname, "hostname", "", "backend hostname")
 	fs.StringVar(&netMode, "net", "", "backend network mode")
+	fs.StringVar(&runtimeMode, "runtime-mode", string(spec.RuntimeModeDirect), "backend runtime mode")
 	fs.Var(stringSliceValue{target: &warnModes}, "warn", "backend warn mode")
 	fs.Var(stringSliceValue{target: &allowCIDRs}, "allow-cidr", "backend allowed cidr")
 	fs.Var(stringSliceValue{target: &allowPorts}, "allow-port", "backend allowed port")
@@ -187,6 +190,10 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 	command := fs.Args()
 	if len(command) == 0 {
 		return errors.New("backend helper requires a command")
+	}
+	resolvedRuntimeMode := spec.NormalizeRuntimeMode(spec.RuntimeMode(runtimeMode))
+	if resolvedRuntimeMode != spec.RuntimeModeDirect && resolvedRuntimeMode != spec.RuntimeModeInit {
+		return fmt.Errorf("unsupported backend runtime mode %q", runtimeMode)
 	}
 	if netMode != string(spec.NetworkHost) && netMode != string(spec.NetworkNone) && netMode != string(spec.NetworkIsolated) {
 		return fmt.Errorf("unsupported backend network mode %q", netMode)
@@ -233,12 +240,31 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 
+	if resolvedRuntimeMode == spec.RuntimeModeInit {
+		return runInitCommand(command, policy, rootfs)
+	}
+
+	return runDirectCommand(command, policy, rootfs, stdout, stderr)
+}
+
+func runDirectCommand(command []string, policy networkPolicy, rootfs string, stdout, stderr io.Writer) error {
 	if shouldObserveNetwork(policy) {
 		if err := EnsureObservedNetworkToolAvailable(); err == nil {
 			return runObservedCommand(command, policy, stdout, stderr)
 		}
 	}
 
+	return execCommandInSandbox(command, rootfs)
+}
+
+func runInitCommand(command []string, policy networkPolicy, rootfs string) error {
+	if shouldObserveNetwork(policy) {
+		return errors.New("init mode does not support observed networking because the guest init command must remain sandbox PID 1")
+	}
+	return execCommandInSandbox(command, rootfs)
+}
+
+func execCommandInSandbox(command []string, rootfs string) error {
 	binary, err := resolveCommandBinary(command[0], rootfs)
 	if err != nil {
 		return err
@@ -917,7 +943,14 @@ func closeQuietly(closer io.Closer) {
 func PlanNotes(cfg spec.Config) []string {
 	var notes []string
 	notes = append(notes, "execution backend: linux namespace runner")
-	notes = append(notes, "one sandbox = one isolated process tree")
+	switch spec.NormalizeRuntimeMode(cfg.RuntimeMode) {
+	case spec.RuntimeModeInit:
+		notes = append(notes, "execution mode: guest init command becomes sandbox PID 1")
+		notes = append(notes, "one sandbox = one isolated process tree rooted at guest init")
+	default:
+		notes = append(notes, "execution mode: direct workload command becomes sandbox PID 1")
+		notes = append(notes, "one sandbox = one isolated process tree")
+	}
 	switch cfg.NetworkMode {
 	case spec.NetworkHost:
 		notes = append(notes, "network backend: host namespace")

@@ -86,6 +86,9 @@ func TestRunDryRun(t *testing.T) {
 	if !strings.Contains(got, "note: one sandbox = one isolated process tree") {
 		t.Fatalf("expected dry run output to mention process tree model, got %q", got)
 	}
+	if !strings.Contains(got, "runtime-mode: direct") {
+		t.Fatalf("expected dry run output to mention runtime mode, got %q", got)
+	}
 }
 
 func TestRunDryRunWithPresetFile(t *testing.T) {
@@ -145,6 +148,55 @@ func TestRunRejectsAllowRulesWithNetNone(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "allow rules are incompatible with --net none") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRunRejectsInitModeWithObservedNetworking(t *testing.T) {
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+
+	err := Run([]string{
+		"run",
+		"--rootfs", "/srv/rootfs",
+		"--net", "isolated",
+		"--runtime-mode", "init",
+		"--",
+		"/usr/lib/systemd/systemd",
+	}, &out, &errBuf)
+	if err == nil {
+		t.Fatal("expected validation error, got nil")
+	}
+	if !strings.Contains(err.Error(), "runtime-mode init is incompatible with observed networking") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRunDryRunWithInitMode(t *testing.T) {
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+
+	err := Run([]string{
+		"run",
+		"--rootfs", "/srv/rootfs",
+		"--net", "host",
+		"--runtime-mode", "init",
+		"--dry-run",
+		"--",
+		"/usr/lib/systemd/systemd",
+	}, &out, &errBuf)
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	got := out.String()
+	for _, needle := range []string{
+		"runtime-mode: init",
+		"note: execution mode: guest init command becomes sandbox PID 1",
+		"note: one sandbox = one isolated process tree rooted at guest init",
+	} {
+		if !strings.Contains(got, needle) {
+			t.Fatalf("expected dry run output to contain %q, got %q", needle, got)
+		}
 	}
 }
 

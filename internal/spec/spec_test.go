@@ -85,3 +85,33 @@ func TestBuiltInOpenclawPresetIncludesRootfsExpectations(t *testing.T) {
 		t.Fatalf("unexpected recommended cwd: %#v", preset.Rootfs)
 	}
 }
+
+func TestValidateRejectsInvalidRuntimeMode(t *testing.T) {
+	err := Validate(Config{
+		RootFS:      "/",
+		NetworkMode: NetworkHost,
+		RuntimeMode: "sidecar",
+		Command:     []string{"/bin/true"},
+	})
+	if err == nil || !strings.Contains(err.Error(), `invalid runtime mode "sidecar"`) {
+		t.Fatalf("expected invalid runtime mode error, got %v", err)
+	}
+}
+
+func TestValidateRejectsInitModeWithObservedNetworking(t *testing.T) {
+	err := Validate(Config{
+		RootFS:      "/",
+		NetworkMode: NetworkIsolated,
+		RuntimeMode: RuntimeModeInit,
+		Command:     []string{"/sbin/init"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "runtime-mode init is incompatible with observed networking") {
+		t.Fatalf("expected init-mode networking error, got %v", err)
+	}
+}
+
+func TestNormalizeRuntimeModeDefaultsToDirect(t *testing.T) {
+	if got := NormalizeRuntimeMode(""); got != RuntimeModeDirect {
+		t.Fatalf("expected empty runtime mode to normalize to %q, got %q", RuntimeModeDirect, got)
+	}
+}

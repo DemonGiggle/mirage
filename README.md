@@ -29,6 +29,7 @@ Tools such as OpenClaw often need a middle ground:
 Today the project includes:
 
 - namespace-backed process-tree execution on Linux
+- explicit direct-workload and init-oriented runtime modes
 - chroot-based rootfs handoff when using a non-`/` rootfs
 - a shared V1 rootfs template schema with curated built-in templates
 - read-only and read-write bind mounts
@@ -85,6 +86,16 @@ Run a simple command with the built-in offline preset:
 
 ```bash
 ./bin/mirage run --rootfs / --preset offline -- /bin/echo hello
+```
+
+Run a guest init entrypoint as sandbox PID 1:
+
+```bash
+./bin/mirage run \
+  --rootfs /srv/mirage/systemd-rootfs \
+  --net host \
+  --runtime-mode init \
+  -- /usr/lib/systemd/systemd
 ```
 
 Run with a dedicated rootfs and explicit mounts:

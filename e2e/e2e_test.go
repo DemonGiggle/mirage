@@ -204,6 +204,33 @@ func TestRunCreatesIsolatedProcessTree(t *testing.T) {
 	}
 }
 
+func TestRunInitModeKeepsGuestCommandAsPID1(t *testing.T) {
+	requireNamespaceBackend(t)
+
+	repoRoot := projectRoot(t)
+
+	cmd := exec.Command(
+		"go", "run", "./cmd/mirage",
+		"run",
+		"--rootfs", "/",
+		"--net", "host",
+		"--runtime-mode", "init",
+		"--",
+		"sh", "-c", `printf 'init-pid=%s ppid=%s' "$$" "$PPID"`,
+	)
+	cmd.Dir = repoRoot
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("mirage init-mode run failed: %v\noutput:\n%s", err, string(output))
+	}
+
+	got := string(output)
+	if !strings.Contains(got, "init-pid=1") {
+		t.Fatalf("expected init-mode entrypoint to be pid 1, got:\n%s", got)
+	}
+}
+
 func TestRunFailsWhenRootfsDoesNotExist(t *testing.T) {
 	requireNamespaceBackend(t)
 

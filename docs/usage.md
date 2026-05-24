@@ -59,6 +59,16 @@ Preview a run without executing it:
 ./bin/mirage run --dry-run --rootfs / --preset offline -- /bin/echo hello
 ```
 
+Preview an init-oriented run where the guest entrypoint must become PID 1:
+
+```bash
+./bin/mirage run \
+  --rootfs /srv/mirage/systemd-rootfs \
+  --net host \
+  --runtime-mode init \
+  -- /usr/lib/systemd/systemd
+```
+
 ## Command Pattern
 
 The general form is:
@@ -73,11 +83,19 @@ Common options include:
 - `--rootfs`: root filesystem for the sandbox
 - `--preset`: built-in or file-backed preset name
 - `--net`: raw network mode override
+- `--runtime-mode`: `direct` (default) or `init`
 - `--ro-bind`: read-only `host:guest` bind mount
 - `--rw-bind`: read-write `host:guest` bind mount
 - `--cwd`: working directory inside the sandbox
 - `--stdout-log` and `--stderr-log`: host-visible log export targets
 - `--memory` and `--pids`: delegated cgroup v2 limits
+
+`--runtime-mode direct` keeps the current one-command model: the requested
+workload becomes sandbox PID 1. `--runtime-mode init` is for guest init systems
+such as `systemd`; the requested init binary becomes sandbox PID 1 directly
+instead of being wrapped by Mirage. Because the current isolated-network path is
+implemented by an observation wrapper, init mode currently requires `--net host`
+or `--net none` without `--warn net`.
 
 ## Rootfs Guidance
 
