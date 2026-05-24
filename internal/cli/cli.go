@@ -36,7 +36,7 @@ func Run(args []string, stdout, stderr io.Writer) error {
 	case "rootfs":
 		return runRootfs(args[1:], stdout, stderr)
 	case "doctor":
-		return runDoctor(stdout)
+		return runDoctor(args[1:], stdout, stderr)
 	case "run":
 		return runSandbox(args[1:], stdout, stderr)
 	default:
@@ -49,13 +49,14 @@ func printRootHelp(w io.Writer) {
 
 Usage:
   mirage rootfs init --template <name> --output <path>
+  mirage doctor [flags]
   mirage run [flags] -- <command> [args...]
-  mirage doctor
   mirage preset list
   mirage version
 
 Examples:
   mirage rootfs init --template basic --output /srv/mirage/basic-rootfs
+  mirage doctor --rootfs /srv/mirage/basic-rootfs --command /bin/ls
   mirage run --rootfs / --net none -- echo hello
   mirage run --rootfs /srv/rootfs --preset openai --warn net -- app
   mirage run --rootfs /srv/rootfs --preset-file ./presets.json --preset team-openai -- app
@@ -138,7 +139,29 @@ func runRootfsInit(args []string, stdout, stderr io.Writer) error {
 	return nil
 }
 
-func runDoctor(stdout io.Writer) error {
+func runDoctor(args []string, stdout, stderr io.Writer) error {
+	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+
+	var rootfsPath string
+	var command string
+	var cwd string
+	var preset string
+	var presetFile string
+
+	fs.StringVar(&rootfsPath, "rootfs", "", "Path to the rootfs to validate")
+	fs.StringVar(&command, "command", "", "Command to resolve and validate inside the rootfs")
+	fs.StringVar(&cwd, "cwd", "", "Working directory to validate inside the rootfs")
+	fs.StringVar(&preset, "preset", "", "Named preset to resolve while validating")
+	fs.StringVar(&presetFile, "preset-file", "", "Path to a local preset JSON file")
+
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if len(fs.Args()) > 0 {
+		return fmt.Errorf("doctor does not accept positional arguments: %s", strings.Join(fs.Args(), " "))
+	}
+
 	_, _ = fmt.Fprintln(stdout, "mirage doctor")
 	_, _ = fmt.Fprintln(stdout, "- namespace backend: available (linux, initial)")
 	_, _ = fmt.Fprintln(stdout, "- rootfs isolation: available via mounted runtime layout plus chroot handoff")
@@ -151,6 +174,48 @@ func runDoctor(stdout io.Writer) error {
 	_, _ = fmt.Fprintln(stdout, "- network presets: available")
 	_, _ = fmt.Fprintln(stdout, "- warn mode recorder: available for network connect attempts")
 	_, _ = fmt.Fprintln(stdout, "- host log export: available")
+
+	if rootfsPath == "" && command == "" && cwd == "" && preset == "" && presetFile == "" {
+		return nil
+	}
+	if rootfsPath == "" {
+		return errors.New("rootfs-aware doctor checks require --rootfs")
+	}
+
+	if preset != "" {
+		presets, err := spec.AvailablePresets(presetFile)
+		if err != nil {
+			return err
+		}
+		resolvedPreset, ok := presets[preset]
+		if !ok {
+			return fmt.Errorf("unknown preset %q", preset)
+		}
+		_, _ = fmt.Fprintf(stdout, "- preset: %s (%s)\n", resolvedPreset.Name, resolvedPreset.NetworkMode)
+	}
+
+	report, err := rootfs.ValidateRootfs(rootfsPath, command, cwd)
+	_, _ = fmt.Fprintf(stdout, "- rootfs path: %s\n", report.Rootfs)
+	for _, status := range report.RuntimePaths {
+		_, _ = fmt.Fprintf(stdout, "- runtime path %s: %s\n", status.Path, status.Status)
+	}
+	if report.WorkingDir != "" {
+		_, _ = fmt.Fprintf(stdout, "- working directory: %s\n", report.WorkingDir)
+	}
+	if report.ResolvedCommand != "" {
+		_, _ = fmt.Fprintf(stdout, "- resolved command: %s\n", report.ResolvedCommand)
+	}
+	if report.Interpreter != "" {
+		_, _ = fmt.Fprintf(stdout, "- ELF interpreter: %s\n", report.Interpreter)
+	}
+	if report.DependencyCount > 0 {
+		_, _ = fmt.Fprintf(stdout, "- shared libraries: ok (%d resolved)\n", report.DependencyCount)
+	}
+	if err != nil {
+		_, _ = fmt.Fprintln(stdout, "- rootfs validation: failed")
+		return err
+	}
+	_, _ = fmt.Fprintln(stdout, "- rootfs validation: ok")
 	return nil
 }
 
