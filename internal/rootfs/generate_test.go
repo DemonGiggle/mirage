@@ -1,6 +1,7 @@
 package rootfs
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -99,6 +100,45 @@ func TestGenerateCopiesFilesAndDependencies(t *testing.T) {
 	firstDependency := filepath.Join(outputRoot, strings.TrimPrefix(dependencies[0], "/"))
 	if _, err := os.Stat(firstDependency); err != nil {
 		t.Fatalf("expected copied dependency %q to exist: %v", firstDependency, err)
+	}
+}
+
+func TestGenerateHonorsCopyDependenciesFlag(t *testing.T) {
+	shellPath, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("host PATH does not contain sh")
+	}
+
+	dependencies, err := lddDependencies(shellPath)
+	if err != nil {
+		t.Fatalf("lddDependencies returned error: %v", err)
+	}
+	if len(dependencies) == 0 {
+		t.Fatalf("expected %q to have at least one dynamic dependency", shellPath)
+	}
+
+	outputRoot := filepath.Join(t.TempDir(), "rootfs")
+	err = Generate(outputRoot, Template{
+		Version:     TemplateVersionV1,
+		Name:        "custom",
+		Description: "Custom template",
+		Binaries: []Binary{
+			{
+				HostPath:         shellPath,
+				TargetPath:       "/bin/sh",
+				CopyDependencies: false,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Generate returned error: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(outputRoot, "bin", "sh")); err != nil {
+		t.Fatalf("expected copied shell to exist: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(outputRoot, strings.TrimPrefix(dependencies[0], "/"))); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected dependency %q to be skipped when copy_dependencies is false, stat err=%v", dependencies[0], err)
 	}
 }
 

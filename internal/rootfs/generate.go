@@ -101,7 +101,7 @@ func (g generator) copyTemplateBinary(binary Binary) error {
 	if err != nil {
 		return err
 	}
-	return g.copyHostBinary(source, binary.TargetPath)
+	return g.copyHostBinary(source, binary.TargetPath, binary.CopyDependencies)
 }
 
 func resolveBinarySource(binary Binary) (string, error) {
@@ -115,7 +115,7 @@ func resolveBinarySource(binary Binary) (string, error) {
 	return source, nil
 }
 
-func (g generator) copyHostBinary(sourcePath string, targetPath string) error {
+func (g generator) copyHostBinary(sourcePath string, targetPath string, copyDependencies bool) error {
 	if err := g.copyHostFile(sourcePath, targetPath, false); err != nil {
 		return err
 	}
@@ -126,10 +126,13 @@ func (g generator) copyHostBinary(sourcePath string, targetPath string) error {
 	}
 	if len(requests) > 0 {
 		for _, request := range requests {
-			if err := g.copyHostBinary(request.hostPath, request.targetPath); err != nil {
+			if err := g.copyHostBinary(request.hostPath, request.targetPath, true); err != nil {
 				return err
 			}
 		}
+		return nil
+	}
+	if !copyDependencies {
 		return nil
 	}
 
