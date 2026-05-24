@@ -40,6 +40,11 @@ func Generate(outputRoot string, template Template) error {
 			return err
 		}
 	}
+	for _, generatedFile := range template.GeneratedFiles {
+		if err := generator.writeGeneratedFile(generatedFile); err != nil {
+			return err
+		}
+	}
 	for _, binary := range template.Binaries {
 		if err := generator.copyTemplateBinary(binary); err != nil {
 			return err
@@ -96,6 +101,21 @@ func (g generator) ensureDirectory(dir Directory) error {
 
 func (g generator) copyRuntimeFile(runtimeFile RuntimeFile) error {
 	return g.copyHostFile(runtimeFile.HostPath, runtimeFile.TargetPath, runtimeFile.Optional)
+}
+
+func (g generator) writeGeneratedFile(generatedFile GeneratedFile) error {
+	target := g.rootPath(generatedFile.TargetPath)
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return fmt.Errorf("create parent directory for generated file %q: %w", generatedFile.TargetPath, err)
+	}
+	mode := os.FileMode(generatedFile.Mode)
+	if mode == 0 {
+		mode = 0o644
+	}
+	if err := os.WriteFile(target, []byte(generatedFile.Content), mode); err != nil {
+		return fmt.Errorf("write generated file %q: %w", generatedFile.TargetPath, err)
+	}
+	return nil
 }
 
 func (g generator) copyTemplateBinary(binary Binary) error {

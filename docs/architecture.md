@@ -27,6 +27,8 @@ defense against a determined kernel-level adversary.
 - `rootfs`: the filesystem tree presented as `/` to the sandboxed process
 - `rootfs template`: a reusable description of files, directories, and binaries
   that should exist in a generated rootfs
+- `generated file`: a small file written directly into a generated rootfs, used
+  for assets such as an empty machine-id or future service-unit scaffolding
 - `bind mount`: an explicit mapping from a host path into the sandbox, either
   read-only or read-write
 - `network preset`: a named policy bundle that sets the default network stance

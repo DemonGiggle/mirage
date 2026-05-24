@@ -358,6 +358,19 @@ func TestDoctorReportsObservedNetworkingUnavailableWithoutStrace(t *testing.T) {
 	}
 }
 
+func TestDoctorRejectsInvalidRuntimeMode(t *testing.T) {
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+
+	err := Run([]string{"doctor", "--rootfs", "/tmp/rootfs", "--runtime-mode", "invalid"}, &out, &errBuf)
+	if err == nil {
+		t.Fatal("expected invalid runtime-mode error")
+	}
+	if !strings.Contains(err.Error(), `invalid runtime-mode "invalid"`) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestDoctorValidatesRootfsCommand(t *testing.T) {
 	var out bytes.Buffer
 	var errBuf bytes.Buffer
@@ -388,6 +401,114 @@ func TestDoctorValidatesRootfsCommand(t *testing.T) {
 		if !strings.Contains(got, needle) {
 			t.Fatalf("expected doctor output to contain %q, got %q", needle, got)
 		}
+	}
+}
+
+func TestDoctorValidatesInitRootfs(t *testing.T) {
+	systemdPath, err := exec.LookPath("systemd")
+	if err != nil {
+		t.Skip("host PATH does not contain systemd")
+	}
+
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+
+	rootfsPath := filepath.Join(t.TempDir(), "rootfs")
+	err = rootfs.Generate(rootfsPath, rootfs.Template{
+		Version:     rootfs.TemplateVersionV1,
+		Name:        "custom-systemd",
+		Description: "Systemd-ready test rootfs",
+		Directories: []rootfs.Directory{
+			{Path: "/proc", Mode: 0o755},
+			{Path: "/tmp", Mode: 0o1777},
+			{Path: "/run", Mode: 0o755},
+			{Path: "/dev", Mode: 0o755},
+			{Path: "/sys", Mode: 0o755},
+			{Path: "/sys/fs/cgroup", Mode: 0o755},
+			{Path: "/etc/systemd/system", Mode: 0o755},
+			{Path: "/usr/lib/systemd/system", Mode: 0o755},
+		},
+		Binaries: []rootfs.Binary{
+			{HostPath: systemdPath, TargetPath: "/usr/bin/systemd", CopyDependencies: true},
+		},
+		GeneratedFiles: []rootfs.GeneratedFile{
+			{TargetPath: "/etc/machine-id", Mode: 0o644},
+			{TargetPath: "/etc/systemd/system/openclaw.service", Content: "[Unit]\nDescription=OpenClaw\n[Service]\nExecStart=/usr/bin/true\n", Mode: 0o644},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Generate returned error: %v", err)
+	}
+
+	err = Run([]string{
+		"doctor",
+		"--rootfs", rootfsPath,
+		"--runtime-mode", "init",
+		"--service-unit", "openclaw.service",
+	}, &out, &errBuf)
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	got := out.String()
+	for _, needle := range []string{
+		"resolved init command: /usr/bin/systemd",
+		"systemd machine-id: /etc/machine-id",
+		"systemd unit openclaw.service: ok (/etc/systemd/system/openclaw.service)",
+		"init rootfs validation: ok",
+	} {
+		if !strings.Contains(got, needle) {
+			t.Fatalf("expected doctor output to contain %q, got %q", needle, got)
+		}
+	}
+}
+
+func TestDoctorRejectsMissingInitServiceUnit(t *testing.T) {
+	systemdPath, err := exec.LookPath("systemd")
+	if err != nil {
+		t.Skip("host PATH does not contain systemd")
+	}
+
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+
+	rootfsPath := filepath.Join(t.TempDir(), "rootfs")
+	err = rootfs.Generate(rootfsPath, rootfs.Template{
+		Version:     rootfs.TemplateVersionV1,
+		Name:        "custom-systemd",
+		Description: "Systemd-ready test rootfs",
+		Directories: []rootfs.Directory{
+			{Path: "/proc", Mode: 0o755},
+			{Path: "/tmp", Mode: 0o1777},
+			{Path: "/run", Mode: 0o755},
+			{Path: "/dev", Mode: 0o755},
+			{Path: "/sys", Mode: 0o755},
+			{Path: "/sys/fs/cgroup", Mode: 0o755},
+			{Path: "/etc/systemd/system", Mode: 0o755},
+			{Path: "/usr/lib/systemd/system", Mode: 0o755},
+		},
+		Binaries: []rootfs.Binary{
+			{HostPath: systemdPath, TargetPath: "/usr/bin/systemd", CopyDependencies: true},
+		},
+		GeneratedFiles: []rootfs.GeneratedFile{
+			{TargetPath: "/etc/machine-id", Mode: 0o644},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Generate returned error: %v", err)
+	}
+
+	err = Run([]string{
+		"doctor",
+		"--rootfs", rootfsPath,
+		"--runtime-mode", "init",
+		"--service-unit", "openclaw.service",
+	}, &out, &errBuf)
+	if err == nil {
+		t.Fatal("expected init doctor validation to fail on missing service unit")
+	}
+	if !strings.Contains(err.Error(), `systemd unit "openclaw.service" was not found`) {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

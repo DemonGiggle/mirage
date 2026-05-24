@@ -12,12 +12,13 @@ import (
 const TemplateVersionV1 = "v1"
 
 type Template struct {
-	Version      string        `json:"version"`
-	Name         string        `json:"name"`
-	Description  string        `json:"description"`
-	Directories  []Directory   `json:"directories,omitempty"`
-	Binaries     []Binary      `json:"binaries,omitempty"`
-	RuntimeFiles []RuntimeFile `json:"runtime_files,omitempty"`
+	Version        string          `json:"version"`
+	Name           string          `json:"name"`
+	Description    string          `json:"description"`
+	Directories    []Directory     `json:"directories,omitempty"`
+	Binaries       []Binary        `json:"binaries,omitempty"`
+	RuntimeFiles   []RuntimeFile   `json:"runtime_files,omitempty"`
+	GeneratedFiles []GeneratedFile `json:"generated_files,omitempty"`
 }
 
 type Directory struct {
@@ -38,11 +39,18 @@ type RuntimeFile struct {
 	Optional   bool   `json:"optional,omitempty"`
 }
 
+type GeneratedFile struct {
+	TargetPath string `json:"target_path"`
+	Content    string `json:"content,omitempty"`
+	Mode       uint32 `json:"mode,omitempty"`
+}
+
 var BuiltInTemplates = map[string]Template{
-	"basic":    basicTemplate(),
-	"node":     nodeTemplate(),
-	"python":   pythonTemplate(),
-	"openclaw": openclawTemplate(),
+	"basic":            basicTemplate(),
+	"node":             nodeTemplate(),
+	"python":           pythonTemplate(),
+	"openclaw":         openclawTemplate(),
+	"openclaw-systemd": openclawSystemdTemplate(),
 }
 
 func TemplateNames() []string {
@@ -74,7 +82,7 @@ func ValidateTemplate(template Template) error {
 	var problems []error
 	seenDirectories := make(map[string]struct{}, len(template.Directories))
 	seenBinaries := make(map[string]struct{}, len(template.Binaries))
-	seenRuntimeFiles := make(map[string]struct{}, len(template.RuntimeFiles))
+	seenFiles := make(map[string]struct{}, len(template.RuntimeFiles)+len(template.GeneratedFiles))
 	if template.Version != TemplateVersionV1 {
 		problems = append(problems, fmt.Errorf("template %q must declare version %q", template.Name, TemplateVersionV1))
 	}
@@ -121,11 +129,21 @@ func ValidateTemplate(template Template) error {
 		if !filepath.IsAbs(runtimeFile.TargetPath) {
 			problems = append(problems, fmt.Errorf("template %q runtime file %d target path %q must be absolute", template.Name, idx, runtimeFile.TargetPath))
 		}
-		if _, exists := seenRuntimeFiles[runtimeFile.TargetPath]; exists {
+		if _, exists := seenFiles[runtimeFile.TargetPath]; exists {
 			problems = append(problems, fmt.Errorf("template %q runtime file target path %q is duplicated", template.Name, runtimeFile.TargetPath))
 			continue
 		}
-		seenRuntimeFiles[runtimeFile.TargetPath] = struct{}{}
+		seenFiles[runtimeFile.TargetPath] = struct{}{}
+	}
+	for idx, generatedFile := range template.GeneratedFiles {
+		if !filepath.IsAbs(generatedFile.TargetPath) {
+			problems = append(problems, fmt.Errorf("template %q generated file %d target path %q must be absolute", template.Name, idx, generatedFile.TargetPath))
+		}
+		if _, exists := seenFiles[generatedFile.TargetPath]; exists {
+			problems = append(problems, fmt.Errorf("template %q generated file target path %q is duplicated", template.Name, generatedFile.TargetPath))
+			continue
+		}
+		seenFiles[generatedFile.TargetPath] = struct{}{}
 	}
 	if len(problems) == 0 {
 		return nil
@@ -210,6 +228,33 @@ func openclawTemplate() Template {
 	return template
 }
 
+func openclawSystemdTemplate() Template {
+	template := openclawTemplate()
+	template.Name = "openclaw-systemd"
+	template.Description = "OpenClaw-oriented rootfs template with guest systemd tooling and systemd-ready directories."
+	template.Directories = appendUniqueDirectories(template.Directories,
+		directory("/etc/systemd/system", 0o755),
+		directory("/usr/lib/systemd/system", 0o755),
+		directory("/var/lib/systemd", 0o755),
+		directory("/var/log/journal", 0o755),
+	)
+	template.Binaries = append(template.Binaries,
+		lookupBinary("systemd", "/usr/bin/systemd"),
+		lookupBinary("systemctl", "/usr/bin/systemctl"),
+		lookupBinary("journalctl", "/usr/bin/journalctl"),
+		lookupBinary("systemd-tmpfiles", "/usr/bin/systemd-tmpfiles"),
+	)
+	template.RuntimeFiles = appendUniqueRuntimeFiles(template.RuntimeFiles,
+		runtimeFile("/etc/passwd", "/etc/passwd"),
+		runtimeFile("/etc/group", "/etc/group"),
+		optionalRuntimeFile("/etc/os-release", "/etc/os-release"),
+	)
+	template.GeneratedFiles = appendUniqueGeneratedFiles(template.GeneratedFiles,
+		generatedFile("/etc/machine-id", "", 0o644),
+	)
+	return template
+}
+
 var commonRuntimeDirectories = []Directory{
 	directory("/proc", 0o755),
 	directory("/tmp", 0o1777),
@@ -226,6 +271,7 @@ func cloneTemplate(template Template) Template {
 	template.Directories = slices.Clone(template.Directories)
 	template.Binaries = slices.Clone(template.Binaries)
 	template.RuntimeFiles = slices.Clone(template.RuntimeFiles)
+	template.GeneratedFiles = slices.Clone(template.GeneratedFiles)
 	return template
 }
 
@@ -256,6 +302,14 @@ func optionalRuntimeFile(hostPath string, targetPath string) RuntimeFile {
 	}
 }
 
+func generatedFile(targetPath string, content string, mode uint32) GeneratedFile {
+	return GeneratedFile{
+		TargetPath: targetPath,
+		Content:    content,
+		Mode:       mode,
+	}
+}
+
 func appendUniqueDirectories(existing []Directory, extra ...Directory) []Directory {
 	for _, dir := range extra {
 		if slices.ContainsFunc(existing, func(candidate Directory) bool {
@@ -276,6 +330,18 @@ func appendUniqueRuntimeFiles(existing []RuntimeFile, extra ...RuntimeFile) []Ru
 			continue
 		}
 		existing = append(existing, runtimeFile)
+	}
+	return existing
+}
+
+func appendUniqueGeneratedFiles(existing []GeneratedFile, extra ...GeneratedFile) []GeneratedFile {
+	for _, generatedFile := range extra {
+		if slices.ContainsFunc(existing, func(candidate GeneratedFile) bool {
+			return candidate.TargetPath == generatedFile.TargetPath
+		}) {
+			continue
+		}
+		existing = append(existing, generatedFile)
 	}
 	return existing
 }

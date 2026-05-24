@@ -158,6 +158,35 @@ func TestGenerateRejectsNonEmptyOutputRoot(t *testing.T) {
 	}
 }
 
+func TestGenerateWritesGeneratedFiles(t *testing.T) {
+	outputRoot := filepath.Join(t.TempDir(), "rootfs")
+	err := Generate(outputRoot, Template{
+		Version:     TemplateVersionV1,
+		Name:        "custom",
+		Description: "Custom template",
+		GeneratedFiles: []GeneratedFile{
+			{TargetPath: "/etc/machine-id", Content: "", Mode: 0o644},
+			{TargetPath: "/etc/demo.conf", Content: "demo=yes\n", Mode: 0o600},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Generate returned error: %v", err)
+	}
+
+	for target, wantMode := range map[string]os.FileMode{
+		filepath.Join(outputRoot, "etc", "machine-id"): 0o644,
+		filepath.Join(outputRoot, "etc", "demo.conf"):  0o600,
+	} {
+		info, err := os.Stat(target)
+		if err != nil {
+			t.Fatalf("expected generated file %q to exist: %v", target, err)
+		}
+		if info.Mode().Perm() != wantMode {
+			t.Fatalf("expected generated file %q to have mode %o, got %o", target, wantMode, info.Mode().Perm())
+		}
+	}
+}
+
 func TestGenerateCopiesSymlinkedNodeModuleLaunchers(t *testing.T) {
 	nodePath, err := exec.LookPath("node")
 	if err != nil {

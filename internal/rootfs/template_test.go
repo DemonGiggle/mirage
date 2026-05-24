@@ -7,7 +7,7 @@ import (
 
 func TestTemplateNames(t *testing.T) {
 	got := TemplateNames()
-	want := []string{"basic", "node", "openclaw", "python"}
+	want := []string{"basic", "node", "openclaw", "openclaw-systemd", "python"}
 	if len(got) != len(want) {
 		t.Fatalf("unexpected template count: got %d want %d (%v)", len(got), len(want), got)
 	}
@@ -157,6 +157,31 @@ func TestOpenclawTemplateIncludesNodeAndGit(t *testing.T) {
 		if !contains(lookups, want) {
 			t.Fatalf("expected openclaw template to include %q, got %v", want, lookups)
 		}
+	}
+}
+
+func TestOpenclawSystemdTemplateIncludesSystemdAssets(t *testing.T) {
+	template, ok := LookupTemplate("openclaw-systemd")
+	if !ok {
+		t.Fatal("expected openclaw-systemd template to exist")
+	}
+
+	var lookups []string
+	for _, binary := range template.Binaries {
+		lookups = append(lookups, binary.LookupName)
+	}
+	for _, want := range []string{"node", "systemd", "systemctl", "journalctl", "systemd-tmpfiles"} {
+		if !contains(lookups, want) {
+			t.Fatalf("expected openclaw-systemd template to include %q, got %v", want, lookups)
+		}
+	}
+
+	var generatedTargets []string
+	for _, file := range template.GeneratedFiles {
+		generatedTargets = append(generatedTargets, file.TargetPath)
+	}
+	if !contains(generatedTargets, "/etc/machine-id") {
+		t.Fatalf("expected openclaw-systemd template to seed /etc/machine-id, got %v", generatedTargets)
 	}
 }
 
