@@ -49,13 +49,13 @@ var BuiltInPresets = map[string]Preset{
 	"openclaw-openai": {
 		Name:        "openclaw-openai",
 		NetworkMode: NetworkIsolated,
-		AllowHosts:  []string{"api.openai.com:443", "chatgpt.com:443", "github.com:443"},
+		AllowPorts:  []string{"443"},
 		Rootfs: RootfsExpectations{
 			RecommendedTemplate: "openclaw",
 			RequiredCommands:    []string{"node"},
 			RecommendedCwd:      "/workspace",
 		},
-		Description: "OpenClaw-oriented preset for OpenAI agent work plus GitHub access.",
+		Description: "OpenClaw-oriented preset for HTTPS-capable agent work with the openclaw rootfs template.",
 	},
 }
 
@@ -69,6 +69,8 @@ type Preset struct {
 	Name        string             `json:"name"`
 	NetworkMode NetworkMode        `json:"network"`
 	AllowHosts  []string           `json:"allow_hosts"`
+	AllowCIDRs  []string           `json:"allow_cidrs"`
+	AllowPorts  []string           `json:"allow_ports"`
 	Rootfs      RootfsExpectations `json:"rootfs,omitempty"`
 	Description string             `json:"description"`
 }
@@ -121,6 +123,12 @@ func ApplyPreset(cfg Config) (Config, error) {
 	}
 	if len(cfg.AllowHosts) == 0 && len(preset.AllowHosts) > 0 {
 		cfg.AllowHosts = append([]string{}, preset.AllowHosts...)
+	}
+	if len(cfg.AllowCIDRs) == 0 && len(preset.AllowCIDRs) > 0 {
+		cfg.AllowCIDRs = append([]string{}, preset.AllowCIDRs...)
+	}
+	if len(cfg.AllowPorts) == 0 && len(preset.AllowPorts) > 0 {
+		cfg.AllowPorts = append([]string{}, preset.AllowPorts...)
 	}
 	return cfg, nil
 }

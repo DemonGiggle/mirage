@@ -28,6 +28,7 @@ func Generate(outputRoot string, template Template) error {
 	generator := generator{
 		outputRoot:    root,
 		copiedTargets: make(map[string]struct{}),
+		copiedTrees:   make(map[string]struct{}),
 	}
 	for _, dir := range template.Directories {
 		if err := generator.ensureDirectory(dir); err != nil {
@@ -50,6 +51,7 @@ func Generate(outputRoot string, template Template) error {
 type generator struct {
 	outputRoot    string
 	copiedTargets map[string]struct{}
+	copiedTrees   map[string]struct{}
 }
 
 func prepareOutputRoot(root string) error {
@@ -116,6 +118,21 @@ func resolveBinarySource(binary Binary) (string, error) {
 }
 
 func (g generator) copyHostBinary(sourcePath string, targetPath string, copyDependencies bool) error {
+	linkInfo, err := os.Lstat(sourcePath)
+	if err != nil {
+		return fmt.Errorf("lstat host file %q: %w", sourcePath, err)
+	}
+	if linkInfo.Mode()&os.ModeSymlink != 0 {
+		if err := g.copyHostSymlink(sourcePath, targetPath); err != nil {
+			return err
+		}
+		resolvedSource, err := filepath.EvalSymlinks(sourcePath)
+		if err != nil {
+			return fmt.Errorf("resolve symlink %q: %w", sourcePath, err)
+		}
+		return g.copyHostBinary(resolvedSource, translatedSymlinkTarget(targetPath, sourcePath), copyDependencies)
+	}
+
 	if err := g.copyHostFile(sourcePath, targetPath, false); err != nil {
 		return err
 	}
@@ -129,6 +146,9 @@ func (g generator) copyHostBinary(sourcePath string, targetPath string, copyDepe
 			if err := g.copyHostBinary(request.hostPath, request.targetPath, true); err != nil {
 				return err
 			}
+		}
+		if err := g.copyScriptSupportTree(sourcePath, targetPath); err != nil {
+			return err
 		}
 		return nil
 	}
@@ -282,6 +302,144 @@ func lddPath(line string) (string, bool) {
 		return "", false
 	}
 	return fields[0], true
+}
+
+func (g generator) copyHostSymlink(sourcePath string, targetPath string) error {
+	if _, exists := g.copiedTargets[targetPath]; exists {
+		return nil
+	}
+
+	linkTarget, err := os.Readlink(sourcePath)
+	if err != nil {
+		return fmt.Errorf("read host symlink %q: %w", sourcePath, err)
+	}
+
+	target := g.rootPath(targetPath)
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return fmt.Errorf("create parent directory for %q: %w", targetPath, err)
+	}
+	if err := os.Symlink(linkTarget, target); err != nil {
+		return fmt.Errorf("create target symlink %q: %w", targetPath, err)
+	}
+
+	g.copiedTargets[targetPath] = struct{}{}
+	return nil
+}
+
+func translatedSymlinkTarget(targetPath string, sourcePath string) string {
+	linkTarget, err := os.Readlink(sourcePath)
+	if err != nil {
+		return targetPath
+	}
+	if filepath.IsAbs(linkTarget) {
+		return linkTarget
+	}
+	return filepath.Clean(filepath.Join(filepath.Dir(targetPath), linkTarget))
+}
+
+func (g generator) copyScriptSupportTree(sourcePath string, targetPath string) error {
+	sourceRoot, targetRoot, ok := nodeModulePackageRoots(sourcePath, targetPath)
+	if !ok {
+		return nil
+	}
+	return g.copyHostTree(sourceRoot, targetRoot)
+}
+
+func nodeModulePackageRoots(sourcePath string, targetPath string) (string, string, bool) {
+	sourceRoot, ok := packageRootFromNodeModulesPath(sourcePath)
+	if !ok {
+		return "", "", false
+	}
+	targetRoot, ok := packageRootFromNodeModulesPath(targetPath)
+	if !ok {
+		return "", "", false
+	}
+	return sourceRoot, targetRoot, true
+}
+
+func packageRootFromNodeModulesPath(path string) (string, bool) {
+	marker := string(filepath.Separator) + "node_modules" + string(filepath.Separator)
+	idx := strings.Index(path, marker)
+	if idx < 0 {
+		return "", false
+	}
+	prefix := path[:idx]
+	rest := path[idx+len(marker):]
+	segments := strings.Split(rest, string(filepath.Separator))
+	if len(segments) == 0 || segments[0] == "" {
+		return "", false
+	}
+	pkgSegments := []string{segments[0]}
+	if strings.HasPrefix(segments[0], "@") {
+		if len(segments) < 2 || segments[1] == "" {
+			return "", false
+		}
+		pkgSegments = append(pkgSegments, segments[1])
+	}
+	root := filepath.Join(append([]string{prefix, "node_modules"}, pkgSegments...)...)
+	return root, true
+}
+
+func (g generator) copyHostTree(sourceRoot string, targetRoot string) error {
+	if _, exists := g.copiedTrees[targetRoot]; exists {
+		return nil
+	}
+
+	info, err := os.Stat(sourceRoot)
+	if err != nil {
+		return fmt.Errorf("stat host tree %q: %w", sourceRoot, err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("host tree %q is not a directory", sourceRoot)
+	}
+
+	targetAbs := g.rootPath(targetRoot)
+	if err := filepath.WalkDir(sourceRoot, func(path string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		rel, err := filepath.Rel(sourceRoot, path)
+		if err != nil {
+			return err
+		}
+		targetGuestPath := targetRoot
+		targetPath := targetAbs
+		if rel != "." {
+			targetGuestPath = filepath.Join(targetRoot, rel)
+			targetPath = filepath.Join(targetAbs, rel)
+		}
+
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if err := os.MkdirAll(targetPath, info.Mode().Perm()); err != nil {
+				return err
+			}
+			return os.Chmod(targetPath, info.Mode().Perm())
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			linkTarget, err := os.Readlink(path)
+			if err != nil {
+				return err
+			}
+			if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+				return err
+			}
+			if err := os.Symlink(linkTarget, targetPath); err != nil && !errors.Is(err, os.ErrExist) {
+				return err
+			}
+			g.copiedTargets[targetGuestPath] = struct{}{}
+			return nil
+		}
+		return g.copyHostFile(path, targetGuestPath, false)
+	}); err != nil {
+		return fmt.Errorf("copy host tree %q to %q: %w", sourceRoot, targetRoot, err)
+	}
+
+	g.copiedTrees[targetRoot] = struct{}{}
+	return nil
 }
 
 func (g generator) copyHostFile(sourcePath string, targetPath string, optional bool) error {
