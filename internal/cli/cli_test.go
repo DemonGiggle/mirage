@@ -172,6 +172,32 @@ func TestRunDryRunShowsLogExport(t *testing.T) {
 	}
 }
 
+func TestRootfsInit(t *testing.T) {
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+
+	outputRoot := filepath.Join(t.TempDir(), "rootfs")
+	err := Run([]string{
+		"rootfs",
+		"init",
+		"--template", "basic",
+		"--output", outputRoot,
+	}, &out, &errBuf)
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	got := out.String()
+	if !strings.Contains(got, "mirage rootfs init") || !strings.Contains(got, "template: basic") {
+		t.Fatalf("expected rootfs init output, got %q", got)
+	}
+	for _, target := range []string{"bin/ls", "bin/sh", "proc", "tmp", "run"} {
+		if _, err := os.Stat(filepath.Join(outputRoot, target)); err != nil {
+			t.Fatalf("expected generated target %q to exist: %v", target, err)
+		}
+	}
+}
+
 func TestDoctorReportsObservedNetworkingUnavailableWithoutStrace(t *testing.T) {
 	t.Setenv("PATH", "")
 

@@ -59,6 +59,12 @@ Check the local environment:
 ./bin/mirage doctor
 ```
 
+Generate a runnable rootfs from the built-in basic template:
+
+```bash
+./bin/mirage rootfs init --template basic --output /srv/mirage/basic-rootfs
+```
+
 Run a simple command with the built-in offline preset:
 
 ```bash
