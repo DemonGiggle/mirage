@@ -101,7 +101,8 @@ Run a guest init entrypoint as sandbox PID 1:
 Init mode currently targets a narrow guest-systemd contract: unified cgroup v2,
 a delegated host `systemd-run --user --scope` leaf, and guest-visible
 `/sys/fs/cgroup` exposure inside dedicated rootfs runs. `--rootfs /` is not
-part of that init-mode contract.
+part of that init-mode contract. Init-mode runs also get a managed `/dev`, a
+read-only `/sys`, and runtime state directories under `/run`.
 
 Run with a dedicated rootfs and explicit mounts:
 

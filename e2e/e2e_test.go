@@ -288,6 +288,47 @@ func TestRunInitModeExposesGuestCgroupTreeInsideRootfs(t *testing.T) {
 	}
 }
 
+func TestRunInitModeProvidesManagedRuntimeMounts(t *testing.T) {
+	requireNamespaceBackend(t)
+	requireCgroupBackend(t)
+
+	repoRoot := projectRoot(t)
+	rootfs := filepath.Join(t.TempDir(), "basic-rootfs")
+
+	initCmd := exec.Command(
+		"go", "run", "./cmd/mirage",
+		"rootfs",
+		"init",
+		"--template", "basic",
+		"--output", rootfs,
+	)
+	initCmd.Dir = repoRoot
+
+	output, err := initCmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("mirage rootfs init failed: %v\noutput:\n%s", err, string(output))
+	}
+
+	runCmd := exec.Command(
+		"go", "run", "./cmd/mirage",
+		"run",
+		"--rootfs", rootfs,
+		"--net", "host",
+		"--runtime-mode", "init",
+		"--",
+		"/bin/sh", "-c", "test -c /dev/null || exit 1; test -c /dev/zero || exit 1; test -d /dev/pts || exit 1; test -d /dev/shm || exit 1; test -L /dev/ptmx || exit 1; test -L /dev/stdin || exit 1; test -d /run/systemd || exit 1; test -d /run/lock || exit 1; test -d /sys || exit 1; test -d /sys/fs/cgroup || exit 1; if /bin/sh -c ': >/sys/mirage-write-check' >/dev/null 2>&1; then exit 1; fi; printf mounts-ok",
+	)
+	runCmd.Dir = repoRoot
+
+	output, err = runCmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("expected init-mode runtime mount verification to succeed: %v\noutput:\n%s", err, string(output))
+	}
+	if !strings.Contains(string(output), "mounts-ok") {
+		t.Fatalf("expected managed runtime mount verification output, got:\n%s", string(output))
+	}
+}
+
 func TestRunFailsWhenRootfsDoesNotExist(t *testing.T) {
 	requireNamespaceBackend(t)
 

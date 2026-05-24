@@ -211,6 +211,7 @@ func TestPlanNotesInitMode(t *testing.T) {
 	for _, needle := range []string{
 		"execution mode: guest init command becomes sandbox PID 1",
 		"one sandbox = one isolated process tree rooted at guest init",
+		"init runtime mounts: managed /dev tmpfs, read-only /sys, and delegated cgroup2",
 		"cgroup v2: enforced via delegated systemd user-scope leaf cgroup (guest-unified-cgroup-v2)",
 	} {
 		if !strings.Contains(got, needle) {
