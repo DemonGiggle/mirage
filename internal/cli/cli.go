@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
 	"sort"
 	"strings"
 
@@ -331,6 +332,9 @@ func runSandbox(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
+	if err := ensurePresetRootfs(resolved); err != nil {
+		return err
+	}
 	if err := spec.Validate(resolved); err != nil {
 		return err
 	}
@@ -348,6 +352,52 @@ func runSandbox(args []string, stdout, stderr io.Writer) error {
 		return errors.New("execution backend requires rootfs")
 	}
 	return runner.Execute(resolved, stdout, stderr)
+}
+
+func ensurePresetRootfs(cfg spec.Config) error {
+	if cfg.RootFS == "" || cfg.Preset == "" {
+		return nil
+	}
+
+	presets, err := spec.AvailablePresets(cfg.PresetFile)
+	if err != nil {
+		return err
+	}
+	preset, ok := presets[cfg.Preset]
+	if !ok {
+		return fmt.Errorf("unknown preset %q", cfg.Preset)
+	}
+	templateName := preset.Rootfs.RecommendedTemplate
+	if templateName == "" {
+		return nil
+	}
+
+	info, err := os.Stat(cfg.RootFS)
+	switch {
+	case err == nil:
+		if !info.IsDir() {
+			return nil
+		}
+		entries, err := os.ReadDir(cfg.RootFS)
+		if err != nil {
+			return fmt.Errorf("read rootfs %q: %w", cfg.RootFS, err)
+		}
+		if len(entries) > 0 {
+			return nil
+		}
+	case errors.Is(err, os.ErrNotExist):
+	default:
+		return fmt.Errorf("stat rootfs %q: %w", cfg.RootFS, err)
+	}
+
+	template, ok := rootfs.LookupTemplate(templateName)
+	if !ok {
+		return fmt.Errorf("unknown rootfs template %q", templateName)
+	}
+	if err := rootfs.Generate(cfg.RootFS, template); err != nil {
+		return fmt.Errorf("prepare rootfs %q from preset %q template %q: %w", cfg.RootFS, cfg.Preset, templateName, err)
+	}
+	return nil
 }
 
 func splitCSV(raw string) []string {

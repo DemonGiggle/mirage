@@ -3,11 +3,13 @@ package cli
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/DemonGiggle/mirage/internal/rootfs"
+	"github.com/DemonGiggle/mirage/internal/spec"
 )
 
 func TestPresetList(t *testing.T) {
@@ -195,6 +197,29 @@ func TestRootfsInit(t *testing.T) {
 	}
 	for _, target := range []string{"bin/ls", "bin/sh", "proc", "tmp", "run"} {
 		if _, err := os.Stat(filepath.Join(outputRoot, target)); err != nil {
+			t.Fatalf("expected generated target %q to exist: %v", target, err)
+		}
+	}
+}
+
+func TestEnsurePresetRootfsAutoGeneratesRecommendedTemplate(t *testing.T) {
+	for _, binary := range []string{"node", "npm", "bash", "git"} {
+		if _, err := exec.LookPath(binary); err != nil {
+			t.Skipf("host PATH does not contain %s", binary)
+		}
+	}
+
+	rootfsPath := filepath.Join(t.TempDir(), "openclaw-rootfs")
+	cfg := spec.Config{
+		RootFS: rootfsPath,
+		Preset: "openclaw-openai",
+	}
+	if err := ensurePresetRootfs(cfg); err != nil {
+		t.Fatalf("ensurePresetRootfs returned error: %v", err)
+	}
+
+	for _, target := range []string{"usr/bin/node", "usr/bin/npm", "workspace", "home"} {
+		if _, err := os.Stat(filepath.Join(rootfsPath, target)); err != nil {
 			t.Fatalf("expected generated target %q to exist: %v", target, err)
 		}
 	}

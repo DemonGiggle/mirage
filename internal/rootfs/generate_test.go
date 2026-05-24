@@ -157,3 +157,72 @@ func TestGenerateRejectsNonEmptyOutputRoot(t *testing.T) {
 		t.Fatalf("expected non-empty output root rejection, got %v", err)
 	}
 }
+
+func TestGenerateCopiesSymlinkedNodeModuleLaunchers(t *testing.T) {
+	nodePath, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("host PATH does not contain node")
+	}
+
+	hostRoot := filepath.Join(t.TempDir(), "host")
+	for _, dir := range []string{
+		filepath.Join(hostRoot, "bin"),
+		filepath.Join(hostRoot, "lib", "node_modules", "demo", "bin"),
+		filepath.Join(hostRoot, "lib", "node_modules", "demo", "lib"),
+	} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("create fixture dir %q: %v", dir, err)
+		}
+	}
+
+	launcherPath := filepath.Join(hostRoot, "lib", "node_modules", "demo", "bin", "demo.js")
+	launcher := "#!/usr/bin/env node\nrequire('../lib/cli.js')\n"
+	if err := os.WriteFile(launcherPath, []byte(launcher), 0o755); err != nil {
+		t.Fatalf("write launcher: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(hostRoot, "lib", "node_modules", "demo", "lib", "cli.js"), []byte("module.exports = () => {}\n"), 0o644); err != nil {
+		t.Fatalf("write cli support file: %v", err)
+	}
+	if err := os.Symlink("../lib/node_modules/demo/bin/demo.js", filepath.Join(hostRoot, "bin", "demo")); err != nil {
+		t.Fatalf("create launcher symlink: %v", err)
+	}
+
+	outputRoot := filepath.Join(t.TempDir(), "rootfs")
+	err = Generate(outputRoot, Template{
+		Version:     TemplateVersionV1,
+		Name:        "custom",
+		Description: "Custom template",
+		Binaries: []Binary{
+			{
+				HostPath:         filepath.Join(hostRoot, "bin", "demo"),
+				TargetPath:       "/usr/bin/demo",
+				CopyDependencies: true,
+			},
+			{
+				HostPath:         nodePath,
+				TargetPath:       "/usr/bin/node",
+				CopyDependencies: true,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Generate returned error: %v", err)
+	}
+
+	linkTarget, err := os.Readlink(filepath.Join(outputRoot, "usr", "bin", "demo"))
+	if err != nil {
+		t.Fatalf("read generated symlink: %v", err)
+	}
+	if linkTarget != "../lib/node_modules/demo/bin/demo.js" {
+		t.Fatalf("unexpected generated symlink target: %q", linkTarget)
+	}
+	for _, target := range []string{
+		filepath.Join(outputRoot, "usr", "lib", "node_modules", "demo", "bin", "demo.js"),
+		filepath.Join(outputRoot, "usr", "lib", "node_modules", "demo", "lib", "cli.js"),
+		filepath.Join(outputRoot, "usr", "bin", "node"),
+	} {
+		if _, err := os.Stat(target); err != nil {
+			t.Fatalf("expected generated target %q to exist: %v", target, err)
+		}
+	}
+}

@@ -234,7 +234,9 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 	}
 
 	if shouldObserveNetwork(policy) {
-		return runObservedCommand(command, policy, stdout, stderr)
+		if err := EnsureObservedNetworkToolAvailable(); err == nil {
+			return runObservedCommand(command, policy, stdout, stderr)
+		}
 	}
 
 	binary, err := resolveCommandBinary(command[0], rootfs)
@@ -390,7 +392,8 @@ func buildUnshareArgs(cfg spec.Config) ([]string, error) {
 
 	switch cfg.NetworkMode {
 	case spec.NetworkHost:
-	case spec.NetworkNone, spec.NetworkIsolated:
+	case spec.NetworkIsolated:
+	case spec.NetworkNone:
 		args = append(args, "--net")
 	default:
 		return nil, fmt.Errorf("unsupported network mode %q", cfg.NetworkMode)
@@ -921,7 +924,7 @@ func PlanNotes(cfg spec.Config) []string {
 	case spec.NetworkNone:
 		notes = append(notes, "network backend: dedicated net namespace without host network")
 	case spec.NetworkIsolated:
-		notes = append(notes, "network backend: dedicated net namespace with observed policy enforcement")
+		notes = append(notes, "network backend: host namespace with observed policy enforcement")
 	}
 	if cfg.StdoutLog != "" || cfg.StderrLog != "" {
 		var exports []string
