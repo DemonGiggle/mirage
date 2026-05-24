@@ -109,6 +109,20 @@ Init mode currently defines a narrow guest cgroup contract:
 - init mode reserves `/sys/fs/cgroup` for that guest cgroup mount, so user bind
   mounts cannot target that path
 
+Init mode also manages a broader runtime mount contract for guest init systems:
+
+| Guest path | Mode in init runs |
+| --- | --- |
+| `/proc` | Fresh procfs mount |
+| `/run` | tmpfs, plus `/run/lock` and `/run/systemd` |
+| `/tmp` | tmpfs |
+| `/dev` | dedicated tmpfs with basic device nodes, `/dev/pts`, `/dev/shm`, and standard fd symlinks |
+| `/sys` | guest-private tmpfs skeleton, remounted read-only after setup |
+| `/sys/fs/cgroup` | fresh delegated cgroup2 mount |
+
+Because Mirage owns those runtime paths in init mode, user bind mounts cannot
+target them or their managed subpaths.
+
 ## Rootfs Guidance
 
 When you use a custom `--rootfs`, that root filesystem must contain:

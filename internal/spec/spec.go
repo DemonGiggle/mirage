@@ -259,8 +259,8 @@ func Validate(cfg Config) error {
 	if NormalizeRuntimeMode(cfg.RuntimeMode) == RuntimeModeInit && (cfg.NetworkMode == NetworkIsolated || slicesContains(cfg.Warn, "net")) {
 		problems = append(problems, errors.New("runtime-mode init is incompatible with observed networking; use --net host or --net none without --warn net"))
 	}
-	if NormalizeRuntimeMode(cfg.RuntimeMode) == RuntimeModeInit && cfg.RootFS == "/" {
-		problems = append(problems, errors.New("runtime-mode init currently requires a dedicated rootfs; --rootfs / does not provide a guest cgroup mount"))
+	if NormalizeRuntimeMode(cfg.RuntimeMode) == RuntimeModeInit && (cfg.RootFS == "" || cfg.RootFS == "/") {
+		problems = append(problems, errors.New("runtime-mode init requires a dedicated rootfs; use --rootfs with a non-root directory"))
 	}
 	if NormalizeRuntimeMode(cfg.RuntimeMode) == RuntimeModeInit {
 		for _, mount := range append(append([]string{}, cfg.ROBind...), cfg.RWBind...) {
@@ -268,8 +268,12 @@ func Validate(cfg Config) error {
 			if !ok {
 				continue
 			}
-			if target == "/sys/fs/cgroup" || strings.HasPrefix(target, "/sys/fs/cgroup/") {
-				problems = append(problems, fmt.Errorf("runtime-mode init reserves guest path %q for the delegated cgroup tree", target))
+			if reservedPath, ok := reservedInitMountPath(target); ok {
+				if reservedPath == "/sys/fs/cgroup" {
+					problems = append(problems, fmt.Errorf("runtime-mode init reserves guest path %q for the delegated cgroup tree", target))
+					continue
+				}
+				problems = append(problems, fmt.Errorf("runtime-mode init manages guest path %q via its runtime mount contract", target))
 			}
 		}
 	}
@@ -370,4 +374,13 @@ func bindMountTarget(entry string) (string, bool) {
 		return "", false
 	}
 	return filepath.Clean(target), true
+}
+
+func reservedInitMountPath(target string) (string, bool) {
+	for _, root := range []string{"/sys/fs/cgroup", "/proc", "/tmp", "/run", "/dev", "/sys"} {
+		if target == root || strings.HasPrefix(target, root+"/") {
+			return root, true
+		}
+	}
+	return "", false
 }

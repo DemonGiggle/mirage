@@ -74,6 +74,7 @@ Today you can rely on:
 - network mode selection through presets or inline flags
 - delegated cgroup v2 memory and PID limits
 - delegated unified cgroup v2 exposure for `--runtime-mode init`
+- init-mode-only managed runtime mounts for `/dev`, `/sys`, and `/run`
 - host-side log export
 
 ## Current Limitations

@@ -133,6 +133,9 @@ The current init-mode contract is intentionally narrow:
   inherited `/sys/fs/cgroup` mount instead of a guest-private cgroup mount
 - it unshares a cgroup namespace and exposes `/sys/fs/cgroup` inside dedicated
   rootfs runs so guest init sees a writable delegated subtree
+- it layers extra init-only mounts over the base runtime layout: a managed
+  `/dev`, a guest-private read-only `/sys`, and runtime state directories under
+  `/run`
 
 ## Network Model
 

@@ -166,7 +166,7 @@ func TestRunRejectsInitModeWithHostRootfs(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected validation error, got nil")
 	}
-	if !strings.Contains(err.Error(), "runtime-mode init currently requires a dedicated rootfs") {
+	if !strings.Contains(err.Error(), "runtime-mode init requires a dedicated rootfs") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -208,6 +208,27 @@ func TestRunRejectsBindMountOverGuestCgroupTreeInInitMode(t *testing.T) {
 		t.Fatal("expected validation error, got nil")
 	}
 	if !strings.Contains(err.Error(), `runtime-mode init reserves guest path "/sys/fs/cgroup"`) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRunRejectsManagedRuntimeMountTargetInInitMode(t *testing.T) {
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+
+	err := Run([]string{
+		"run",
+		"--rootfs", "/srv/rootfs",
+		"--net", "host",
+		"--runtime-mode", "init",
+		"--ro-bind", "/host/path:/dev/null",
+		"--",
+		"/usr/lib/systemd/systemd",
+	}, &out, &errBuf)
+	if err == nil {
+		t.Fatal("expected validation error, got nil")
+	}
+	if !strings.Contains(err.Error(), `runtime-mode init manages guest path "/dev/null"`) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
