@@ -198,6 +198,9 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 	if netMode != string(spec.NetworkHost) && netMode != string(spec.NetworkNone) && netMode != string(spec.NetworkIsolated) {
 		return fmt.Errorf("unsupported backend network mode %q", netMode)
 	}
+	if resolvedRuntimeMode == spec.RuntimeModeInit && rootfs == "/" {
+		return errors.New("init mode requires a dedicated rootfs")
+	}
 
 	if hostname != "" {
 		if err := syscall.Sethostname([]byte(hostname)); err != nil {
@@ -469,23 +472,11 @@ func prepareRootfsMountLayout(rootfs string) error {
 
 func prepareGuestCgroupLayout(rootfs string) error {
 	target := bindMountTargetPath(rootfs, "/sys/fs/cgroup")
-	if rootfs == "/" {
-		info, err := os.Stat(target)
-		if err != nil {
-			return fmt.Errorf("stat guest cgroup mountpoint %q: %w", target, err)
-		}
-		if !info.IsDir() {
-			return fmt.Errorf("guest cgroup mountpoint %q is not a directory", target)
-		}
-		if err := syscall.Unmount(target, syscall.MNT_DETACH); err != nil && !errors.Is(err, syscall.EINVAL) && !errors.Is(err, syscall.ENOENT) {
-			return fmt.Errorf("unmount inherited cgroup tree at %q: %w", target, err)
-		}
-	} else {
-		if err := ensureDir(target, 0o755); err != nil {
-			return fmt.Errorf("prepare guest cgroup mountpoint: %w", err)
-		}
+	if err := ensureDir(target, 0o755); err != nil {
+		return fmt.Errorf("prepare guest cgroup mountpoint: %w", err)
 	}
-	if err := syscall.Mount("none", target, "cgroup2", 0, ""); err != nil {
+	flags := uintptr(syscall.MS_NOSUID | syscall.MS_NODEV | syscall.MS_NOEXEC)
+	if err := syscall.Mount("none", target, "cgroup2", flags, ""); err != nil {
 		return fmt.Errorf("mount guest cgroup2 tree at %q: %w", target, err)
 	}
 	return nil
