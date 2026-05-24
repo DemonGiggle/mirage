@@ -1,5 +1,9 @@
 # Roadmap
 
+This document tracks planned work only. For the current implementation shape,
+see [architecture.md](architecture.md). For the current user-visible behavior,
+see [isolation.md](isolation.md).
+
 ## Phase 0
 
 - define scope

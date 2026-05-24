@@ -1,233 +1,171 @@
 # Architecture
 
-## Goals
+This document describes how `mirage` is structured internally. For operator
+usage, see [usage.md](usage.md). For the exact user-visible isolation behavior,
+see [isolation.md](isolation.md).
 
-`mirage` should make it easy to launch an application inside a narrow, explicit execution envelope:
+## Design Goals
 
-- isolated root filesystem
+`mirage` should make it easy to launch an application inside a narrow,
+repeatable execution envelope with:
+
 - isolated process tree
-- optionally isolated network stack
-- explicit mount exposure
-- host-visible workload log export
+- explicit filesystem exposure
+- optional network isolation
+- host-visible logs
 - constrained resources
 
-The design target is not academic sandbox purity. The design target is a useful, repeatable isolation wrapper for local developer and agent workflows.
+The goal is practical local sandboxing for developer and agent workflows, not
+defense against a determined kernel-level adversary.
 
-## Glossary
+## Core Terms
 
-- `control plane`: the part of `mirage` that parses CLI input, resolves presets, validates options, and builds a final execution spec
-- `sandbox backend`: the part of `mirage` that actually enforces isolation with Linux primitives such as namespaces, rootfs setup, mounts, network rules, and cgroups
-- `host passthrough`: a fallback execution path where `mirage` performs planning and validation, but the final command still runs directly on the host without namespace isolation
-- `isolated process tree`: the full set of processes started by the sandbox entrypoint, including all child and grandchild processes it later spawns
-- `rootfs`: the filesystem tree exposed as `/` to the sandboxed process
-- `bind mount`: an explicit mapping from a host path into the sandbox, usually read-only or read-write
-- `network preset`: a named policy bundle that gives the sandbox a default network stance
-- `warn mode`: an observation mode that records denied or suspicious accesses so they can later become allow rules or presets
-- `host log export`: a mechanism for teeing workload stdout and stderr into host-visible files
+- `control plane`: the CLI-facing layer that parses flags, resolves presets,
+  validates options, and builds the final run specification
+- `sandbox backend`: the Linux-specific execution layer that applies
+  namespaces, rootfs setup, mounts, network behavior, and cgroups
+- `rootfs`: the filesystem tree presented as `/` to the sandboxed process
+- `bind mount`: an explicit mapping from a host path into the sandbox, either
+  read-only or read-write
+- `network preset`: a named policy bundle that sets the default network stance
+- `warn mode`: an observation mode that records attempted network access for
+  later review
 
-These words are not just documentation jargon. They define the boundary between what `mirage` already does today and what the real isolation engine still needs to enforce.
+## Mental Model
 
-## Architecture Diagram
+The intended model is simple:
 
-```mermaid
-flowchart LR
-    User[User or Agent] --> CLI["mirage CLI"]
-    CLI --> Launcher[Launcher and Spec Builder]
-    Launcher --> Presets[Preset Loader]
-    Launcher --> Validator[Config Validator]
-    Launcher --> Runner[Sandbox Runner]
+1. the CLI resolves a final config
+2. the runner creates the requested isolation context
+3. the workload executes inside that context
+4. optional logs and observation records are persisted on the host
 
-    Runner --> NS[Linux Namespaces]
-    Runner --> Rootfs[Rootfs Setup]
-    Runner --> Mounts[Explicit Mounts]
-    Runner --> Net[Network Policy]
-    Runner --> Cgroups[cgroup v2 Limits]
-    Runner --> State[State and Warn Logs]
+`mirage` is therefore a thin control plane in front of normal Linux isolation
+primitives, not a custom container platform.
 
-    NS --> Proc[Isolated Process Tree]
-    Rootfs --> FS[Sandbox Filesystem View]
-    Mounts --> FS
-    Net --> Egress[Outbound Access Decisions]
-    State --> PresetSuggest[Future Preset Suggestions]
+## High-Level Components
 
-    FS --> Workload[OpenClaw or Other Workload]
-    Proc --> Workload
-    Egress --> Workload
-    Cgroups --> Workload
-```
+### CLI and Spec Resolution
 
-The intended mental model is simple: `mirage` is a thin control plane in front of normal Linux isolation primitives. The CLI resolves a final spec, and the runner materializes that spec with namespaces, mounts, rootfs setup, network controls, and resource limits.
+The CLI is responsible for:
 
-## Threat Model
+- parsing command-line flags
+- loading built-in and file-backed presets
+- merging inline overrides
+- validating incompatible or incomplete settings
+- producing dry-run output
 
-V1 primarily tries to reduce risk from:
+This layer decides what should happen. It does not enforce the sandbox itself.
 
-- an agent executing an unsafe command
-- a plugin or subprocess reading more of the host than intended
-- unwanted egress from a long-lived tool
-- accidental host pollution from package installs, temp files, or helper binaries
+### Runner
 
-V1 is not trying to defeat a determined kernel escape or a root-level adversary on the same host.
+The runner is responsible for:
 
-## Core Building Blocks
+- creating user, PID, mount, UTS, and IPC namespaces
+- creating a network namespace when requested
+- preparing runtime mounts such as `/proc`, `/tmp`, and `/run`
+- applying bind mounts
+- performing rootfs handoff
+- entering delegated cgroup v2 limits when configured
+- executing the final command
 
-### 1. Launcher
+### Observation and State
 
-The launcher parses CLI flags, resolves presets, validates mount requests, and builds a final sandbox spec.
+The current implementation can persist:
 
-Responsibilities:
+- warn-mode network observations
+- host-visible stdout and stderr logs
 
-- parse command-line options
-- load preset defaults
-- merge inline overrides
-- validate incompatible settings
-- emit a dry-run plan when requested
+This state is intentionally plain and local rather than hidden behind a daemon.
 
-### 2. Isolation Setup
+## Current Runtime Construction
 
-The runner uses Linux primitives rather than a custom container runtime:
+The backend currently builds the sandbox in this order:
 
-- mount namespace
-- PID namespace
-- network namespace
-- UTS namespace
-- IPC namespace
-- cgroup v2
+1. create namespaces with `unshare`
+2. prepare mount propagation when a separate mount layout is needed
+3. mount `proc`, `tmpfs`, and `run` under a non-`/` rootfs
+4. apply read-only and read-write bind mounts
+5. hand off into the rootfs with `chroot`
+6. execute the workload directly or under observed-network instrumentation
 
-For rootfs handling, the preferred direction is:
+That sequencing explains an important current limitation:
 
-- bind or mount the prepared rootfs
-- mount proc, tmpfs, and required runtime paths
+- when `--rootfs /` is used, `mirage` does not create a fresh rootfs mount
+  layout, so the host root remains visible and the existing `/proc` mount stays
+  in place
+
+The operator-visible consequences are documented in
+[isolation.md](isolation.md).
+
+## Namespace Model
+
+One `mirage run` invocation corresponds to one isolated process tree.
+
+The workload root process and any later child processes should inherit the same
+namespace boundary automatically. This is the main reason the implementation
+uses standard Linux namespace setup rather than a host-side subprocess wrapper.
+
+## Network Model
+
+The current network modes are intentionally small:
+
+- `host`: no network namespace isolation
+- `none`: separate network namespace with no network access
+- `isolated`: separate network namespace with observed connect-attempt
+  enforcement
+
+The `isolated` implementation is currently observation-driven rather than a
+full routable firewall model. That is why the project still treats network
+architecture as incomplete rather than finished.
+
+## Rootfs Direction
+
+The longer-term rootfs direction remains:
+
+- prepare a dedicated rootfs
+- mount required runtime paths explicitly
 - apply bind mounts
 - switch root with `pivot_root` where practical
 
 Current state:
 
-- memory and PID limits can be enforced through delegated cgroup v2 user scopes
-- the backend now prepares a minimal runtime layout under the chosen rootfs
-- `proc` is mounted explicitly
-- `tmpfs` is mounted for `/tmp` and `/run`
-- read-only and read-write bind mounts are applied before sandbox handoff
+- non-`/` rootfs runs get a prepared runtime layout
 - handoff still finishes with `chroot`
+- `--rootfs /` remains a convenience mode, not a strong rootfs boundary
 
-`pivot_root` remains the cleaner long-term path.
+## Cgroup Direction
 
-The process model should stay explicit:
+The backend currently supports delegated cgroup v2 limits for:
 
-- one sandbox corresponds to one isolated process tree
-- the entry command is only the root of that tree
-- any subprocess spawned later should inherit the same sandbox boundary automatically
+- memory
+- PID count
 
-### 3. Filesystem Exposure
-
-Host data should only enter the sandbox through explicit mounts.
-
-Mount types:
-
-- `ro-bind`: read-only host bind
-- `rw-bind`: writable host bind
-- `tmpfs`: ephemeral writable scratch
-
-For OpenClaw, this matters a lot. A useful default profile would usually avoid mounting the whole `~/.openclaw` tree as writable.
-
-### 3.5. Host Log Export
-
-The host should be able to collect stdout and stderr from the workload even when the process is running inside a tighter envelope.
-
-Early direction:
-
-- allow explicit host-side stdout and stderr log targets
-- keep log export opt-in rather than always-on
-- preserve normal console output while teeing logs to files
-- keep this mechanism stable so it survives the later namespace runner swap
-
-### 4. Network Policy
-
-The early network model should stay small:
-
-- `none`
-- `host`
-- `isolated`
-
-Inside `isolated`, policy can start with a small rule set generated from presets and inline allow items.
-
-Initial rule vocabulary:
-
-- allow TCP host:port
-- allow IP or CIDR
-- allow DNS or deny DNS
-
-Domain-name allow lists are not a firewall primitive. They require name resolution, caching, and drift handling. That should stay out of the first implementation.
-
-### 5. Warn Mode
-
-Warn mode should help the user observe what would have been denied or what was attempted unexpectedly.
-
-Early direction:
-
-- log denied egress attempts
-- tag logs with sandbox ID and destination metadata when available
-- store observations under a local state directory
-
-Possible future flow:
-
-- `mirage run --warn net ...`
-- collect blocked destinations
-- `mirage preset suggest <sandbox-log>`
-
-This is intentionally looser than a full "learning firewall", but it is enough to make preset design practical.
+This keeps the resource model narrow and useful without introducing a full
+resource-management layer.
 
 ## Run Flow
 
 ```mermaid
 flowchart TD
     A["mirage run ... -- command"] --> B[Parse CLI flags]
-    B --> C[Load preset defaults]
+    B --> C[Load presets]
     C --> D[Merge inline overrides]
-    D --> E{Spec valid?}
+    D --> E{Config valid?}
     E -- no --> F[Exit with validation error]
-    E -- yes --> G[Prepare rootfs and mounts]
-    G --> H[Create namespaces and cgroup limits]
-    H --> I[Apply network preset and allow rules]
+    E -- yes --> G[Prepare namespaces and rootfs]
+    G --> H[Apply mounts and cgroup limits]
+    H --> I[Configure network behavior]
     I --> J[Launch workload]
     J --> K{Warn mode enabled?}
-    K -- yes --> L[Record denied or suspicious egress]
-    K -- no --> M[Wait for workload exit]
+    K -- yes --> L[Persist observations]
+    K -- no --> M[Wait for exit]
     L --> M
-    M --> N[Persist run metadata and logs]
 ```
 
-This flow is deliberately narrow. The first version should feel like a predictable wrapper around one command, not a long-running orchestration layer.
+## Relationship To Other Docs
 
-## Presets
-
-Presets should encode common operational stances rather than expose raw firewall implementation details.
-
-Examples:
-
-- `offline`: no network
-- `openai`: allow minimal outbound traffic needed for OpenAI-backed agent work
-- `github`: allow GitHub plus DNS
-- `openclaw-dev`: bind common OpenClaw paths with a conservative network stance
-
-Presets should be overridable by inline flags. Users will always need escape hatches.
-
-## OpenClaw Integration Direction
-
-The intended OpenClaw flow is:
-
-1. prepare a rootfs once
-2. mount only the needed working sets
-3. run the gateway or selected jobs inside `mirage`
-4. default to no network or a narrow preset
-5. promote repeated observations into a named preset
-
-## State
-
-The project will likely need a small local state directory for:
-
-- warn-mode network observations
-- sandbox run metadata
-- generated or user-defined presets
-
-The state format should stay plain and inspectable.
+- [usage.md](usage.md) explains how to invoke the CLI
+- [isolation.md](isolation.md) explains what isolation properties users should
+  expect today
+- [roadmap.md](roadmap.md) tracks the remaining implementation work
