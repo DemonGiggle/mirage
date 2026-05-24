@@ -189,6 +189,11 @@ Example preset file:
       "name": "team-openai",
       "network": "isolated",
       "allow_hosts": ["api.openai.com:443", "github.com:443"],
+      "rootfs": {
+        "template": "openclaw",
+        "required_commands": ["node"],
+        "recommended_cwd": "/workspace"
+      },
       "description": "Team preset for OpenAI-backed agent work"
     }
   ]
@@ -204,6 +209,10 @@ Use it with:
 
 For the exact isolation behavior of each built-in preset, see
 [isolation.md](isolation.md).
+
+Rootfs expectation metadata stays optional and separate from the actual rootfs
+path. A preset can recommend a rootfs template or required commands, while
+`--rootfs` still selects the concrete filesystem tree to validate or execute.
 
 ## Network Usage
 
