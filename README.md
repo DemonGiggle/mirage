@@ -98,6 +98,11 @@ Run a guest init entrypoint as sandbox PID 1:
   -- /usr/lib/systemd/systemd
 ```
 
+Init mode currently targets a narrow guest-systemd contract: unified cgroup v2,
+a delegated host `systemd-run --user --scope` leaf, and guest-visible
+`/sys/fs/cgroup` exposure inside dedicated rootfs runs. `--rootfs /` is not
+part of that init-mode contract.
+
 Run with a dedicated rootfs and explicit mounts:
 
 ```bash

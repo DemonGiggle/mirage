@@ -97,6 +97,18 @@ instead of being wrapped by Mirage. Because the current isolated-network path is
 implemented by an observation wrapper, init mode currently requires `--net host`
 or `--net none` without `--warn net`.
 
+Init mode currently defines a narrow guest cgroup contract:
+
+- unified cgroup v2 only
+- dedicated rootfs only; `--rootfs /` is not supported for init mode
+- Mirage always enters a delegated host `systemd-run --user --scope` leaf with
+  `Delegate=yes` before launching guest init
+- Mirage unshares a cgroup namespace for init-mode runs
+- when using a dedicated rootfs, Mirage bind-mounts the guest-visible cgroup
+  tree at `/sys/fs/cgroup`
+- init mode reserves `/sys/fs/cgroup` for that guest cgroup mount, so user bind
+  mounts cannot target that path
+
 ## Rootfs Guidance
 
 When you use a custom `--rootfs`, that root filesystem must contain:

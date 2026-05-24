@@ -100,7 +100,7 @@ func TestValidateRejectsInvalidRuntimeMode(t *testing.T) {
 
 func TestValidateRejectsInitModeWithObservedNetworking(t *testing.T) {
 	err := Validate(Config{
-		RootFS:      "/",
+		RootFS:      "/srv/rootfs",
 		NetworkMode: NetworkIsolated,
 		RuntimeMode: RuntimeModeInit,
 		Command:     []string{"/sbin/init"},
@@ -113,5 +113,30 @@ func TestValidateRejectsInitModeWithObservedNetworking(t *testing.T) {
 func TestNormalizeRuntimeModeDefaultsToDirect(t *testing.T) {
 	if got := NormalizeRuntimeMode(""); got != RuntimeModeDirect {
 		t.Fatalf("expected empty runtime mode to normalize to %q, got %q", RuntimeModeDirect, got)
+	}
+}
+
+func TestValidateRejectsInitModeWithHostRootfs(t *testing.T) {
+	err := Validate(Config{
+		RootFS:      "/",
+		NetworkMode: NetworkHost,
+		RuntimeMode: RuntimeModeInit,
+		Command:     []string{"/sbin/init"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "runtime-mode init currently requires a dedicated rootfs") {
+		t.Fatalf("expected init-mode rootfs error, got %v", err)
+	}
+}
+
+func TestValidateRejectsBindMountsOverGuestCgroupTreeInInitMode(t *testing.T) {
+	err := Validate(Config{
+		RootFS:      "/srv/rootfs",
+		NetworkMode: NetworkHost,
+		RuntimeMode: RuntimeModeInit,
+		RWBind:      []string{"/host/path:/sys/fs/cgroup"},
+		Command:     []string{"/sbin/init"},
+	})
+	if err == nil || !strings.Contains(err.Error(), `runtime-mode init reserves guest path "/sys/fs/cgroup"`) {
+		t.Fatalf("expected init-mode cgroup bind error, got %v", err)
 	}
 }

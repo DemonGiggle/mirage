@@ -127,6 +127,12 @@ The current init-mode contract is intentionally narrow:
 - it does not yet add a Mirage supervisor above that init process
 - it is currently incompatible with observed networking, because the current
   `strace`-based network path would otherwise replace guest init as PID 1
+- it assumes a unified cgroup v2 host and always enters a delegated
+  `systemd-run --user --scope` leaf before guest init starts
+- it currently requires a dedicated rootfs, because host-root mode keeps the
+  inherited `/sys/fs/cgroup` mount instead of a guest-private cgroup mount
+- it unshares a cgroup namespace and exposes `/sys/fs/cgroup` inside dedicated
+  rootfs runs so guest init sees a writable delegated subtree
 
 ## Network Model
 
