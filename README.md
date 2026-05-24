@@ -30,6 +30,7 @@ Today the project includes:
 
 - namespace-backed process-tree execution on Linux
 - chroot-based rootfs handoff when using a non-`/` rootfs
+- a shared V1 rootfs template schema with curated built-in templates
 - read-only and read-write bind mounts
 - built-in network presets and local preset files
 - observed network enforcement for `--net isolated`
