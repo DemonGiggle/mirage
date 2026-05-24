@@ -201,6 +201,27 @@ Built-in OpenClaw-oriented presets now include:
 - `openclaw-offline`
 - `openclaw-openai`
 
+## Built-In Preset Isolation Matrix
+
+Built-in presets currently only change network policy. Process, mount, UTS, and
+IPC namespace isolation come from the Linux runner itself, and rootfs behavior
+still depends on the `--rootfs` value you pass at runtime.
+
+| Preset | Network isolation | Process namespace | Mount namespace | UTS namespace | IPC namespace | Rootfs isolation | `/proc` view |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `offline` | Yes: separate netns with no network | Yes | Yes | Yes | Yes | Depends on `--rootfs` | Fresh sandbox `/proc` only when `--rootfs` is not `/` |
+| `github` | Partial: separate netns with observed allow-list for `github.com:443` | Yes | Yes | Yes | Yes | Depends on `--rootfs` | Fresh sandbox `/proc` only when `--rootfs` is not `/` |
+| `openai` | Partial: separate netns with observed allow-list for OpenAI endpoints | Yes | Yes | Yes | Yes | Depends on `--rootfs` | Fresh sandbox `/proc` only when `--rootfs` is not `/` |
+| `openclaw-offline` | Yes: separate netns with no network | Yes | Yes | Yes | Yes | Depends on `--rootfs` | Fresh sandbox `/proc` only when `--rootfs` is not `/` |
+| `openclaw-openai` | Partial: separate netns with observed allow-list for OpenAI and GitHub endpoints | Yes | Yes | Yes | Yes | Depends on `--rootfs` | Fresh sandbox `/proc` only when `--rootfs` is not `/` |
+
+Notes:
+
+- `--rootfs /` keeps the host root visible inside the sandbox.
+- A custom `--rootfs` triggers the current chroot-based rootfs handoff.
+- With `--rootfs /`, tools like `ps` can still read the host `/proc` mount even
+  though the workload itself runs in a separate PID namespace.
+
 ## Network Philosophy
 
 For the early versions, network policy should stay simple:
