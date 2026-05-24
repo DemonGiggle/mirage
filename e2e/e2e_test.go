@@ -206,21 +206,37 @@ func TestRunCreatesIsolatedProcessTree(t *testing.T) {
 
 func TestRunInitModeKeepsGuestCommandAsPID1(t *testing.T) {
 	requireNamespaceBackend(t)
+	requireCgroupBackend(t)
 
 	repoRoot := projectRoot(t)
+	rootfs := filepath.Join(t.TempDir(), "basic-rootfs")
+
+	initCmd := exec.Command(
+		"go", "run", "./cmd/mirage",
+		"rootfs",
+		"init",
+		"--template", "basic",
+		"--output", rootfs,
+	)
+	initCmd.Dir = repoRoot
+
+	output, err := initCmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("mirage rootfs init failed: %v\noutput:\n%s", err, string(output))
+	}
 
 	cmd := exec.Command(
 		"go", "run", "./cmd/mirage",
 		"run",
-		"--rootfs", "/",
+		"--rootfs", rootfs,
 		"--net", "host",
 		"--runtime-mode", "init",
 		"--",
-		"sh", "-c", `printf 'init-pid=%s ppid=%s' "$$" "$PPID"`,
+		"/bin/sh", "-c", `printf 'init-pid=%s ppid=%s' "$$" "$PPID"`,
 	)
 	cmd.Dir = repoRoot
 
-	output, err := cmd.CombinedOutput()
+	output, err = cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("mirage init-mode run failed: %v\noutput:\n%s", err, string(output))
 	}
@@ -228,6 +244,47 @@ func TestRunInitModeKeepsGuestCommandAsPID1(t *testing.T) {
 	got := string(output)
 	if !strings.Contains(got, "init-pid=1") {
 		t.Fatalf("expected init-mode entrypoint to be pid 1, got:\n%s", got)
+	}
+}
+
+func TestRunInitModeExposesGuestCgroupTreeInsideRootfs(t *testing.T) {
+	requireNamespaceBackend(t)
+	requireCgroupBackend(t)
+
+	repoRoot := projectRoot(t)
+	rootfs := filepath.Join(t.TempDir(), "basic-rootfs")
+
+	initCmd := exec.Command(
+		"go", "run", "./cmd/mirage",
+		"rootfs",
+		"init",
+		"--template", "basic",
+		"--output", rootfs,
+	)
+	initCmd.Dir = repoRoot
+
+	output, err := initCmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("mirage rootfs init failed: %v\noutput:\n%s", err, string(output))
+	}
+
+	runCmd := exec.Command(
+		"go", "run", "./cmd/mirage",
+		"run",
+		"--rootfs", rootfs,
+		"--net", "host",
+		"--runtime-mode", "init",
+		"--",
+		"/bin/sh", "-c", "test -f /sys/fs/cgroup/cgroup.controllers && test -w /sys/fs/cgroup/cgroup.subtree_control && printf cgroup-ok",
+	)
+	runCmd.Dir = repoRoot
+
+	output, err = runCmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("expected init-mode cgroup run to succeed: %v\noutput:\n%s", err, string(output))
+	}
+	if !strings.Contains(string(output), "cgroup-ok") {
+		t.Fatalf("expected guest cgroup verification output, got:\n%s", string(output))
 	}
 }
 

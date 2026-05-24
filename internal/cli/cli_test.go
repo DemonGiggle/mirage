@@ -151,6 +151,26 @@ func TestRunRejectsAllowRulesWithNetNone(t *testing.T) {
 	}
 }
 
+func TestRunRejectsInitModeWithHostRootfs(t *testing.T) {
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+
+	err := Run([]string{
+		"run",
+		"--rootfs", "/",
+		"--net", "host",
+		"--runtime-mode", "init",
+		"--",
+		"/usr/lib/systemd/systemd",
+	}, &out, &errBuf)
+	if err == nil {
+		t.Fatal("expected validation error, got nil")
+	}
+	if !strings.Contains(err.Error(), "runtime-mode init currently requires a dedicated rootfs") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestRunRejectsInitModeWithObservedNetworking(t *testing.T) {
 	var out bytes.Buffer
 	var errBuf bytes.Buffer
@@ -167,6 +187,27 @@ func TestRunRejectsInitModeWithObservedNetworking(t *testing.T) {
 		t.Fatal("expected validation error, got nil")
 	}
 	if !strings.Contains(err.Error(), "runtime-mode init is incompatible with observed networking") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRunRejectsBindMountOverGuestCgroupTreeInInitMode(t *testing.T) {
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+
+	err := Run([]string{
+		"run",
+		"--rootfs", "/srv/rootfs",
+		"--net", "host",
+		"--runtime-mode", "init",
+		"--rw-bind", "/host/path:/sys/fs/cgroup",
+		"--",
+		"/usr/lib/systemd/systemd",
+	}, &out, &errBuf)
+	if err == nil {
+		t.Fatal("expected validation error, got nil")
+	}
+	if !strings.Contains(err.Error(), `runtime-mode init reserves guest path "/sys/fs/cgroup"`) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

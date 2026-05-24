@@ -211,9 +211,29 @@ func TestPlanNotesInitMode(t *testing.T) {
 	for _, needle := range []string{
 		"execution mode: guest init command becomes sandbox PID 1",
 		"one sandbox = one isolated process tree rooted at guest init",
+		"cgroup v2: enforced via delegated systemd user-scope leaf cgroup (guest-unified-cgroup-v2)",
 	} {
 		if !strings.Contains(got, needle) {
 			t.Fatalf("expected plan notes to contain %q, got %q", needle, got)
 		}
+	}
+}
+
+func TestRequiresCgroupScopeForInitMode(t *testing.T) {
+	if !requiresCgroupScope(spec.Config{RuntimeMode: spec.RuntimeModeInit}) {
+		t.Fatal("expected init mode to require a delegated cgroup scope")
+	}
+}
+
+func TestBuildUnshareArgsAddsCgroupNamespaceForInitMode(t *testing.T) {
+	args, err := buildUnshareArgs(spec.Config{
+		NetworkMode: spec.NetworkHost,
+		RuntimeMode: spec.RuntimeModeInit,
+	})
+	if err != nil {
+		t.Fatalf("buildUnshareArgs returned error: %v", err)
+	}
+	if !strings.Contains(strings.Join(args, " "), "--cgroup") {
+		t.Fatalf("expected init-mode unshare args to include --cgroup, got %#v", args)
 	}
 }

@@ -73,6 +73,7 @@ Today you can rely on:
 - explicit bind-mount application
 - network mode selection through presets or inline flags
 - delegated cgroup v2 memory and PID limits
+- delegated unified cgroup v2 exposure for `--runtime-mode init`
 - host-side log export
 
 ## Current Limitations
@@ -84,6 +85,8 @@ Today you should assume:
 - rootfs handoff still ends with `chroot`, not `pivot_root`
 - isolated networking is still observation-driven rather than a full firewall
   model with routable allow-listed egress
+- guest init cgroup support is limited to unified cgroup v2 with a delegated
+  host systemd scope and a dedicated rootfs
 
 ## Practical Guidance
 

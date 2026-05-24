@@ -10,7 +10,7 @@ operation, see [usage.md](usage.md).
 - `unshare` on `PATH`
 - `strace` on `PATH` for isolated-network behavior and related tests
 - `systemd-run` with a working user manager session for delegated `--memory`
-  and `--pids`
+  and `--pids`, and for init-mode cgroup delegation
 
 ## Build
 

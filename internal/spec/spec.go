@@ -259,6 +259,20 @@ func Validate(cfg Config) error {
 	if NormalizeRuntimeMode(cfg.RuntimeMode) == RuntimeModeInit && (cfg.NetworkMode == NetworkIsolated || slicesContains(cfg.Warn, "net")) {
 		problems = append(problems, errors.New("runtime-mode init is incompatible with observed networking; use --net host or --net none without --warn net"))
 	}
+	if NormalizeRuntimeMode(cfg.RuntimeMode) == RuntimeModeInit && cfg.RootFS == "/" {
+		problems = append(problems, errors.New("runtime-mode init currently requires a dedicated rootfs; --rootfs / does not provide a guest cgroup mount"))
+	}
+	if NormalizeRuntimeMode(cfg.RuntimeMode) == RuntimeModeInit {
+		for _, mount := range append(append([]string{}, cfg.ROBind...), cfg.RWBind...) {
+			target, ok := bindMountTarget(mount)
+			if !ok {
+				continue
+			}
+			if target == "/sys/fs/cgroup" || strings.HasPrefix(target, "/sys/fs/cgroup/") {
+				problems = append(problems, fmt.Errorf("runtime-mode init reserves guest path %q for the delegated cgroup tree", target))
+			}
+		}
+	}
 	if cfg.StdoutLog != "" && cfg.StderrLog != "" && cfg.StdoutLog == cfg.StderrLog {
 		problems = append(problems, errors.New("stdout-log and stderr-log must be different paths"))
 	}
@@ -348,4 +362,12 @@ func NormalizeRuntimeMode(mode RuntimeMode) RuntimeMode {
 		return RuntimeModeDirect
 	}
 	return mode
+}
+
+func bindMountTarget(entry string) (string, bool) {
+	_, target, ok := strings.Cut(entry, ":")
+	if !ok || target == "" || !filepath.IsAbs(target) {
+		return "", false
+	}
+	return filepath.Clean(target), true
 }

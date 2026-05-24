@@ -198,6 +198,9 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 	if netMode != string(spec.NetworkHost) && netMode != string(spec.NetworkNone) && netMode != string(spec.NetworkIsolated) {
 		return fmt.Errorf("unsupported backend network mode %q", netMode)
 	}
+	if resolvedRuntimeMode == spec.RuntimeModeInit && rootfs == "/" {
+		return errors.New("init mode requires a dedicated rootfs")
+	}
 
 	if hostname != "" {
 		if err := syscall.Sethostname([]byte(hostname)); err != nil {
@@ -205,13 +208,18 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 		}
 	}
 
-	if rootfs != "/" || len(roBind) > 0 || len(rwBind) > 0 {
+	if rootfs != "/" || len(roBind) > 0 || len(rwBind) > 0 || resolvedRuntimeMode == spec.RuntimeModeInit {
 		if err := makeMountNamespacePrivate(); err != nil {
 			return err
 		}
 	}
 	if rootfs != "" && rootfs != "/" {
 		if err := prepareRootfsMountLayout(rootfs); err != nil {
+			return err
+		}
+	}
+	if resolvedRuntimeMode == spec.RuntimeModeInit {
+		if err := prepareGuestCgroupLayout(rootfs); err != nil {
 			return err
 		}
 	}
@@ -273,7 +281,7 @@ func execCommandInSandbox(command []string, rootfs string) error {
 }
 
 func requiresCgroupScope(cfg spec.Config) bool {
-	return cfg.Memory != "" || cfg.Pids > 0
+	return cfg.Memory != "" || cfg.Pids > 0 || spec.NormalizeRuntimeMode(cfg.RuntimeMode) == spec.RuntimeModeInit
 }
 
 func buildDelegatedScopeCommand(args ...string) (*exec.Cmd, error) {
@@ -415,6 +423,9 @@ func buildUnshareArgs(cfg spec.Config) ([]string, error) {
 		"--uts",
 		"--ipc",
 	}
+	if spec.NormalizeRuntimeMode(cfg.RuntimeMode) == spec.RuntimeModeInit {
+		args = append(args, "--cgroup")
+	}
 
 	switch cfg.NetworkMode {
 	case spec.NetworkHost:
@@ -455,6 +466,18 @@ func prepareRootfsMountLayout(rootfs string) error {
 	}
 	if err := mountTmpfs(filepath.Join(rootfs, "run"), "mode=0755"); err != nil {
 		return err
+	}
+	return nil
+}
+
+func prepareGuestCgroupLayout(rootfs string) error {
+	target := bindMountTargetPath(rootfs, "/sys/fs/cgroup")
+	if err := ensureDir(target, 0o755); err != nil {
+		return fmt.Errorf("prepare guest cgroup mountpoint: %w", err)
+	}
+	flags := uintptr(syscall.MS_NOSUID | syscall.MS_NODEV | syscall.MS_NOEXEC)
+	if err := syscall.Mount("none", target, "cgroup2", flags, ""); err != nil {
+		return fmt.Errorf("mount guest cgroup2 tree at %q: %w", target, err)
 	}
 	return nil
 }
@@ -972,8 +995,11 @@ func PlanNotes(cfg spec.Config) []string {
 	if len(cfg.ROBind) > 0 || len(cfg.RWBind) > 0 {
 		notes = append(notes, "bind mounts: enforced read-only/read-write host path exposure")
 	}
-	if cfg.Memory != "" || cfg.Pids > 0 {
+	if cfg.Memory != "" || cfg.Pids > 0 || spec.NormalizeRuntimeMode(cfg.RuntimeMode) == spec.RuntimeModeInit {
 		var limits []string
+		if spec.NormalizeRuntimeMode(cfg.RuntimeMode) == spec.RuntimeModeInit {
+			limits = append(limits, "guest-unified-cgroup-v2")
+		}
 		if cfg.Memory != "" {
 			limits = append(limits, "memory="+cfg.Memory)
 		}
