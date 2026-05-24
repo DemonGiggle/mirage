@@ -115,6 +115,33 @@ Built-in V1 templates currently include:
 - `python`
 - `openclaw`
 
+Every built-in template currently prepares the same baseline runtime layout:
+
+- runtime directories: `/proc`, `/tmp`, and `/run`
+- common runtime files: `/etc/hosts`, `/etc/resolv.conf`, and `/etc/nsswitch.conf`
+- declared binaries copied into the rootfs together with their ELF dependency
+  closures
+- shebang interpreters copied when a declared command is a script wrapper
+
+### What `rootfs init --template` prepares
+
+| Template | What it prepares | Good starting point for |
+| --- | --- | --- |
+| `basic` | Shell and inspection basics: `/bin/sh`, `/bin/ls`, `/bin/cat`, `/bin/mkdir`, `/bin/pwd`, `/bin/rm`, `/bin/true`, `/bin/false`, and `/usr/bin/env` | Sanity checks, simple shell commands, and minimal rootfs runs |
+| `node` | Everything from `basic`, plus `/workspace`, `/etc/ssl/certs`, `node`, `npm`, `npx`, and common CA bundle files when present on the host | Node.js-oriented tooling and HTTPS-capable Node workloads |
+| `python` | Everything from `basic`, plus `/workspace`, `/etc/ssl/certs`, `python3`, `pip3`, and common CA bundle files when present on the host | Python-oriented tooling and HTTPS-capable Python workloads |
+| `openclaw` | Everything from `node`, plus `/home`, `bash`, and `git` | OpenClaw-oriented local agent work, especially with the `openclaw-*` presets |
+
+Notes:
+
+- `basic` is the smallest built-in template and the best first choice when you
+  just want a runnable rootfs for commands like `/bin/ls` or `/bin/sh`.
+- `node`, `python`, and `openclaw` intentionally add a writable `/workspace`
+  layout because those flows commonly mount or use project trees there.
+- The OpenClaw presets currently recommend the `openclaw` template and expect
+  `node` to be present, so `mirage doctor --preset openclaw-openai --rootfs ...`
+  can check that expectation directly.
+
 Schema shape:
 
 ```json

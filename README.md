@@ -65,6 +65,16 @@ Generate a runnable rootfs from the built-in basic template:
 ./bin/mirage rootfs init --template basic --output /srv/mirage/basic-rootfs
 ```
 
+The built-in templates are:
+
+- `basic`: minimal shell and inspection tools
+- `node`: `basic` plus Node.js, npm, npx, `/workspace`, and CA trust material
+- `python`: `basic` plus Python, pip, `/workspace`, and CA trust material
+- `openclaw`: `node` plus `bash`, `git`, and `/home`
+
+See [docs/usage.md](docs/usage.md#rootfs-templates) for the exact prepared
+layout behind each template.
+
 Validate that rootfs before trying to run inside it:
 
 ```bash
