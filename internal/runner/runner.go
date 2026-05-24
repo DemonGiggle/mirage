@@ -240,12 +240,8 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 
-	switch resolvedRuntimeMode {
-	case spec.RuntimeModeInit:
+	if resolvedRuntimeMode == spec.RuntimeModeInit {
 		return runInitCommand(command, policy, rootfs)
-	case spec.RuntimeModeDirect:
-	default:
-		return fmt.Errorf("unsupported backend runtime mode %q", runtimeMode)
 	}
 
 	return runDirectCommand(command, policy, rootfs, stdout, stderr)
