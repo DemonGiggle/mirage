@@ -138,6 +138,7 @@ func runRootfsInit(args []string, stdout, stderr io.Writer) error {
 	_, _ = fmt.Fprintf(stdout, "directories: %d\n", len(template.Directories))
 	_, _ = fmt.Fprintf(stdout, "binaries: %d\n", len(template.Binaries))
 	_, _ = fmt.Fprintf(stdout, "runtime-files: %d\n", len(template.RuntimeFiles))
+	_, _ = fmt.Fprintf(stdout, "generated-files: %d\n", len(template.GeneratedFiles))
 	return nil
 }
 
@@ -150,18 +151,25 @@ func runDoctor(args []string, stdout, stderr io.Writer) error {
 	var cwd string
 	var preset string
 	var presetFile string
+	var runtimeMode string
+	var serviceUnit string
 
 	fs.StringVar(&rootfsPath, "rootfs", "", "Path to the rootfs to validate")
 	fs.StringVar(&command, "command", "", "Command to resolve and validate inside the rootfs")
 	fs.StringVar(&cwd, "cwd", "", "Working directory to validate inside the rootfs")
 	fs.StringVar(&preset, "preset", "", "Named preset to resolve while validating")
 	fs.StringVar(&presetFile, "preset-file", "", "Path to a local preset JSON file")
+	fs.StringVar(&runtimeMode, "runtime-mode", string(spec.RuntimeModeDirect), "Runtime mode to validate against: direct, init")
+	fs.StringVar(&serviceUnit, "service-unit", "", "Systemd unit to validate inside the rootfs when runtime-mode=init")
 
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if len(fs.Args()) > 0 {
 		return fmt.Errorf("doctor does not accept positional arguments: %s", strings.Join(fs.Args(), " "))
+	}
+	if runtimeMode != string(spec.RuntimeModeDirect) && runtimeMode != string(spec.RuntimeModeInit) {
+		return fmt.Errorf("invalid runtime-mode %q; must be %q or %q", runtimeMode, spec.RuntimeModeDirect, spec.RuntimeModeInit)
 	}
 
 	_, _ = fmt.Fprintln(stdout, "mirage doctor")
@@ -177,7 +185,7 @@ func runDoctor(args []string, stdout, stderr io.Writer) error {
 	_, _ = fmt.Fprintln(stdout, "- warn mode recorder: available for network connect attempts")
 	_, _ = fmt.Fprintln(stdout, "- host log export: available")
 
-	if rootfsPath == "" && command == "" && cwd == "" && preset == "" && presetFile == "" {
+	if rootfsPath == "" && command == "" && cwd == "" && preset == "" && presetFile == "" && serviceUnit == "" {
 		return nil
 	}
 	if rootfsPath == "" {
@@ -200,10 +208,13 @@ func runDoctor(args []string, stdout, stderr io.Writer) error {
 		if resolvedPreset.Rootfs.RecommendedCwd != "" {
 			_, _ = fmt.Fprintf(stdout, "- preset recommended working directory: %s\n", resolvedPreset.Rootfs.RecommendedCwd)
 		}
-		if len(resolvedPreset.Rootfs.RequiredCommands) > 0 {
-			_, _ = fmt.Fprintf(stdout, "- preset required rootfs commands: %s\n", strings.Join(resolvedPreset.Rootfs.RequiredCommands, ", "))
-		}
 		presetRequiredCommands := uniqueStrings(resolvedPreset.Rootfs.RequiredCommands)
+		if len(presetRequiredCommands) > 0 {
+			_, _ = fmt.Fprintf(stdout, "- preset required rootfs commands: %s\n", strings.Join(presetRequiredCommands, ", "))
+		}
+		if runtimeMode == string(spec.RuntimeModeInit) {
+			return runInitDoctor(stdout, rootfsPath, command, serviceUnit, presetRequiredCommands)
+		}
 		report, err := rootfs.ValidateRootfs(rootfsPath, "", cwd)
 		_, _ = fmt.Fprintf(stdout, "- rootfs path: %s\n", report.Rootfs)
 		for _, status := range report.RuntimePaths {
@@ -246,6 +257,9 @@ func runDoctor(args []string, stdout, stderr io.Writer) error {
 		_, _ = fmt.Fprintln(stdout, "- rootfs validation: ok")
 		return nil
 	}
+	if runtimeMode == string(spec.RuntimeModeInit) {
+		return runInitDoctor(stdout, rootfsPath, command, serviceUnit, nil)
+	}
 
 	report, err := rootfs.ValidateRootfs(rootfsPath, command, cwd)
 	_, _ = fmt.Fprintf(stdout, "- rootfs path: %s\n", report.Rootfs)
@@ -269,6 +283,42 @@ func runDoctor(args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 	_, _ = fmt.Fprintln(stdout, "- rootfs validation: ok")
+	return nil
+}
+
+func runInitDoctor(stdout io.Writer, rootfsPath string, command string, serviceUnit string, presetRequiredCommands []string) error {
+	report, err := rootfs.ValidateInitRootfs(rootfsPath, command, serviceUnit)
+	_, _ = fmt.Fprintf(stdout, "- rootfs path: %s\n", report.Rootfs)
+	for _, status := range report.RuntimePaths {
+		_, _ = fmt.Fprintf(stdout, "- init runtime path %s: %s\n", status.Path, status.Status)
+	}
+	if report.ResolvedInit != "" {
+		_, _ = fmt.Fprintf(stdout, "- resolved init command: %s\n", report.ResolvedInit)
+	}
+	if report.MachineIDPath != "" {
+		_, _ = fmt.Fprintf(stdout, "- systemd machine-id: %s\n", report.MachineIDPath)
+	}
+	if serviceUnit != "" && report.ServiceUnitPath != "" {
+		_, _ = fmt.Fprintf(stdout, "- systemd unit %s: ok (%s)\n", serviceUnit, report.ServiceUnitPath)
+	}
+
+	var problems []error
+	if err != nil {
+		problems = append(problems, err)
+	}
+	for _, commandToValidate := range presetRequiredCommands {
+		commandReport, err := rootfs.ValidateRootfs(rootfsPath, commandToValidate, "")
+		if err != nil {
+			problems = append(problems, err)
+			continue
+		}
+		_, _ = fmt.Fprintf(stdout, "- preset required command %s: ok (%s)\n", commandToValidate, commandReport.ResolvedCommand)
+	}
+	if len(problems) > 0 {
+		_, _ = fmt.Fprintln(stdout, "- init rootfs validation: failed")
+		return errors.Join(problems...)
+	}
+	_, _ = fmt.Fprintln(stdout, "- init rootfs validation: ok")
 	return nil
 }
 

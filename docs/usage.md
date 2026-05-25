@@ -158,6 +158,7 @@ Built-in V1 templates currently include:
 - `node`
 - `python`
 - `openclaw`
+- `openclaw-systemd`
 
 Every built-in template currently prepares the same baseline runtime layout:
 
@@ -166,6 +167,21 @@ Every built-in template currently prepares the same baseline runtime layout:
 - declared binaries copied into the rootfs together with their ELF dependency
   closures
 - shebang interpreters copied when a declared command is a script wrapper
+- generated files written directly by Mirage for small rootfs assets such as an
+  empty `/etc/machine-id`
+
+For systemd-oriented rootfs validation, use:
+
+```bash
+./bin/mirage doctor \
+  --rootfs /srv/mirage/openclaw-systemd-rootfs \
+  --runtime-mode init \
+  --service-unit openclaw.service
+```
+
+That checks the guest init binary, required runtime paths, `/etc/machine-id`,
+and whether the requested service unit is present at
+`/etc/systemd/system/<name>` or `/usr/lib/systemd/system/<name>`.
 
 ### What `rootfs init --template` prepares
 
@@ -175,6 +191,7 @@ Every built-in template currently prepares the same baseline runtime layout:
 | `node` | Everything from `basic`, plus `/workspace`, `/etc/ssl/certs`, `node`, `npm`, `npx`, and common CA bundle files when present on the host | Node.js-oriented tooling and HTTPS-capable Node workloads |
 | `python` | Everything from `basic`, plus `/workspace`, `/etc/ssl/certs`, `python3`, `pip3`, and common CA bundle files when present on the host | Python-oriented tooling and HTTPS-capable Python workloads |
 | `openclaw` | Everything from `node`, plus `/home`, `bash`, and `git` | OpenClaw-oriented local agent work, especially with the `openclaw-*` presets |
+| `openclaw-systemd` | Everything from `openclaw`, plus guest `systemd` tooling, systemd unit directories, `/var/lib/systemd`, `/var/log/journal`, `/etc/passwd`, `/etc/group`, and an empty `/etc/machine-id` | OpenClaw guest service runs managed by guest `systemd` |
 
 Notes:
 
@@ -182,6 +199,9 @@ Notes:
   just want a runnable rootfs for commands like `/bin/ls` or `/bin/sh`.
 - `node`, `python`, and `openclaw` intentionally add a writable `/workspace`
   layout because those flows commonly mount or use project trees there.
+- `openclaw-systemd` seeds the directory structure needed for guest `systemd`,
+  but Mirage does not ship an opinionated `openclaw.service` body. The expected
+  placement for an operator-provided unit is `/etc/systemd/system/openclaw.service`.
 - The OpenClaw presets currently recommend the `openclaw` template and expect
   `node` to be present, so `mirage doctor --preset openclaw-openai --rootfs ...`
   can check that expectation directly.

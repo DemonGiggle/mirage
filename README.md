@@ -72,6 +72,8 @@ The built-in templates are:
 - `node`: `basic` plus Node.js, npm, npx, `/workspace`, and CA trust material
 - `python`: `basic` plus Python, pip, `/workspace`, and CA trust material
 - `openclaw`: `node` plus `bash`, `git`, and `/home`
+- `openclaw-systemd`: `openclaw` plus guest `systemd` tooling, systemd
+  directories, and an empty `/etc/machine-id`
 
 See [docs/usage.md](docs/usage.md#rootfs-templates) for the exact prepared
 layout behind each template.
