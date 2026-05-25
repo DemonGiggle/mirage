@@ -37,6 +37,13 @@ Today the project includes:
 - observed network enforcement for `--net isolated`
 - stdout and stderr export to host-visible log files
 - delegated cgroup v2 memory and PID limits
+- tracked sandbox lifecycle commands for init-mode runs (`sandbox start/status/stop/logs`)
+
+The runtime modes target different operator shapes:
+
+- **direct exec**: one foreground workload becomes sandbox PID 1
+- **guest init**: a guest init entrypoint becomes sandbox PID 1, and Mirage can
+  track the sandbox through a named host-side lifecycle entry
 
 Important caveat:
 
@@ -104,7 +111,29 @@ Init mode currently targets a narrow guest-systemd contract: unified cgroup v2,
 a delegated host `systemd-run --user --scope` leaf, and guest-visible
 `/sys/fs/cgroup` exposure inside dedicated rootfs runs. `--rootfs /` is not
 part of that init-mode contract. Init-mode runs also get a managed `/dev`, a
-read-only `/sys`, and runtime state directories under `/run`.
+read-only `/sys`, runtime state directories under `/run`, and a `container=mirage`
+environment hint for guest init processes.
+
+Track a long-lived init-mode sandbox from the host:
+
+```bash
+./bin/mirage sandbox start \
+  --name openclaw \
+  --rootfs /srv/mirage/systemd-rootfs \
+  --service-unit openclaw.service \
+  -- /usr/bin/systemd
+
+./bin/mirage sandbox status --name openclaw
+./bin/mirage sandbox logs --name openclaw --lines 100
+./bin/mirage sandbox stop --name openclaw
+```
+
+This tracked lifecycle stays intentionally small:
+
+- one named sandbox maps to one host-side user-systemd scope
+- logs are surfaced through Mirage-managed stdout/stderr and launch log files
+- live namespace entry and journal extraction are not yet general-purpose host
+  commands
 
 Run with a dedicated rootfs and explicit mounts:
 

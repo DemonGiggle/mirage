@@ -94,5 +94,28 @@ Today you should assume:
 - use `--rootfs /` only for quick local checks and simple host-root-based runs
 - use a dedicated rootfs when filesystem separation or proc visibility matters
 - treat presets as network policy helpers, not full sandbox profiles
+- choose the runtime mode deliberately:
+  - `direct` for one-shot commands where Mirage owns the foreground workload
+  - `init` for guest-init-style sandboxes that need a dedicated rootfs, a
+    broader runtime mount contract, and host-side lifecycle tracking
+- for `init` mode, prefer `mirage sandbox start/status/stop/logs` over ad hoc
+  backgrounding so the host-visible state and logs stay coherent
 - use this document as the source of truth for current behavior, and
   [roadmap.md](roadmap.md) for what is still planned
+
+## Guest-Init-Specific Caveats
+
+Compared with direct-exec sandboxes, guest-init sandboxes currently add:
+
+- a managed `/dev`
+- runtime state directories under `/run`, including `/run/systemd/system`
+- a delegated cgroup-aware host scope for lifecycle control
+- a `container=mirage` environment hint
+
+But they still have important limits:
+
+- they require a dedicated rootfs and do not support `--rootfs /`
+- they are incompatible with the current observed isolated-network path
+- host-visible logs come from Mirage-managed stdout/stderr and launch files, not
+  from a general live guest journal API
+- Mirage still does not provide a generic `exec into running sandbox` command
