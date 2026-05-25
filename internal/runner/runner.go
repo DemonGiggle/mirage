@@ -89,7 +89,7 @@ func Execute(cfg spec.Config, stdout, stderr io.Writer) error {
 		}
 		cgroupArgs = append(cgroupArgs, "--", commandName)
 		cgroupArgs = append(cgroupArgs, commandArgs...)
-		cmd, err = buildDelegatedScopeCommand(cgroupArgs...)
+		cmd, err = buildDelegatedScopeCommand(cfg.ScopeName, cgroupArgs...)
 		if err != nil {
 			return err
 		}
@@ -284,15 +284,18 @@ func requiresCgroupScope(cfg spec.Config) bool {
 	return cfg.Memory != "" || cfg.Pids > 0 || spec.NormalizeRuntimeMode(cfg.RuntimeMode) == spec.RuntimeModeInit
 }
 
-func buildDelegatedScopeCommand(args ...string) (*exec.Cmd, error) {
+func buildDelegatedScopeCommand(unitName string, args ...string) (*exec.Cmd, error) {
 	if _, err := exec.LookPath("systemd-run"); err != nil {
 		return nil, fmt.Errorf("cgroup limits require systemd-run on PATH: %w", err)
 	}
-	return exec.Command("systemd-run", delegatedScopeArgs(args...)...), nil
+	return exec.Command("systemd-run", delegatedScopeArgs(unitName, args...)...), nil
 }
 
-func delegatedScopeArgs(args ...string) []string {
+func delegatedScopeArgs(unitName string, args ...string) []string {
 	scopeArgs := []string{"--user", "--scope", "--quiet", "--collect", "-p", "Delegate=yes", "--"}
+	if unitName != "" {
+		scopeArgs = append(scopeArgs[:len(scopeArgs)-1], "--unit="+unitName, "--")
+	}
 	scopeArgs = append(scopeArgs, args...)
 	return scopeArgs
 }
@@ -1182,6 +1185,9 @@ func PlanNotes(cfg spec.Config) []string {
 			limits = append(limits, fmt.Sprintf("pids=%d", cfg.Pids))
 		}
 		notes = append(notes, fmt.Sprintf("cgroup v2: enforced via delegated systemd user-scope leaf cgroup (%s)", strings.Join(limits, ", ")))
+	}
+	if cfg.ScopeName != "" {
+		notes = append(notes, fmt.Sprintf("systemd user scope: %s", cfg.ScopeName))
 	}
 	if cfg.RootFS == "/" {
 		notes = append(notes, "rootfs backend: host root")

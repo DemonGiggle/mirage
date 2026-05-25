@@ -69,12 +69,30 @@ Preview an init-oriented run where the guest entrypoint must become PID 1:
   -- /usr/lib/systemd/systemd
 ```
 
+Start a tracked guest-systemd sandbox with host-visible logs:
+
+```bash
+./bin/mirage sandbox start \
+  --name openclaw \
+  --rootfs /srv/mirage/systemd-rootfs \
+  --service-unit openclaw.service
+```
+
+Inspect, stop, or read logs from a tracked sandbox:
+
+```bash
+./bin/mirage sandbox status --name openclaw
+./bin/mirage sandbox logs --name openclaw --lines 100
+./bin/mirage sandbox stop --name openclaw
+```
+
 ## Command Pattern
 
 The general form is:
 
 ```bash
 mirage rootfs init --template <name> --output <path>
+mirage sandbox <start|status|stop|logs> [flags]
 mirage run [sandbox options...] -- command [args...]
 ```
 
@@ -240,6 +258,40 @@ Schema shape:
 This schema is the shared input model for upcoming rootfs generation and
 rootfs-aware diagnostics. It remains distinct from network presets, which still
 only describe runtime policy defaults.
+
+## Tracked Sandbox Lifecycle For Guest `systemd`
+
+For guest-systemd flows, Mirage now exposes a small tracked-sandbox model on top
+of the existing `run` command:
+
+- `mirage sandbox start` launches an init-mode sandbox in the background
+- `mirage sandbox status` reports the host-side user-systemd scope state
+- `mirage sandbox logs` reads the tracked stdout/stderr launch logs
+- `mirage sandbox stop` requests a clean stop through the tracked user-systemd
+  scope and escalates only if the scope does not stop in time
+
+This model is intentionally narrow:
+
+- it is for `--runtime-mode init` sandboxes only
+- it tracks one named sandbox per state entry under the user's local Mirage
+  state directory
+- it does **not** add a long-lived Mirage daemon or a multi-sandbox scheduler
+- it does **not** yet provide live `systemctl exec`-style namespace entry into
+  a running guest
+
+Operationally, the lifecycle is:
+
+1. prepare a dedicated rootfs with guest `systemd` and a service unit
+2. run `mirage sandbox start --name ... --service-unit ...`
+3. use `mirage sandbox status` to confirm the tracked scope is active
+4. use `mirage sandbox logs` to inspect init stdout/stderr or launch failures
+5. use `mirage sandbox stop` to terminate the sandbox cleanly from the host
+
+The tracked sandbox commands default guest init stdout/stderr into files under
+the sandbox's local state directory so logs remain available after stop or boot
+failure. `sandbox status` also reports the launch log path, which is where
+Mirage's own launch-time failures are recorded when the background start does
+not reach a stable running scope.
 
 ## Bind Mounts
 

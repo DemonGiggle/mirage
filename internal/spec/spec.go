@@ -86,6 +86,7 @@ type Config struct {
 	RootFS      string
 	NetworkMode NetworkMode
 	RuntimeMode RuntimeMode
+	ScopeName   string
 	Preset      string
 	PresetFile  string
 	Warn        []string

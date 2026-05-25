@@ -38,6 +38,8 @@ func Run(args []string, stdout, stderr io.Writer) error {
 		return runRootfs(args[1:], stdout, stderr)
 	case "doctor":
 		return runDoctor(args[1:], stdout, stderr)
+	case "sandbox":
+		return runSandboxCommand(args[1:], stdout, stderr)
 	case "run":
 		return runSandbox(args[1:], stdout, stderr)
 	default:
@@ -51,6 +53,7 @@ func printRootHelp(w io.Writer) {
 Usage:
   mirage rootfs init --template <name> --output <path>
   mirage doctor [flags]
+  mirage sandbox <start|status|stop|logs> [flags]
   mirage run [flags] -- <command> [args...]
   mirage preset list
   mirage version
@@ -58,6 +61,7 @@ Usage:
 Examples:
   mirage rootfs init --template basic --output /srv/mirage/basic-rootfs
   mirage doctor --rootfs /srv/mirage/basic-rootfs --command /bin/ls
+  mirage sandbox start --name openclaw --rootfs /srv/systemd-rootfs --service-unit openclaw.service
   mirage run --rootfs / --net none -- echo hello
   mirage run --rootfs /srv/systemd-rootfs --net host --runtime-mode init -- /usr/lib/systemd/systemd
   mirage run --rootfs /srv/rootfs --preset openai --warn net -- app
@@ -362,6 +366,7 @@ func runSandbox(args []string, stdout, stderr io.Writer) error {
 	fs.Var(stringSliceValue{target: &cfg.Env}, "env", "Environment variable in KEY=VALUE form")
 	fs.StringVar((*string)(&cfg.NetworkMode), "net", "", "Network mode: none, isolated, host")
 	fs.StringVar((*string)(&cfg.RuntimeMode), "runtime-mode", string(spec.RuntimeModeDirect), "Runtime mode: direct, init")
+	fs.StringVar(&cfg.ScopeName, "scope-name", "", "Internal: explicit systemd user scope unit name")
 	fs.StringVar(&cfg.Preset, "preset", "", "Named preset to apply before inline overrides")
 	fs.StringVar(&cfg.PresetFile, "preset-file", "", "Path to a local preset JSON file")
 	fs.StringVar(&warnCSV, "warn", "", "Warn modes, currently supports: net")

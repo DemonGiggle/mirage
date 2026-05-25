@@ -182,10 +182,10 @@ func TestEnsureObservedNetworkToolAvailable(t *testing.T) {
 }
 
 func TestDelegatedScopeArgs(t *testing.T) {
-	args := delegatedScopeArgs("mirage", "__cgroup-exec", "--memory", "128M", "--pids", "7", "--", "unshare", "--fork", "cmd")
+	args := delegatedScopeArgs("mirage-sandbox-demo.scope", "mirage", "__cgroup-exec", "--memory", "128M", "--pids", "7", "--", "unshare", "--fork", "cmd")
 	got := strings.Join(args, " ")
 	for _, needle := range []string{
-		"--user --scope --quiet --collect -p Delegate=yes",
+		"--user --scope --quiet --collect -p Delegate=yes --unit=mirage-sandbox-demo.scope",
 		"-- mirage __cgroup-exec --memory 128M --pids 7 -- unshare --fork cmd",
 	} {
 		if !strings.Contains(got, needle) {
@@ -206,6 +206,7 @@ func TestPlanNotesInitMode(t *testing.T) {
 		RootFS:      "/",
 		NetworkMode: spec.NetworkHost,
 		RuntimeMode: spec.RuntimeModeInit,
+		ScopeName:   "mirage-sandbox-demo.scope",
 	})
 	got := strings.Join(notes, "\n")
 	for _, needle := range []string{
@@ -213,6 +214,7 @@ func TestPlanNotesInitMode(t *testing.T) {
 		"one sandbox = one isolated process tree rooted at guest init",
 		"init runtime mounts: managed /dev tmpfs, read-only /sys, and delegated cgroup2",
 		"cgroup v2: enforced via delegated systemd user-scope leaf cgroup (guest-unified-cgroup-v2)",
+		"systemd user scope: mirage-sandbox-demo.scope",
 	} {
 		if !strings.Contains(got, needle) {
 			t.Fatalf("expected plan notes to contain %q, got %q", needle, got)
