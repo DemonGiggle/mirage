@@ -210,7 +210,7 @@ func runDoctor(args []string, stdout, stderr io.Writer) error {
 		}
 		presetRequiredCommands := uniqueStrings(resolvedPreset.Rootfs.RequiredCommands)
 		if len(presetRequiredCommands) > 0 {
-			_, _ = fmt.Fprintf(stdout, "- preset required rootfs commands: %s\n", strings.Join(resolvedPreset.Rootfs.RequiredCommands, ", "))
+			_, _ = fmt.Fprintf(stdout, "- preset required rootfs commands: %s\n", strings.Join(presetRequiredCommands, ", "))
 		}
 		if runtimeMode == string(spec.RuntimeModeInit) {
 			return runInitDoctor(stdout, rootfsPath, command, serviceUnit, presetRequiredCommands)

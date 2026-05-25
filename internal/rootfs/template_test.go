@@ -166,6 +166,16 @@ func TestOpenclawSystemdTemplateIncludesSystemdAssets(t *testing.T) {
 		t.Fatal("expected openclaw-systemd template to exist")
 	}
 
+	var directories []string
+	for _, dir := range template.Directories {
+		directories = append(directories, dir.Path)
+	}
+	for _, want := range []string{"/dev", "/sys", "/sys/fs/cgroup", "/etc/systemd/system", "/usr/lib/systemd/system"} {
+		if !contains(directories, want) {
+			t.Fatalf("expected openclaw-systemd template to include directory %q, got %v", want, directories)
+		}
+	}
+
 	var lookups []string
 	for _, binary := range template.Binaries {
 		lookups = append(lookups, binary.LookupName)

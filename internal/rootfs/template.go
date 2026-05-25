@@ -233,6 +233,9 @@ func openclawSystemdTemplate() Template {
 	template.Name = "openclaw-systemd"
 	template.Description = "OpenClaw-oriented rootfs template with guest systemd tooling and systemd-ready directories."
 	template.Directories = appendUniqueDirectories(template.Directories,
+		directory("/dev", 0o755),
+		directory("/sys", 0o755),
+		directory("/sys/fs/cgroup", 0o755),
 		directory("/etc/systemd/system", 0o755),
 		directory("/usr/lib/systemd/system", 0o755),
 		directory("/var/lib/systemd", 0o755),

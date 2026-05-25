@@ -404,6 +404,54 @@ func TestDoctorValidatesRootfsCommand(t *testing.T) {
 	}
 }
 
+func TestDoctorPrintsDeduplicatedPresetCommands(t *testing.T) {
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+
+	rootfsPath := filepath.Join(t.TempDir(), "rootfs")
+	template, ok := rootfs.LookupTemplate("basic")
+	if !ok {
+		t.Fatal("expected basic template to exist")
+	}
+	if err := rootfs.Generate(rootfsPath, template); err != nil {
+		t.Fatalf("Generate returned error: %v", err)
+	}
+
+	presetFile := filepath.Join(t.TempDir(), "presets.json")
+	if err := os.WriteFile(presetFile, []byte(`{
+  "presets": [
+    {
+      "name": "team-basic",
+      "network": "none",
+      "rootfs": {
+        "required_commands": [" /bin/ls ", "/bin/sh", "/bin/ls", ""]
+      },
+      "description": "Basic rootfs validation preset."
+    }
+  ]
+}`), 0o644); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+
+	err := Run([]string{
+		"doctor",
+		"--rootfs", rootfsPath,
+		"--preset-file", presetFile,
+		"--preset", "team-basic",
+	}, &out, &errBuf)
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	got := out.String()
+	if !strings.Contains(got, "- preset required rootfs commands: /bin/ls, /bin/sh") {
+		t.Fatalf("expected deduplicated preset command list, got %q", got)
+	}
+	if strings.Count(got, "- preset required command /bin/ls: ok") != 1 {
+		t.Fatalf("expected /bin/ls to be validated once, got %q", got)
+	}
+}
+
 func TestDoctorValidatesInitRootfs(t *testing.T) {
 	systemdPath, err := exec.LookPath("systemd")
 	if err != nil {
