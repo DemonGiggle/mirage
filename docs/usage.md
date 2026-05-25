@@ -293,6 +293,22 @@ failure. `sandbox status` also reports the launch log path, which is where
 Mirage's own launch-time failures are recorded when the background start does
 not reach a stable running scope.
 
+For guest-systemd-oriented rootfs validation, a minimal operator flow is:
+
+```bash
+./bin/mirage rootfs init --template openclaw-systemd --output /srv/mirage/openclaw-systemd-rootfs
+cp ./openclaw.service /srv/mirage/openclaw-systemd-rootfs/etc/systemd/system/openclaw.service
+
+./bin/mirage doctor \
+  --rootfs /srv/mirage/openclaw-systemd-rootfs \
+  --runtime-mode init \
+  --command /usr/bin/systemd \
+  --service-unit openclaw.service
+```
+
+That preflight verifies the init entrypoint, required init runtime paths,
+`/etc/machine-id`, and the presence of the requested unit file before launch.
+
 ## Bind Mounts
 
 Bind mounts use `host:guest` pairs.

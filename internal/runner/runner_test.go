@@ -228,6 +228,38 @@ func TestRequiresCgroupScopeForInitMode(t *testing.T) {
 	}
 }
 
+func TestPrepareGuestRunLayoutCreatesSystemdStateDirs(t *testing.T) {
+	rootfs := t.TempDir()
+
+	if err := prepareGuestRunLayout(rootfs); err != nil {
+		t.Fatalf("prepareGuestRunLayout returned error: %v", err)
+	}
+
+	for _, want := range []string{
+		filepath.Join(rootfs, "run", "lock"),
+		filepath.Join(rootfs, "run", "systemd"),
+		filepath.Join(rootfs, "run", "systemd", "system"),
+	} {
+		info, err := os.Stat(want)
+		if err != nil {
+			t.Fatalf("expected runtime directory %q to exist: %v", want, err)
+		}
+		if !info.IsDir() {
+			t.Fatalf("expected runtime path %q to be a directory", want)
+		}
+	}
+}
+
+func TestHasEnvKey(t *testing.T) {
+	items := []string{"PATH=/usr/bin", "container=mirage"}
+	if !hasEnvKey(items, "container") {
+		t.Fatal("expected container env key to be found")
+	}
+	if hasEnvKey(items, "HOME") {
+		t.Fatal("did not expect missing env key to be reported present")
+	}
+}
+
 func TestBuildUnshareArgsAddsCgroupNamespaceForInitMode(t *testing.T) {
 	args, err := buildUnshareArgs(spec.Config{
 		NetworkMode: spec.NetworkHost,

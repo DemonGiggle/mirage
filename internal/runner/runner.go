@@ -111,7 +111,11 @@ func Execute(cfg spec.Config, stdout, stderr io.Writer) error {
 
 	cmd.Stdout = stdoutTarget
 	cmd.Stderr = stderrTarget
-	cmd.Env = append(os.Environ(), cfg.Env...)
+	env := append(os.Environ(), cfg.Env...)
+	if spec.NormalizeRuntimeMode(cfg.RuntimeMode) == spec.RuntimeModeInit && !hasEnvKey(env, "container") {
+		env = append(env, "container=mirage")
+	}
+	cmd.Env = env
 
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("backend command failed: %w", err)
@@ -547,6 +551,7 @@ func prepareGuestRunLayout(rootfs string) error {
 	}{
 		{path: "/run/lock", mode: 0o1777},
 		{path: "/run/systemd", mode: 0o755},
+		{path: "/run/systemd/system", mode: 0o755},
 	} {
 		target := bindMountTargetPath(rootfs, dir.path)
 		if err := ensureMountpointDir(target, dir.mode); err != nil {
@@ -836,6 +841,16 @@ func ensureGuestSymlink(path string, target string) error {
 		return fmt.Errorf("create guest symlink %q -> %q: %w", path, target, err)
 	}
 	return nil
+}
+
+func hasEnvKey(items []string, key string) bool {
+	prefix := key + "="
+	for _, item := range items {
+		if strings.HasPrefix(item, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 type networkPolicy struct {

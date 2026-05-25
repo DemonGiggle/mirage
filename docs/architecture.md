@@ -162,6 +162,8 @@ Important consequences:
   directory
 - stdout/stderr log export is the primary host-visible log surface for this
   lifecycle model today
+- init-mode runs advertise themselves to guest init processes with
+  `container=mirage`
 - Mirage still does not inject a supervisor *inside* the guest; guest `systemd`
   remains PID 1 in the sandbox
 - Mirage still does not provide a general live namespace-entry API for running
