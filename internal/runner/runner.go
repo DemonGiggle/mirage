@@ -114,6 +114,7 @@ func Execute(cfg spec.Config, stdout, stderr io.Writer) error {
 
 	cmd.Stdout = stdoutTarget
 	cmd.Stderr = stderrTarget
+	cmd.Stdin = os.Stdin
 	env := append(os.Environ(), cfg.Env...)
 	if spec.NormalizeRuntimeMode(cfg.RuntimeMode) == spec.RuntimeModeInit && !hasEnvKey(env, "container") {
 		env = append(env, "container=mirage")
@@ -151,6 +152,7 @@ func RunCgroupHelper(args []string, stdout, stderr io.Writer) error {
 	defer cleanup()
 
 	cmd := exec.Command(command[0], command[1:]...)
+	cmd.Stdin = os.Stdin
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	cmd.Env = os.Environ()
@@ -1021,6 +1023,7 @@ func runObservedCommand(command []string, policy networkPolicy, stdout, stderr i
 	straceArgs := []string{"-f", "-e", "trace=connect", "-s", "0", "-o", tracePath, "--"}
 	straceArgs = append(straceArgs, command...)
 	cmd := exec.Command("strace", straceArgs...)
+	cmd.Stdin = os.Stdin
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	cmd.Env = os.Environ()
