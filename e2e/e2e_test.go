@@ -86,6 +86,31 @@ func TestRunDryRunE2E(t *testing.T) {
 	}
 }
 
+func TestRunPropagatesInteractiveStdin(t *testing.T) {
+	requireNamespaceBackend(t)
+
+	repoRoot := projectRoot(t)
+	cmd := exec.Command(
+		"go", "run", "./cmd/mirage",
+		"run",
+		"--rootfs", "/",
+		"--net", "host",
+		"--warn", "net",
+		"--",
+		"sh", "-c", "IFS= read -r line; printf '%s' \"$line\"",
+	)
+	cmd.Dir = repoRoot
+	cmd.Stdin = strings.NewReader("interactive-ok\n")
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("mirage interactive run failed: %v\noutput:\n%s", err, string(output))
+	}
+	if !strings.Contains(string(output), "interactive-ok") {
+		t.Fatalf("expected interactive stdin to reach sandbox command, got:\n%s", string(output))
+	}
+}
+
 func TestRootfsInitGeneratesRunnableBasicRootfs(t *testing.T) {
 	requireNamespaceBackend(t)
 
