@@ -139,6 +139,34 @@ The current init-mode contract is intentionally narrow:
   `/dev`, a guest-private read-only `/sys`, and runtime state directories under
   `/run`
 
+## Tracked Sandbox Lifecycle
+
+Issue #33 adds a thin lifecycle layer for guest-systemd sandboxes without
+turning Mirage into a daemon.
+
+The model is:
+
+1. `mirage sandbox start` resolves the final init-mode config and validates the
+   rootfs
+2. Mirage assigns a stable user-systemd scope unit name
+3. Mirage backgrounds the existing `mirage run` flow and persists local sandbox
+   state
+4. later host-side commands (`status`, `stop`, `logs`) operate against that
+   recorded state and the named user-systemd scope
+
+Important consequences:
+
+- stop semantics are tied to the named `systemd-run --user --scope` unit rather
+  than to a wrapper PID
+- the persisted state is plain local JSON plus log files in the user's state
+  directory
+- stdout/stderr log export is the primary host-visible log surface for this
+  lifecycle model today
+- Mirage still does not inject a supervisor *inside* the guest; guest `systemd`
+  remains PID 1 in the sandbox
+- Mirage still does not provide a general live namespace-entry API for running
+  follow-up commands inside an already-running sandbox
+
 ## Network Model
 
 The current network modes are intentionally small:
