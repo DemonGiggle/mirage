@@ -26,6 +26,9 @@ const (
 	atRecursive       = 0x00008000
 	atFDCWDUintptr    = ^uintptr(99)
 	sysMountSetattr   = 442
+
+	openClawGatewayAddress = "127.0.0.1:18789"
+	openClawGatewayPort    = "18789"
 )
 
 func Execute(cfg spec.Config, stdout, stderr io.Writer) error {
@@ -260,6 +263,13 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 }
 
 func runDirectCommand(command []string, policy networkPolicy, rootfs string, stdout, stderr io.Writer) error {
+	cleanup, err := maybeStartTransientOpenClawGateway(command, rootfs)
+	if err != nil {
+		return err
+	}
+	if cleanup != nil {
+		defer cleanup()
+	}
 	if shouldObserveNetwork(policy) {
 		if err := EnsureObservedNetworkToolAvailable(); err == nil {
 			return runObservedCommand(command, policy, stdout, stderr)
@@ -267,6 +277,55 @@ func runDirectCommand(command []string, policy networkPolicy, rootfs string, std
 	}
 
 	return execCommandInSandbox(command, rootfs)
+}
+
+func maybeStartTransientOpenClawGateway(command []string, rootfs string) (func(), error) {
+	if !shouldStartTransientOpenClawGateway(command) || canReachLoopbackAddress(openClawGatewayAddress) {
+		return nil, nil
+	}
+
+	binary, err := resolveCommandBinary(command[0], rootfs)
+	if err != nil {
+		return nil, fmt.Errorf("resolve transient OpenClaw gateway helper %q: %w", command[0], err)
+	}
+
+	cmd := exec.Command(binary, "gateway", "run", "--allow-unconfigured", "--force", "--port", openClawGatewayPort)
+	cmd.Stdin = strings.NewReader("")
+	cmd.Stdout = io.Discard
+	cmd.Stderr = io.Discard
+	cmd.Env = os.Environ()
+
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("start transient OpenClaw gateway helper: %w", err)
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Wait()
+	}()
+
+	cleanup := func() {
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+		<-done
+	}
+
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if canReachLoopbackAddress(openClawGatewayAddress) {
+			return cleanup, nil
+		}
+		select {
+		case err := <-done:
+			return nil, fmt.Errorf("transient OpenClaw gateway helper exited before becoming reachable: %w", err)
+		default:
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	cleanup()
+	return nil, fmt.Errorf("transient OpenClaw gateway helper did not become reachable at %s within 10s", openClawGatewayAddress)
 }
 
 func runInitCommand(command []string, policy networkPolicy, rootfs string) error {
@@ -919,6 +978,33 @@ func shouldObserveNetwork(policy networkPolicy) bool {
 	return policy.Mode == string(spec.NetworkIsolated) || policy.WarnNet
 }
 
+func shouldStartTransientOpenClawGateway(command []string) bool {
+	if len(command) < 2 || filepath.Base(command[0]) != "openclaw" || command[1] != "onboard" {
+		return false
+	}
+
+	for i := 2; i < len(command); i++ {
+		switch command[i] {
+		case "--skip-health", "--remote-url":
+			return false
+		case "--mode":
+			if i+1 < len(command) && command[i+1] == "remote" {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func canReachLoopbackAddress(address string) bool {
+	conn, err := net.DialTimeout("tcp", address, 200*time.Millisecond)
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
+}
+
 func runObservedCommand(command []string, policy networkPolicy, stdout, stderr io.Writer) error {
 	if err := EnsureObservedNetworkToolAvailable(); err != nil {
 		return err
@@ -1173,7 +1259,11 @@ func PlanNotes(cfg spec.Config) []string {
 	case spec.NetworkNone:
 		notes = append(notes, "network backend: dedicated net namespace without host network")
 	case spec.NetworkIsolated:
-		notes = append(notes, "network backend: host namespace with observed policy enforcement")
+		if err := EnsureObservedNetworkToolAvailable(); err == nil {
+			notes = append(notes, "network backend: host namespace with observed policy enforcement")
+		} else {
+			notes = append(notes, "network backend: host namespace without observed policy enforcement (strace unavailable)")
+		}
 	}
 	if cfg.StdoutLog != "" || cfg.StderrLog != "" {
 		var exports []string

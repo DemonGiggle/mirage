@@ -72,6 +72,9 @@ func TestLoadPresetFileRejectsDuplicatePresetNames(t *testing.T) {
 
 func TestBuiltInOpenclawPresetIncludesRootfsExpectations(t *testing.T) {
 	preset := BuiltInPresets["openclaw-openai"]
+	if len(preset.AllowHosts) != 1 || preset.AllowHosts[0] != "127.0.0.1:18789" {
+		t.Fatalf("unexpected allow hosts: %#v", preset.AllowHosts)
+	}
 	if len(preset.AllowPorts) != 1 || preset.AllowPorts[0] != "443" {
 		t.Fatalf("unexpected allow ports: %#v", preset.AllowPorts)
 	}
