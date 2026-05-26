@@ -20,44 +20,53 @@ var (
 // EnsureNSSRuntime backfills the host lookup modules referenced by the guest
 // hosts database so hostname resolution continues to work inside generated rootfses.
 func EnsureNSSRuntime(rootfsPath string) error {
+	_, err := EnsureNSSRuntimeWithReport(rootfsPath)
+	return err
+}
+
+func EnsureNSSRuntimeWithReport(rootfsPath string) (GenerateReport, error) {
 	root, err := filepath.Abs(rootfsPath)
 	if err != nil {
-		return fmt.Errorf("resolve rootfs path %q: %w", rootfsPath, err)
+		return GenerateReport{}, fmt.Errorf("resolve rootfs path %q: %w", rootfsPath, err)
 	}
 
 	info, err := os.Stat(root)
 	if err != nil {
-		return fmt.Errorf("stat rootfs %q: %w", root, err)
+		return GenerateReport{}, fmt.Errorf("stat rootfs %q: %w", root, err)
 	}
 	if !info.IsDir() {
-		return fmt.Errorf("rootfs %q is not a directory", root)
+		return GenerateReport{}, fmt.Errorf("rootfs %q is not a directory", root)
 	}
 
 	modules, err := requiredNSSModules(root)
 	if err != nil {
-		return err
+		return GenerateReport{}, err
 	}
 	if len(modules) == 0 {
-		return nil
+		return GenerateReport{}, nil
 	}
 
 	generator := generator{
-		outputRoot:    root,
-		copiedTargets: make(map[string]struct{}),
-		copiedTrees:   make(map[string]struct{}),
+		outputRoot:      root,
+		copiedTargets:   make(map[string]struct{}),
+		copiedTrees:     make(map[string]struct{}),
+		missingReported: make(map[string]struct{}),
 	}
 	for _, module := range modules {
-		paths, err := resolveNSSModuleSupportPaths(module)
+		report, err := resolveNSSModuleSupportPathsReport(module)
 		if err != nil {
-			return err
+			return generator.report, err
 		}
-		for _, path := range paths {
+		for _, asset := range report.missingAssets {
+			generator.recordMissing(asset.Source, asset.TargetPath, asset.Reason)
+		}
+		for _, path := range report.paths {
 			if err := generator.copyHostBinaryIfMissing(path, path, true); err != nil {
-				return err
+				return generator.report, err
 			}
 		}
 	}
-	return nil
+	return generator.report, nil
 }
 
 func requiredNSSModules(root string) ([]string, error) {
@@ -114,23 +123,57 @@ func requiredNSSModules(root string) ([]string, error) {
 }
 
 func resolveNSSModuleSupportPaths(module string) ([]string, error) {
+	report, err := resolveNSSModuleSupportPathsReport(module)
+	if err != nil {
+		return nil, err
+	}
+	if len(report.missingAssets) > 0 {
+		return nil, errors.New(report.missingAssets[0].Message())
+	}
+	return report.paths, nil
+}
+
+type nssSupportReport struct {
+	paths         []string
+	missingAssets []MissingAsset
+}
+
+func resolveNSSModuleSupportPathsReport(module string) (nssSupportReport, error) {
 	modulePath, err := lookupSharedLibraryPath(fmt.Sprintf("libnss_%s.so.2", module))
 	if err != nil {
-		return nil, fmt.Errorf("resolve host NSS module %q: %w", module, err)
+		if strings.Contains(err.Error(), "not found") {
+			return nssSupportReport{
+				missingAssets: []MissingAsset{
+					{
+						Source: fmt.Sprintf("shared library %q", fmt.Sprintf("libnss_%s.so.2", module)),
+						Reason: "required by guest hosts database",
+					},
+				},
+			}, nil
+		}
+		return nssSupportReport{}, fmt.Errorf("resolve host NSS module %q: %w", module, err)
 	}
 
 	paths := []string{modulePath}
-	dependencies, err := lddDependencies(modulePath)
+	lddReport, err := lddDependencyReport(modulePath)
 	if err != nil {
-		return nil, fmt.Errorf("resolve host NSS module dependencies for %q: %w", modulePath, err)
+		return nssSupportReport{}, fmt.Errorf("resolve host NSS module dependencies for %q: %w", modulePath, err)
 	}
-	for _, dependency := range dependencies {
+	report := nssSupportReport{paths: paths}
+	for _, dependency := range lddReport.missing {
+		report.missingAssets = append(report.missingAssets, MissingAsset{
+			Source: fmt.Sprintf("shared library dependency %q", dependency),
+			Reason: fmt.Sprintf("required by NSS module %q", modulePath),
+		})
+	}
+	for _, dependency := range lddReport.paths {
 		if slices.Contains(paths, dependency) {
 			continue
 		}
 		paths = append(paths, dependency)
 	}
-	return paths, nil
+	report.paths = paths
+	return report, nil
 }
 
 func lookupSharedLibraryPath(name string) (string, error) {

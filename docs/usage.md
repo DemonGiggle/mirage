@@ -224,6 +224,8 @@ and whether the requested service unit is present at
 
 Notes:
 
+- `mirage rootfs init` reports missing host assets as warnings and still writes the
+  rest of the rootfs so you can copy any missing files in afterward.
 - `basic` is the smallest built-in template and the best first choice when you
   just want a runnable rootfs for commands like `/bin/ls` or `/bin/sh`.
 - `node`, `python`, and all `openclaw*` templates intentionally add a writable
