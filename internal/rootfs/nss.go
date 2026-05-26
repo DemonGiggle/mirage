@@ -9,6 +9,12 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
+)
+
+var (
+	preferredPrefixesOnce  sync.Once
+	preferredPrefixesCache []string
 )
 
 // EnsureNSSRuntime backfills the host lookup modules referenced by the guest
@@ -81,11 +87,18 @@ func requiredNSSModules(root string) ([]string, error) {
 		if strings.TrimSpace(database) != "hosts" {
 			continue
 		}
+		insideBracket := false
 		for _, field := range strings.Fields(sources) {
-			if field == "" || field == "[" || field == "]" {
+			if field == "" {
 				continue
 			}
-			if strings.HasPrefix(field, "[") || strings.HasSuffix(field, "]") || strings.Contains(field, "=") {
+			if strings.HasPrefix(field, "[") {
+				insideBracket = true
+			}
+			if insideBracket {
+				if strings.HasSuffix(field, "]") {
+					insideBracket = false
+				}
 				continue
 			}
 			if slices.Contains(modules, field) {
@@ -138,7 +151,12 @@ func lookupSharedLibraryPath(name string) (string, error) {
 }
 
 func lookupSharedLibraryViaLDConfig(name string) (string, error) {
-	output, err := exec.Command("ldconfig", "-p").Output()
+	ldconfigPath, err := resolveLDConfigPath()
+	if err != nil {
+		return "", err
+	}
+
+	output, err := exec.Command(ldconfigPath, "-p").Output()
 	if err != nil {
 		return "", fmt.Errorf("run ldconfig -p: %w", err)
 	}
@@ -172,6 +190,22 @@ func lookupSharedLibraryViaLDConfig(name string) (string, error) {
 		return bestPath, nil
 	}
 	return "", fmt.Errorf("shared library %q not listed by ldconfig", name)
+}
+
+func resolveLDConfigPath() (string, error) {
+	if path, err := exec.LookPath("ldconfig"); err == nil {
+		return path, nil
+	}
+	for _, fallback := range []string{"/sbin/ldconfig", "/usr/sbin/ldconfig"} {
+		info, err := os.Stat(fallback)
+		if err == nil && !info.IsDir() {
+			return fallback, nil
+		}
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return "", fmt.Errorf("stat ldconfig fallback %q: %w", fallback, err)
+		}
+	}
+	return "", errors.New("resolve ldconfig: executable not found on PATH or common sbin locations")
 }
 
 func walkHostLibraryPrefix(prefix string, name string) (string, error) {
@@ -208,23 +242,24 @@ func walkHostLibraryPrefix(prefix string, name string) (string, error) {
 }
 
 func preferredHostLibraryPrefixes() []string {
-	shellPath, err := exec.LookPath("sh")
-	if err != nil {
-		return nil
-	}
-	dependencies, err := lddDependencies(shellPath)
-	if err != nil {
-		return nil
-	}
-	var prefixes []string
-	for _, dependency := range dependencies {
-		dir := filepath.Dir(dependency)
-		if slices.Contains(prefixes, dir) {
-			continue
+	preferredPrefixesOnce.Do(func() {
+		shellPath, err := exec.LookPath("sh")
+		if err != nil {
+			return
 		}
-		prefixes = append(prefixes, dir)
-	}
-	return prefixes
+		dependencies, err := lddDependencies(shellPath)
+		if err != nil {
+			return
+		}
+		for _, dependency := range dependencies {
+			dir := filepath.Dir(dependency)
+			if slices.Contains(preferredPrefixesCache, dir) {
+				continue
+			}
+			preferredPrefixesCache = append(preferredPrefixesCache, dir)
+		}
+	})
+	return slices.Clone(preferredPrefixesCache)
 }
 
 func scoreLibraryPath(path string, preferredPrefixes []string) int {
