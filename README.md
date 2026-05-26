@@ -154,6 +154,8 @@ Run with a dedicated rootfs and explicit mounts:
 
 ## Documentation Map
 
+- [docs/applications.md](docs/applications.md): application-oriented setup flows
+  such as installing and launching OpenClaw inside Mirage
 - [docs/usage.md](docs/usage.md): installation assumptions, command patterns,
   presets, and common run examples
 - [docs/isolation.md](docs/isolation.md): current isolation matrix, guarantees,
