@@ -367,9 +367,15 @@ func openclawDeveloperTemplate() Template {
 	)
 	template.RuntimeTrees = appendUniqueRuntimeTrees(template.RuntimeTrees,
 		optionalRuntimeTree("/usr/lib/python3", "/usr/lib/python3"),
+		optionalRuntimeTree("/usr/lib/python3.10", "/usr/lib/python3.10"),
+		optionalRuntimeTree("/usr/lib/python3.11", "/usr/lib/python3.11"),
 		optionalRuntimeTree("/usr/lib/python3.12", "/usr/lib/python3.12"),
+		optionalRuntimeTree("/usr/lib/python3.13", "/usr/lib/python3.13"),
 		optionalRuntimeTree("/usr/lib/python3/dist-packages", "/usr/lib/python3/dist-packages"),
+		optionalRuntimeTree("/usr/local/lib/python3.10", "/usr/local/lib/python3.10"),
+		optionalRuntimeTree("/usr/local/lib/python3.11", "/usr/local/lib/python3.11"),
 		optionalRuntimeTree("/usr/local/lib/python3.12", "/usr/local/lib/python3.12"),
+		optionalRuntimeTree("/usr/local/lib/python3.13", "/usr/local/lib/python3.13"),
 		optionalRuntimeTree("/usr/local/go", "/usr/local/go"),
 		optionalRuntimeTree("/usr/lib/go", "/usr/lib/go"),
 		optionalRuntimeTree("/usr/lib/rustlib", "/usr/lib/rustlib"),
@@ -565,7 +571,7 @@ func appendUniqueBinaries(existing []Binary, extra ...Binary) []Binary {
 func appendUniqueRuntimeTrees(existing []RuntimeTree, extra ...RuntimeTree) []RuntimeTree {
 	for _, runtimeTree := range extra {
 		if slices.ContainsFunc(existing, func(candidate RuntimeTree) bool {
-			return candidate.TargetPath == runtimeTree.TargetPath && candidate.HostPath == runtimeTree.HostPath
+			return candidate.TargetPath == runtimeTree.TargetPath
 		}) {
 			continue
 		}

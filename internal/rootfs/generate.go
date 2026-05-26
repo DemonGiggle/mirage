@@ -119,7 +119,11 @@ func (g generator) copyRuntimeTree(runtimeTree RuntimeTree) error {
 			return fmt.Errorf("stat host tree %q: %w", runtimeTree.HostPath, err)
 		}
 	}
-	return g.copyHostTree(runtimeTree.HostPath, runtimeTree.TargetPath)
+	sourceRoot, err := filepath.EvalSymlinks(runtimeTree.HostPath)
+	if err != nil {
+		return fmt.Errorf("resolve host tree %q: %w", runtimeTree.HostPath, err)
+	}
+	return g.copyHostTree(sourceRoot, runtimeTree.TargetPath)
 }
 
 func (g generator) writeGeneratedFile(generatedFile GeneratedFile) error {

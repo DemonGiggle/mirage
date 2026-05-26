@@ -236,6 +236,19 @@ func TestOpenclawChatOnlyTemplateIncludesRuntimeTrees(t *testing.T) {
 	}
 }
 
+func TestAppendUniqueRuntimeTreesDeduplicatesByTargetPath(t *testing.T) {
+	got := appendUniqueRuntimeTrees(
+		[]RuntimeTree{{HostPath: "/usr/lib/python3.11", TargetPath: "/usr/lib/python3"}},
+		RuntimeTree{HostPath: "/usr/lib/python3.12", TargetPath: "/usr/lib/python3"},
+	)
+	if len(got) != 1 {
+		t.Fatalf("expected one runtime tree after target-path dedupe, got %v", got)
+	}
+	if got[0].HostPath != "/usr/lib/python3.11" {
+		t.Fatalf("expected first runtime tree to be kept, got %v", got)
+	}
+}
+
 func TestOpenclawSystemdTemplateIncludesSystemdAssets(t *testing.T) {
 	template, ok := LookupTemplate("openclaw-systemd")
 	if !ok {
