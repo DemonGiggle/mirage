@@ -239,6 +239,8 @@ Notes:
 - The OpenClaw presets currently recommend the `openclaw` template and expect
   `node` to be present, so `mirage doctor --preset openclaw-openai --rootfs ...`
   can check that expectation directly.
+- For an end-to-end OpenClaw install and launch flow, see
+  [applications.md#openclaw](applications.md#openclaw).
 
 Schema shape:
 
@@ -426,6 +428,8 @@ output:
 
 ## Related Docs
 
+- [applications.md](applications.md): application-oriented setup flows such as
+  OpenClaw installation and launch
 - [isolation.md](isolation.md): exact current behavior and caveats
 - [architecture.md](architecture.md): internal implementation model
 - [development.md](development.md): build, tests, and contributor workflow
