@@ -50,6 +50,9 @@ func Generate(outputRoot string, template Template) error {
 			return err
 		}
 	}
+	if err := EnsureNSSRuntime(root); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -186,6 +189,19 @@ func (g generator) copyHostBinary(sourcePath string, targetPath string, copyDepe
 		}
 	}
 	return nil
+}
+
+func (g generator) copyHostBinaryIfMissing(sourcePath string, targetPath string, copyDependencies bool) error {
+	if _, exists := g.copiedTargets[targetPath]; exists {
+		return nil
+	}
+	if _, err := os.Lstat(g.rootPath(targetPath)); err == nil {
+		g.copiedTargets[targetPath] = struct{}{}
+		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("stat target path %q: %w", targetPath, err)
+	}
+	return g.copyHostBinary(sourcePath, targetPath, copyDependencies)
 }
 
 type copyRequest struct {

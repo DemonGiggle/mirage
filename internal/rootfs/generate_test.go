@@ -103,6 +103,49 @@ func TestGenerateCopiesFilesAndDependencies(t *testing.T) {
 	}
 }
 
+func TestGenerateCopiesNSSModulesReferencedByNSSwitch(t *testing.T) {
+	required := []string{"files", "dns"}
+	for _, module := range required {
+		if _, err := resolveNSSModuleSupportPaths(module); err != nil {
+			t.Skipf("host NSS module %q unavailable: %v", module, err)
+		}
+	}
+
+	runtimeDir := t.TempDir()
+	nsswitchSource := filepath.Join(runtimeDir, "nsswitch.conf")
+	if err := os.WriteFile(nsswitchSource, []byte("hosts: files dns\n"), 0o644); err != nil {
+		t.Fatalf("write nsswitch source: %v", err)
+	}
+
+	outputRoot := filepath.Join(t.TempDir(), "rootfs")
+	err := Generate(outputRoot, Template{
+		Version:     TemplateVersionV1,
+		Name:        "custom",
+		Description: "Custom template",
+		RuntimeFiles: []RuntimeFile{
+			{
+				HostPath:   nsswitchSource,
+				TargetPath: "/etc/nsswitch.conf",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Generate returned error: %v", err)
+	}
+
+	for _, module := range required {
+		paths, err := resolveNSSModuleSupportPaths(module)
+		if err != nil {
+			t.Fatalf("resolveNSSModuleSupportPaths(%q) returned error: %v", module, err)
+		}
+		for _, path := range paths {
+			if _, err := os.Stat(filepath.Join(outputRoot, strings.TrimPrefix(path, "/"))); err != nil {
+				t.Fatalf("expected generated NSS support path %q to exist: %v", path, err)
+			}
+		}
+	}
+}
+
 func TestGenerateHonorsCopyDependenciesFlag(t *testing.T) {
 	shellPath, err := exec.LookPath("sh")
 	if err != nil {

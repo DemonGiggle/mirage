@@ -440,7 +440,7 @@ func ensurePresetRootfs(cfg spec.Config) error {
 			return fmt.Errorf("read rootfs %q: %w", cfg.RootFS, err)
 		}
 		if len(entries) > 0 {
-			return nil
+			return rootfs.EnsureNSSRuntime(cfg.RootFS)
 		}
 	case errors.Is(err, os.ErrNotExist):
 	default:
