@@ -12,59 +12,100 @@ import (
 	"strings"
 )
 
+type MissingAsset struct {
+	Source     string
+	TargetPath string
+	Reason     string
+}
+
+func (asset MissingAsset) Message() string {
+	switch {
+	case asset.TargetPath != "" && asset.Reason != "":
+		return fmt.Sprintf("missing host asset %q for %q (%s)", asset.Source, asset.TargetPath, asset.Reason)
+	case asset.TargetPath != "":
+		return fmt.Sprintf("missing host asset %q for %q", asset.Source, asset.TargetPath)
+	case asset.Reason != "":
+		return fmt.Sprintf("missing host asset %q (%s)", asset.Source, asset.Reason)
+	default:
+		return fmt.Sprintf("missing host asset %q", asset.Source)
+	}
+}
+
+type GenerateReport struct {
+	MissingAssets []MissingAsset
+}
+
+func (report *GenerateReport) addMissing(asset MissingAsset) {
+	report.MissingAssets = append(report.MissingAssets, asset)
+}
+
+func (report *GenerateReport) merge(other GenerateReport) {
+	report.MissingAssets = append(report.MissingAssets, other.MissingAssets...)
+}
+
 func Generate(outputRoot string, template Template) error {
+	_, err := GenerateWithReport(outputRoot, template)
+	return err
+}
+
+func GenerateWithReport(outputRoot string, template Template) (GenerateReport, error) {
 	if err := ValidateTemplate(template); err != nil {
-		return err
+		return GenerateReport{}, err
 	}
 
 	root, err := filepath.Abs(outputRoot)
 	if err != nil {
-		return fmt.Errorf("resolve output rootfs %q: %w", outputRoot, err)
+		return GenerateReport{}, fmt.Errorf("resolve output rootfs %q: %w", outputRoot, err)
 	}
 	if err := prepareOutputRoot(root); err != nil {
-		return err
+		return GenerateReport{}, err
 	}
 
 	generator := generator{
-		outputRoot:    root,
-		copiedTargets: make(map[string]struct{}),
-		copiedTrees:   make(map[string]struct{}),
+		outputRoot:      root,
+		copiedTargets:   make(map[string]struct{}),
+		copiedTrees:     make(map[string]struct{}),
+		missingReported: make(map[string]struct{}),
 	}
 	for _, dir := range template.Directories {
 		if err := generator.ensureDirectory(dir); err != nil {
-			return err
+			return generator.report, err
 		}
 	}
 	for _, runtimeTree := range template.RuntimeTrees {
 		if err := generator.copyRuntimeTree(runtimeTree); err != nil {
-			return err
+			return generator.report, err
 		}
 	}
 	for _, runtimeFile := range template.RuntimeFiles {
 		if err := generator.copyRuntimeFile(runtimeFile); err != nil {
-			return err
+			return generator.report, err
 		}
 	}
 	for _, generatedFile := range template.GeneratedFiles {
 		if err := generator.writeGeneratedFile(generatedFile); err != nil {
-			return err
+			return generator.report, err
 		}
 	}
 	for _, binary := range template.Binaries {
 		if err := generator.copyTemplateBinary(binary); err != nil {
-			return err
+			return generator.report, err
 		}
 	}
-	if err := EnsureNSSRuntime(root); err != nil {
-		return err
+	nssReport, err := EnsureNSSRuntimeWithReport(root)
+	if err != nil {
+		return generator.report, err
 	}
-	return nil
+	generator.report.merge(nssReport)
+	return generator.report, nil
 }
 
 type generator struct {
-	outputRoot    string
-	copiedTargets map[string]struct{}
-	copiedTrees   map[string]struct{}
+	outputRoot      string
+	report          GenerateReport
+	copiedTargets   map[string]struct{}
+	copiedTrees     map[string]struct{}
+	missingReported map[string]struct{}
 }
 
 func prepareOutputRoot(root string) error {
@@ -92,7 +133,7 @@ func prepareOutputRoot(root string) error {
 	}
 }
 
-func (g generator) ensureDirectory(dir Directory) error {
+func (g *generator) ensureDirectory(dir Directory) error {
 	target := g.rootPath(dir.Path)
 	mode := os.FileMode(dir.Mode)
 	if mode == 0 {
@@ -107,26 +148,34 @@ func (g generator) ensureDirectory(dir Directory) error {
 	return nil
 }
 
-func (g generator) copyRuntimeFile(runtimeFile RuntimeFile) error {
+func (g *generator) copyRuntimeFile(runtimeFile RuntimeFile) error {
 	return g.copyHostFile(runtimeFile.HostPath, runtimeFile.TargetPath, runtimeFile.Optional)
 }
 
-func (g generator) copyRuntimeTree(runtimeTree RuntimeTree) error {
-	if runtimeTree.Optional {
-		if _, err := os.Stat(runtimeTree.HostPath); errors.Is(err, os.ErrNotExist) {
+func (g *generator) copyRuntimeTree(runtimeTree RuntimeTree) error {
+	if _, err := os.Stat(runtimeTree.HostPath); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			if !runtimeTree.Optional {
+				g.recordMissing(runtimeTree.HostPath, runtimeTree.TargetPath, "runtime tree")
+			}
 			return nil
-		} else if err != nil {
-			return fmt.Errorf("stat host tree %q: %w", runtimeTree.HostPath, err)
 		}
+		return fmt.Errorf("stat host tree %q: %w", runtimeTree.HostPath, err)
 	}
 	sourceRoot, err := filepath.EvalSymlinks(runtimeTree.HostPath)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			if !runtimeTree.Optional {
+				g.recordMissing(runtimeTree.HostPath, runtimeTree.TargetPath, "runtime tree symlink target")
+			}
+			return nil
+		}
 		return fmt.Errorf("resolve host tree %q: %w", runtimeTree.HostPath, err)
 	}
 	return g.copyHostTree(sourceRoot, runtimeTree.TargetPath)
 }
 
-func (g generator) writeGeneratedFile(generatedFile GeneratedFile) error {
+func (g *generator) writeGeneratedFile(generatedFile GeneratedFile) error {
 	target := g.rootPath(generatedFile.TargetPath)
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return fmt.Errorf("create parent directory for generated file %q: %w", generatedFile.TargetPath, err)
@@ -141,28 +190,28 @@ func (g generator) writeGeneratedFile(generatedFile GeneratedFile) error {
 	return nil
 }
 
-func (g generator) copyTemplateBinary(binary Binary) error {
-	source, err := resolveBinarySource(binary)
+func (g *generator) copyTemplateBinary(binary Binary) error {
+	if binary.HostPath != "" {
+		return g.copyHostBinary(binary.HostPath, binary.TargetPath, binary.CopyDependencies)
+	}
+	source, err := exec.LookPath(binary.LookupName)
 	if err != nil {
-		return err
+		if errors.Is(err, exec.ErrNotFound) {
+			g.recordMissing(fmt.Sprintf("PATH lookup %q", binary.LookupName), binary.TargetPath, "template binary")
+			return nil
+		}
+		return fmt.Errorf("resolve binary %q on host PATH: %w", binary.LookupName, err)
 	}
 	return g.copyHostBinary(source, binary.TargetPath, binary.CopyDependencies)
 }
 
-func resolveBinarySource(binary Binary) (string, error) {
-	if binary.HostPath != "" {
-		return binary.HostPath, nil
-	}
-	source, err := exec.LookPath(binary.LookupName)
-	if err != nil {
-		return "", fmt.Errorf("resolve binary %q on host PATH: %w", binary.LookupName, err)
-	}
-	return source, nil
-}
-
-func (g generator) copyHostBinary(sourcePath string, targetPath string, copyDependencies bool) error {
+func (g *generator) copyHostBinary(sourcePath string, targetPath string, copyDependencies bool) error {
 	linkInfo, err := os.Lstat(sourcePath)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			g.recordMissing(sourcePath, targetPath, "binary")
+			return nil
+		}
 		return fmt.Errorf("lstat host file %q: %w", sourcePath, err)
 	}
 	if linkInfo.Mode()&os.ModeSymlink != 0 {
@@ -171,6 +220,10 @@ func (g generator) copyHostBinary(sourcePath string, targetPath string, copyDepe
 		}
 		resolvedSource, err := filepath.EvalSymlinks(sourcePath)
 		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				g.recordMissing(fmt.Sprintf("symlink target of %q", sourcePath), translatedSymlinkTarget(targetPath, sourcePath), "binary")
+				return nil
+			}
 			return fmt.Errorf("resolve symlink %q: %w", sourcePath, err)
 		}
 		return g.copyHostBinary(resolvedSource, translatedSymlinkTarget(targetPath, sourcePath), copyDependencies)
@@ -180,9 +233,12 @@ func (g generator) copyHostBinary(sourcePath string, targetPath string, copyDepe
 		return err
 	}
 
-	requests, err := shebangRequests(sourcePath)
+	requests, missingAssets, err := shebangRequests(sourcePath)
 	if err != nil {
 		return err
+	}
+	for _, asset := range missingAssets {
+		g.recordMissing(asset.Source, asset.TargetPath, asset.Reason)
 	}
 	if len(requests) > 0 {
 		for _, request := range requests {
@@ -199,11 +255,14 @@ func (g generator) copyHostBinary(sourcePath string, targetPath string, copyDepe
 		return nil
 	}
 
-	dependencies, err := lddDependencies(sourcePath)
+	lddReport, err := lddDependencyReport(sourcePath)
 	if err != nil {
 		return err
 	}
-	for _, dependency := range dependencies {
+	for _, dependency := range lddReport.missing {
+		g.recordMissing(fmt.Sprintf("shared library dependency %q", dependency), "", fmt.Sprintf("required by %q", sourcePath))
+	}
+	for _, dependency := range lddReport.paths {
 		if err := g.copyHostFile(dependency, dependency, false); err != nil {
 			return err
 		}
@@ -211,7 +270,7 @@ func (g generator) copyHostBinary(sourcePath string, targetPath string, copyDepe
 	return nil
 }
 
-func (g generator) copyHostBinaryIfMissing(sourcePath string, targetPath string, copyDependencies bool) error {
+func (g *generator) copyHostBinaryIfMissing(sourcePath string, targetPath string, copyDependencies bool) error {
 	if _, exists := g.copiedTargets[targetPath]; exists {
 		return nil
 	}
@@ -229,36 +288,44 @@ type copyRequest struct {
 	targetPath string
 }
 
-func shebangRequests(path string) ([]copyRequest, error) {
+func shebangRequests(path string) ([]copyRequest, []MissingAsset, error) {
 	line, ok, err := readShebang(path)
 	if err != nil || !ok {
-		return nil, err
+		return nil, nil, err
 	}
 
 	fields := strings.Fields(strings.TrimSpace(strings.TrimPrefix(line, "#!")))
 	if len(fields) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 	interpreterPath := fields[0]
 	if !filepath.IsAbs(interpreterPath) {
-		return nil, fmt.Errorf("script %q uses non-absolute shebang interpreter %q", path, interpreterPath)
+		return nil, nil, fmt.Errorf("script %q uses non-absolute shebang interpreter %q", path, interpreterPath)
 	}
 
 	requests := []copyRequest{{hostPath: interpreterPath, targetPath: interpreterPath}}
 	if interpreterPath != "/usr/bin/env" {
-		return requests, nil
+		return requests, nil, nil
 	}
 
 	lookupName, ok := envLookupName(fields[1:])
 	if !ok {
-		return requests, nil
+		return requests, nil, nil
 	}
 	resolved, err := exec.LookPath(lookupName)
 	if err != nil {
-		return nil, fmt.Errorf("resolve shebang target %q on host PATH: %w", lookupName, err)
+		if errors.Is(err, exec.ErrNotFound) {
+			return requests, []MissingAsset{
+				{
+					Source: fmt.Sprintf("PATH lookup %q", lookupName),
+					Reason: fmt.Sprintf("shebang target required by %q", path),
+				},
+			}, nil
+		}
+		return nil, nil, fmt.Errorf("resolve shebang target %q on host PATH: %w", lookupName, err)
 	}
 	requests = append(requests, copyRequest{hostPath: resolved, targetPath: resolved})
-	return requests, nil
+	return requests, nil, nil
 }
 
 func readShebang(path string) (string, bool, error) {
@@ -297,20 +364,37 @@ func envLookupName(args []string) (string, bool) {
 }
 
 func lddDependencies(path string) ([]string, error) {
+	report, err := lddDependencyReport(path)
+	if err != nil {
+		return nil, err
+	}
+	if len(report.missing) > 0 {
+		return nil, fmt.Errorf("missing shared library dependency: %s", report.missing[0])
+	}
+	return report.paths, nil
+}
+
+type lddReport struct {
+	paths   []string
+	missing []string
+}
+
+func lddDependencyReport(path string) (lddReport, error) {
 	cmd := exec.Command("ldd", path)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		text := strings.TrimSpace(string(output))
 		if strings.Contains(text, "not a dynamic executable") || strings.Contains(text, "statically linked") {
-			return nil, nil
+			return lddReport{}, nil
 		}
-		return nil, fmt.Errorf("resolve library dependencies for %q: %w: %s", path, err, text)
+		return lddReport{}, fmt.Errorf("resolve library dependencies for %q: %w: %s", path, err, text)
 	}
 	return parseLDDOutput(output)
 }
 
-func parseLDDOutput(output []byte) ([]string, error) {
+func parseLDDOutput(output []byte) (lddReport, error) {
 	var dependencies []string
+	var missing []string
 	seen := make(map[string]struct{})
 
 	scanner := bufio.NewScanner(bytes.NewReader(output))
@@ -320,8 +404,9 @@ func parseLDDOutput(output []byte) ([]string, error) {
 			continue
 		}
 
-		if strings.Contains(line, "=> not found") {
-			return nil, fmt.Errorf("missing shared library dependency: %s", line)
+		if strings.Contains(line, "not found") {
+			missing = append(missing, strings.TrimSpace(strings.SplitN(line, "=>", 2)[0]))
+			continue
 		}
 
 		candidate, ok := lddPath(line)
@@ -335,9 +420,9 @@ func parseLDDOutput(output []byte) ([]string, error) {
 		dependencies = append(dependencies, candidate)
 	}
 	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("scan ldd output: %w", err)
+		return lddReport{}, fmt.Errorf("scan ldd output: %w", err)
 	}
-	return dependencies, nil
+	return lddReport{paths: dependencies, missing: missing}, nil
 }
 
 func lddPath(line string) (string, bool) {
@@ -360,7 +445,7 @@ func lddPath(line string) (string, bool) {
 	return fields[0], true
 }
 
-func (g generator) copyHostSymlink(sourcePath string, targetPath string) error {
+func (g *generator) copyHostSymlink(sourcePath string, targetPath string) error {
 	if _, exists := g.copiedTargets[targetPath]; exists {
 		return nil
 	}
@@ -393,7 +478,7 @@ func translatedSymlinkTarget(targetPath string, sourcePath string) string {
 	return filepath.Clean(filepath.Join(filepath.Dir(targetPath), linkTarget))
 }
 
-func (g generator) copyScriptSupportTree(sourcePath string, targetPath string) error {
+func (g *generator) copyScriptSupportTree(sourcePath string, targetPath string) error {
 	sourceRoot, targetRoot, ok := nodeModulePackageRoots(sourcePath, targetPath)
 	if !ok {
 		return nil
@@ -436,7 +521,7 @@ func packageRootFromNodeModulesPath(path string) (string, bool) {
 	return root, true
 }
 
-func (g generator) copyHostTree(sourceRoot string, targetRoot string) error {
+func (g *generator) copyHostTree(sourceRoot string, targetRoot string) error {
 	if _, exists := g.copiedTrees[targetRoot]; exists {
 		return nil
 	}
@@ -498,14 +583,17 @@ func (g generator) copyHostTree(sourceRoot string, targetRoot string) error {
 	return nil
 }
 
-func (g generator) copyHostFile(sourcePath string, targetPath string, optional bool) error {
+func (g *generator) copyHostFile(sourcePath string, targetPath string, optional bool) error {
 	if _, exists := g.copiedTargets[targetPath]; exists {
 		return nil
 	}
 
 	info, err := os.Stat(sourcePath)
 	if err != nil {
-		if optional && errors.Is(err, os.ErrNotExist) {
+		if errors.Is(err, os.ErrNotExist) {
+			if !optional {
+				g.recordMissing(sourcePath, targetPath, "runtime file")
+			}
 			return nil
 		}
 		return fmt.Errorf("stat host file %q: %w", sourcePath, err)
@@ -545,6 +633,19 @@ func (g generator) copyHostFile(sourcePath string, targetPath string, optional b
 	return nil
 }
 
-func (g generator) rootPath(path string) string {
+func (g *generator) rootPath(path string) string {
 	return filepath.Join(g.outputRoot, strings.TrimPrefix(path, "/"))
+}
+
+func (g *generator) recordMissing(source string, targetPath string, reason string) {
+	key := source + "\x00" + targetPath + "\x00" + reason
+	if _, exists := g.missingReported[key]; exists {
+		return
+	}
+	g.missingReported[key] = struct{}{}
+	g.report.addMissing(MissingAsset{
+		Source:     source,
+		TargetPath: targetPath,
+		Reason:     reason,
+	})
 }

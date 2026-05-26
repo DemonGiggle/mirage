@@ -132,7 +132,8 @@ func runRootfsInit(args []string, stdout, stderr io.Writer) error {
 	if !ok {
 		return fmt.Errorf("unknown rootfs template %q", templateName)
 	}
-	if err := rootfs.Generate(outputRoot, template); err != nil {
+	report, err := rootfs.GenerateWithReport(outputRoot, template)
+	if err != nil {
 		return err
 	}
 
@@ -143,6 +144,7 @@ func runRootfsInit(args []string, stdout, stderr io.Writer) error {
 	_, _ = fmt.Fprintf(stdout, "binaries: %d\n", len(template.Binaries))
 	_, _ = fmt.Fprintf(stdout, "runtime-files: %d\n", len(template.RuntimeFiles))
 	_, _ = fmt.Fprintf(stdout, "generated-files: %d\n", len(template.GeneratedFiles))
+	printGenerateWarnings(stdout, report, "")
 	return nil
 }
 
@@ -389,7 +391,7 @@ func runSandbox(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if err := ensurePresetRootfs(resolved); err != nil {
+	if err := ensurePresetRootfs(resolved, stderr); err != nil {
 		return err
 	}
 	if err := spec.Validate(resolved); err != nil {
@@ -411,7 +413,7 @@ func runSandbox(args []string, stdout, stderr io.Writer) error {
 	return runner.Execute(resolved, stdout, stderr)
 }
 
-func ensurePresetRootfs(cfg spec.Config) error {
+func ensurePresetRootfs(cfg spec.Config, stderr io.Writer) error {
 	if cfg.RootFS == "" || cfg.Preset == "" {
 		return nil
 	}
@@ -440,7 +442,12 @@ func ensurePresetRootfs(cfg spec.Config) error {
 			return fmt.Errorf("read rootfs %q: %w", cfg.RootFS, err)
 		}
 		if len(entries) > 0 {
-			return rootfs.EnsureNSSRuntime(cfg.RootFS)
+			report, err := rootfs.EnsureNSSRuntimeWithReport(cfg.RootFS)
+			if err != nil {
+				return err
+			}
+			printGenerateWarnings(stderr, report, "preset rootfs ")
+			return nil
 		}
 	case errors.Is(err, os.ErrNotExist):
 	default:
@@ -451,10 +458,22 @@ func ensurePresetRootfs(cfg spec.Config) error {
 	if !ok {
 		return fmt.Errorf("unknown rootfs template %q", templateName)
 	}
-	if err := rootfs.Generate(cfg.RootFS, template); err != nil {
+	report, err := rootfs.GenerateWithReport(cfg.RootFS, template)
+	if err != nil {
 		return fmt.Errorf("prepare rootfs %q from preset %q template %q: %w", cfg.RootFS, cfg.Preset, templateName, err)
 	}
+	printGenerateWarnings(stderr, report, "preset rootfs ")
 	return nil
+}
+
+func printGenerateWarnings(w io.Writer, report rootfs.GenerateReport, prefix string) {
+	if w == nil || len(report.MissingAssets) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintf(w, "warnings: %d\n", len(report.MissingAssets))
+	for _, asset := range report.MissingAssets {
+		_, _ = fmt.Fprintf(w, "warning: %s%s\n", prefix, asset.Message())
+	}
 }
 
 func splitCSV(raw string) []string {

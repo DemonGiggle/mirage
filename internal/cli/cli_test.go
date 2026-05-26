@@ -316,6 +316,46 @@ func TestRootfsInit(t *testing.T) {
 	}
 }
 
+func TestRootfsInitReportsMissingAssets(t *testing.T) {
+	const templateName = "test-missing-assets"
+	rootfs.BuiltInTemplates[templateName] = rootfs.Template{
+		Version:     rootfs.TemplateVersionV1,
+		Name:        templateName,
+		Description: "Test template for missing host assets",
+		Directories: []rootfs.Directory{{Path: "/work", Mode: 0o755}},
+		RuntimeFiles: []rootfs.RuntimeFile{
+			{
+				HostPath:   filepath.Join(t.TempDir(), "missing-hosts"),
+				TargetPath: "/etc/hosts",
+			},
+		},
+	}
+	t.Cleanup(func() {
+		delete(rootfs.BuiltInTemplates, templateName)
+	})
+
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+	outputRoot := filepath.Join(t.TempDir(), "rootfs")
+	err := Run([]string{
+		"rootfs",
+		"init",
+		"--template", templateName,
+		"--output", outputRoot,
+	}, &out, &errBuf)
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	got := out.String()
+	if !strings.Contains(got, "warnings: 1") {
+		t.Fatalf("expected rootfs init output to include warning count, got %q", got)
+	}
+	if !strings.Contains(got, `warning: missing host asset "`) || !strings.Contains(got, `for "/etc/hosts"`) {
+		t.Fatalf("expected rootfs init output to report missing asset, got %q", got)
+	}
+}
+
 func TestEnsurePresetRootfsAutoGeneratesRecommendedTemplate(t *testing.T) {
 	for _, binary := range []string{"node", "npm", "bash", "git"} {
 		if _, err := exec.LookPath(binary); err != nil {
@@ -328,7 +368,8 @@ func TestEnsurePresetRootfsAutoGeneratesRecommendedTemplate(t *testing.T) {
 		RootFS: rootfsPath,
 		Preset: "openclaw-openai",
 	}
-	if err := ensurePresetRootfs(cfg); err != nil {
+	var errBuf bytes.Buffer
+	if err := ensurePresetRootfs(cfg, &errBuf); err != nil {
 		t.Fatalf("ensurePresetRootfs returned error: %v", err)
 	}
 
@@ -336,6 +377,60 @@ func TestEnsurePresetRootfsAutoGeneratesRecommendedTemplate(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(rootfsPath, target)); err != nil {
 			t.Fatalf("expected generated target %q to exist: %v", target, err)
 		}
+	}
+}
+
+func TestEnsurePresetRootfsReportsMissingAssets(t *testing.T) {
+	const templateName = "test-preset-missing-assets"
+	rootfs.BuiltInTemplates[templateName] = rootfs.Template{
+		Version:     rootfs.TemplateVersionV1,
+		Name:        templateName,
+		Description: "Test template for preset-generated missing assets",
+		Directories: []rootfs.Directory{{Path: "/work", Mode: 0o755}},
+		RuntimeFiles: []rootfs.RuntimeFile{
+			{
+				HostPath:   filepath.Join(t.TempDir(), "missing-hosts"),
+				TargetPath: "/etc/hosts",
+			},
+		},
+	}
+	t.Cleanup(func() {
+		delete(rootfs.BuiltInTemplates, templateName)
+	})
+
+	presetFile := filepath.Join(t.TempDir(), "presets.json")
+	if err := os.WriteFile(presetFile, []byte(`{
+  "presets": [
+    {
+      "name": "team-missing",
+      "network": "none",
+      "rootfs": {
+        "template": "`+templateName+`"
+      }
+    }
+  ]
+}`), 0o644); err != nil {
+		t.Fatalf("write preset file: %v", err)
+	}
+
+	rootfsPath := filepath.Join(t.TempDir(), "preset-rootfs")
+	cfg := spec.Config{
+		RootFS:     rootfsPath,
+		Preset:     "team-missing",
+		PresetFile: presetFile,
+	}
+
+	var errBuf bytes.Buffer
+	if err := ensurePresetRootfs(cfg, &errBuf); err != nil {
+		t.Fatalf("ensurePresetRootfs returned error: %v", err)
+	}
+
+	got := errBuf.String()
+	if !strings.Contains(got, "warnings: 1") {
+		t.Fatalf("expected preset rootfs warning count, got %q", got)
+	}
+	if !strings.Contains(got, "warning: preset rootfs missing host asset") {
+		t.Fatalf("expected preset rootfs warning output, got %q", got)
 	}
 }
 

@@ -150,7 +150,7 @@ func runSandboxStart(args []string, stdout, stderr io.Writer) error {
 		_ = os.Remove(statePath)
 		return err
 	}
-	if err := ensurePresetRootfs(resolved); err != nil {
+	if err := ensurePresetRootfs(resolved, stderr); err != nil {
 		_ = os.Remove(statePath)
 		return err
 	}

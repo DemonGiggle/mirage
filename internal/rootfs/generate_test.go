@@ -21,25 +21,34 @@ libc.so.6 => /lib/x86_64-linux-gnu/libc.so.6 (0x00007f96c38be000)
 	if err != nil {
 		t.Fatalf("parseLDDOutput returned error: %v", err)
 	}
+	if len(got.missing) != 0 {
+		t.Fatalf("expected no missing dependencies, got %v", got.missing)
+	}
 	want := []string{
 		"/lib/x86_64-linux-gnu/libselinux.so.1",
 		"/lib/x86_64-linux-gnu/libc.so.6",
 		"/lib64/ld-linux-x86-64.so.2",
 	}
-	if len(got) != len(want) {
-		t.Fatalf("unexpected dependency count: got %d want %d (%v)", len(got), len(want), got)
+	if len(got.paths) != len(want) {
+		t.Fatalf("unexpected dependency count: got %d want %d (%v)", len(got.paths), len(want), got.paths)
 	}
 	for idx, dep := range want {
-		if got[idx] != dep {
-			t.Fatalf("unexpected dependency at %d: got %q want %q", idx, got[idx], dep)
+		if got.paths[idx] != dep {
+			t.Fatalf("unexpected dependency at %d: got %q want %q", idx, got.paths[idx], dep)
 		}
 	}
 }
 
-func TestParseLDDOutputRejectsMissingDependency(t *testing.T) {
-	_, err := parseLDDOutput([]byte("libmissing.so.1 => not found"))
-	if err == nil || !strings.Contains(err.Error(), "missing shared library dependency") {
-		t.Fatalf("expected missing dependency error, got %v", err)
+func TestParseLDDOutputCollectsMissingDependency(t *testing.T) {
+	got, err := parseLDDOutput([]byte("libmissing.so.1 => not found"))
+	if err != nil {
+		t.Fatalf("parseLDDOutput returned error: %v", err)
+	}
+	if len(got.paths) != 0 {
+		t.Fatalf("expected no resolved dependencies, got %v", got.paths)
+	}
+	if len(got.missing) != 1 || got.missing[0] != "libmissing.so.1" {
+		t.Fatalf("expected missing dependency to be collected, got %v", got.missing)
 	}
 }
 
@@ -100,6 +109,94 @@ func TestGenerateCopiesFilesAndDependencies(t *testing.T) {
 	firstDependency := filepath.Join(outputRoot, strings.TrimPrefix(dependencies[0], "/"))
 	if _, err := os.Stat(firstDependency); err != nil {
 		t.Fatalf("expected copied dependency %q to exist: %v", firstDependency, err)
+	}
+}
+
+func TestGenerateWithReportReportsMissingAssetsWithoutFailing(t *testing.T) {
+	scriptPath := filepath.Join(t.TempDir(), "demo-script")
+	if err := os.WriteFile(scriptPath, []byte("#!/definitely/missing/interpreter\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write script fixture: %v", err)
+	}
+
+	missingRuntimeFile := filepath.Join(t.TempDir(), "missing-hosts")
+	outputRoot := filepath.Join(t.TempDir(), "rootfs")
+	report, err := GenerateWithReport(outputRoot, Template{
+		Version:     TemplateVersionV1,
+		Name:        "custom",
+		Description: "Custom template",
+		Directories: []Directory{{Path: "/work", Mode: 0o755}},
+		Binaries: []Binary{
+			{
+				HostPath:         scriptPath,
+				TargetPath:       "/usr/bin/demo-script",
+				CopyDependencies: true,
+			},
+		},
+		RuntimeFiles: []RuntimeFile{
+			{
+				HostPath:   missingRuntimeFile,
+				TargetPath: "/etc/hosts",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("GenerateWithReport returned error: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(outputRoot, "work")); err != nil {
+		t.Fatalf("expected generated directory to exist: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(outputRoot, "usr", "bin", "demo-script")); err != nil {
+		t.Fatalf("expected copied script to exist: %v", err)
+	}
+	if len(report.MissingAssets) != 2 {
+		t.Fatalf("expected two missing assets, got %d (%v)", len(report.MissingAssets), report.MissingAssets)
+	}
+
+	var sawRuntimeFile bool
+	var sawInterpreter bool
+	for _, asset := range report.MissingAssets {
+		switch {
+		case asset.Source == missingRuntimeFile && asset.TargetPath == "/etc/hosts":
+			sawRuntimeFile = true
+		case asset.Source == "/definitely/missing/interpreter" && asset.TargetPath == "/definitely/missing/interpreter":
+			sawInterpreter = true
+		}
+	}
+	if !sawRuntimeFile {
+		t.Fatalf("expected missing runtime file to be reported, got %v", report.MissingAssets)
+	}
+	if !sawInterpreter {
+		t.Fatalf("expected missing shebang interpreter to be reported, got %v", report.MissingAssets)
+	}
+}
+
+func TestGenerateWithReportSkipsOptionalMissingAssets(t *testing.T) {
+	outputRoot := filepath.Join(t.TempDir(), "rootfs")
+	report, err := GenerateWithReport(outputRoot, Template{
+		Version:     TemplateVersionV1,
+		Name:        "custom",
+		Description: "Custom template",
+		RuntimeFiles: []RuntimeFile{
+			{
+				HostPath:   filepath.Join(t.TempDir(), "missing-hosts"),
+				TargetPath: "/etc/hosts",
+				Optional:   true,
+			},
+		},
+		RuntimeTrees: []RuntimeTree{
+			{
+				HostPath:   filepath.Join(t.TempDir(), "missing-locale"),
+				TargetPath: "/usr/share/locale",
+				Optional:   true,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("GenerateWithReport returned error: %v", err)
+	}
+	if len(report.MissingAssets) != 0 {
+		t.Fatalf("expected optional missing assets to stay silent, got %v", report.MissingAssets)
 	}
 }
 
