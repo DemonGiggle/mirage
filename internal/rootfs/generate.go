@@ -404,7 +404,7 @@ func parseLDDOutput(output []byte) (lddReport, error) {
 			continue
 		}
 
-		if strings.Contains(line, "=> not found") {
+		if strings.Contains(line, "not found") {
 			missing = append(missing, strings.TrimSpace(strings.SplitN(line, "=>", 2)[0]))
 			continue
 		}
