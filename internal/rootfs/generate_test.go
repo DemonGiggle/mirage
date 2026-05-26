@@ -230,6 +230,76 @@ func TestGenerateWritesGeneratedFiles(t *testing.T) {
 	}
 }
 
+func TestGenerateCopiesRuntimeTrees(t *testing.T) {
+	hostRoot := filepath.Join(t.TempDir(), "host")
+	if err := os.MkdirAll(filepath.Join(hostRoot, "locale", "C"), 0o755); err != nil {
+		t.Fatalf("create runtime tree dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(hostRoot, "locale", "C", "messages.txt"), []byte("hello\n"), 0o644); err != nil {
+		t.Fatalf("write runtime tree file: %v", err)
+	}
+
+	outputRoot := filepath.Join(t.TempDir(), "rootfs")
+	err := Generate(outputRoot, Template{
+		Version:     TemplateVersionV1,
+		Name:        "custom",
+		Description: "Custom template",
+		RuntimeTrees: []RuntimeTree{
+			{HostPath: filepath.Join(hostRoot, "locale"), TargetPath: "/usr/share/locale"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Generate returned error: %v", err)
+	}
+
+	target := filepath.Join(outputRoot, "usr", "share", "locale", "C", "messages.txt")
+	data, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("expected copied runtime tree file %q to exist: %v", target, err)
+	}
+	if string(data) != "hello\n" {
+		t.Fatalf("unexpected copied runtime tree content: %q", string(data))
+	}
+}
+
+func TestGenerateCopiesRuntimeTreesFromSymlinkRoot(t *testing.T) {
+	hostRoot := filepath.Join(t.TempDir(), "host")
+	sourceRoot := filepath.Join(hostRoot, "locale")
+	if err := os.MkdirAll(filepath.Join(sourceRoot, "C"), 0o755); err != nil {
+		t.Fatalf("create runtime tree dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(sourceRoot, "C", "messages.txt"), []byte("hello\n"), 0o644); err != nil {
+		t.Fatalf("write runtime tree file: %v", err)
+	}
+
+	linkRoot := filepath.Join(t.TempDir(), "locale-link")
+	if err := os.Symlink(sourceRoot, linkRoot); err != nil {
+		t.Fatalf("create runtime tree symlink: %v", err)
+	}
+
+	outputRoot := filepath.Join(t.TempDir(), "rootfs")
+	err := Generate(outputRoot, Template{
+		Version:     TemplateVersionV1,
+		Name:        "custom",
+		Description: "Custom template",
+		RuntimeTrees: []RuntimeTree{
+			{HostPath: linkRoot, TargetPath: "/usr/share/locale"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Generate returned error: %v", err)
+	}
+
+	target := filepath.Join(outputRoot, "usr", "share", "locale", "C", "messages.txt")
+	data, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("expected copied runtime tree file %q to exist: %v", target, err)
+	}
+	if string(data) != "hello\n" {
+		t.Fatalf("unexpected copied runtime tree content: %q", string(data))
+	}
+}
+
 func TestGenerateCopiesSymlinkedNodeModuleLaunchers(t *testing.T) {
 	nodePath, err := exec.LookPath("node")
 	if err != nil {

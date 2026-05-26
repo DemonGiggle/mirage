@@ -78,7 +78,12 @@ The built-in templates are:
 - `basic`: minimal shell and inspection tools
 - `node`: `basic` plus Node.js, npm, npx, `/workspace`, and CA trust material
 - `python`: `basic` plus Python, pip, `/workspace`, and CA trust material
-- `openclaw`: `node` plus `bash`, `git`, and `/home`
+- `openclaw`: compatibility OpenClaw template used by current presets
+- `openclaw-chat-only`: `node` plus locale/tzdata runtime data and `openssl`
+- `openclaw-work`: `openclaw-chat-only` plus common shell, archive, patch, JSON, and search tooling
+- `openclaw-developer`: `openclaw-work` plus VCS, editors, Python, SQLite, and build-toolchain entrypoints
+- `openclaw-admin`: `openclaw-developer` plus networking, process, and capability tools
+- `openclaw-root`: `openclaw-admin` plus package-management, tracing, debugging, namespace, and filesystem tools
 - `openclaw-systemd`: `openclaw` plus guest `systemd` tooling, systemd
   directories, and an empty `/etc/machine-id`
 

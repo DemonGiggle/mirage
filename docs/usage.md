@@ -168,6 +168,7 @@ A V1 rootfs template describes:
 - directories that should exist in the generated rootfs
 - binaries copied either from an explicit host absolute path or from host `PATH`
 - whether each binary should bring along its shared-library dependency closure
+- runtime trees copied recursively from the host into the rootfs
 - runtime files copied from the host into the rootfs
 
 Built-in V1 templates currently include:
@@ -176,6 +177,11 @@ Built-in V1 templates currently include:
 - `node`
 - `python`
 - `openclaw`
+- `openclaw-chat-only`
+- `openclaw-work`
+- `openclaw-developer`
+- `openclaw-admin`
+- `openclaw-root`
 - `openclaw-systemd`
 
 Every built-in template currently prepares the same baseline runtime layout:
@@ -208,15 +214,25 @@ and whether the requested service unit is present at
 | `basic` | Shell and inspection basics: `/bin/sh`, `/bin/ls`, `/bin/cat`, `/bin/mkdir`, `/bin/pwd`, `/bin/rm`, `/bin/true`, `/bin/false`, and `/usr/bin/env` | Sanity checks, simple shell commands, and minimal rootfs runs |
 | `node` | Everything from `basic`, plus `/workspace`, `/etc/ssl/certs`, `node`, `npm`, `npx`, and common CA bundle files when present on the host | Node.js-oriented tooling and HTTPS-capable Node workloads |
 | `python` | Everything from `basic`, plus `/workspace`, `/etc/ssl/certs`, `python3`, `pip3`, and common CA bundle files when present on the host | Python-oriented tooling and HTTPS-capable Python workloads |
-| `openclaw` | Everything from `node`, plus `/home`, `bash`, and `git` | OpenClaw-oriented local agent work, especially with the `openclaw-*` presets |
+| `openclaw` | Compatibility OpenClaw template: everything from `node`, plus `/home`, `bash`, and `git` | Backward-compatible OpenClaw local agent work and current `openclaw-*` presets |
+| `openclaw-chat-only` | Everything from `node`, plus locale/tzdata runtime data and `openssl` | Minimal OpenClaw chat-oriented runs that need Node.js, TLS, and locale/timezone data |
+| `openclaw-work` | Everything from `openclaw-chat-only`, plus shell, archive, patching, JSON, and search tooling | OpenClaw work sessions with common Unix utilities |
+| `openclaw-developer` | Everything from `openclaw-work`, plus VCS, editors, Python, SQLite, and common build-toolchain entrypoints | OpenClaw development-oriented sessions |
+| `openclaw-admin` | Everything from `openclaw-developer`, plus networking, process, and capability utilities | OpenClaw troubleshooting and host/network administration tasks |
+| `openclaw-root` | Everything from `openclaw-admin`, plus package-management, tracing, debugging, namespace, and filesystem tools | Privileged or recovery-oriented OpenClaw sessions |
 | `openclaw-systemd` | Everything from `openclaw`, plus guest `systemd` tooling, systemd unit directories, `/var/lib/systemd`, `/var/log/journal`, `/etc/passwd`, `/etc/group`, and an empty `/etc/machine-id` | OpenClaw guest service runs managed by guest `systemd` |
 
 Notes:
 
 - `basic` is the smallest built-in template and the best first choice when you
   just want a runnable rootfs for commands like `/bin/ls` or `/bin/sh`.
-- `node`, `python`, and `openclaw` intentionally add a writable `/workspace`
-  layout because those flows commonly mount or use project trees there.
+- `node`, `python`, and all `openclaw*` templates intentionally add a writable
+  `/workspace` layout because those flows commonly mount or use project trees there.
+- the leveled `openclaw-*` templates compose strictly from the previous level
+  plus the current level's additions.
+- `openclaw` remains the backward-compatible OpenClaw template used by existing
+  presets, while the leveled templates let you opt into narrower or broader
+  tool surfaces explicitly.
 - `openclaw-systemd` seeds the directory structure needed for guest `systemd`,
   but Mirage does not ship an opinionated `openclaw.service` body. The expected
   placement for an operator-provided unit is `/etc/systemd/system/openclaw.service`.
@@ -247,6 +263,9 @@ Schema shape:
       "host_path": "/usr/bin/env",
       "copy_dependencies": true
     }
+  ],
+  "runtime_trees": [
+    {"host_path": "/usr/share/zoneinfo", "target_path": "/usr/share/zoneinfo", "optional": true}
   ],
   "runtime_files": [
     {"host_path": "/etc/hosts", "target_path": "/etc/hosts"},

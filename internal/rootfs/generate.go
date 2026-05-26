@@ -35,6 +35,11 @@ func Generate(outputRoot string, template Template) error {
 			return err
 		}
 	}
+	for _, runtimeTree := range template.RuntimeTrees {
+		if err := generator.copyRuntimeTree(runtimeTree); err != nil {
+			return err
+		}
+	}
 	for _, runtimeFile := range template.RuntimeFiles {
 		if err := generator.copyRuntimeFile(runtimeFile); err != nil {
 			return err
@@ -104,6 +109,21 @@ func (g generator) ensureDirectory(dir Directory) error {
 
 func (g generator) copyRuntimeFile(runtimeFile RuntimeFile) error {
 	return g.copyHostFile(runtimeFile.HostPath, runtimeFile.TargetPath, runtimeFile.Optional)
+}
+
+func (g generator) copyRuntimeTree(runtimeTree RuntimeTree) error {
+	if runtimeTree.Optional {
+		if _, err := os.Stat(runtimeTree.HostPath); errors.Is(err, os.ErrNotExist) {
+			return nil
+		} else if err != nil {
+			return fmt.Errorf("stat host tree %q: %w", runtimeTree.HostPath, err)
+		}
+	}
+	sourceRoot, err := filepath.EvalSymlinks(runtimeTree.HostPath)
+	if err != nil {
+		return fmt.Errorf("resolve host tree %q: %w", runtimeTree.HostPath, err)
+	}
+	return g.copyHostTree(sourceRoot, runtimeTree.TargetPath)
 }
 
 func (g generator) writeGeneratedFile(generatedFile GeneratedFile) error {
