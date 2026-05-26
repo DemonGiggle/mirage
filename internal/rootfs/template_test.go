@@ -7,7 +7,18 @@ import (
 
 func TestTemplateNames(t *testing.T) {
 	got := TemplateNames()
-	want := []string{"basic", "node", "openclaw", "openclaw-systemd", "python"}
+	want := []string{
+		"basic",
+		"node",
+		"openclaw",
+		"openclaw-admin",
+		"openclaw-chat-only",
+		"openclaw-developer",
+		"openclaw-root",
+		"openclaw-systemd",
+		"openclaw-work",
+		"python",
+	}
 	if len(got) != len(want) {
 		t.Fatalf("unexpected template count: got %d want %d (%v)", len(got), len(want), got)
 	}
@@ -58,6 +69,13 @@ func TestValidateTemplateSupportsHostPathsAndPathLookups(t *testing.T) {
 				TargetPath:       "/usr/bin/python3",
 				LookupName:       "python3",
 				CopyDependencies: true,
+			},
+		},
+		RuntimeTrees: []RuntimeTree{
+			{
+				HostPath:   "/usr/share/zoneinfo",
+				TargetPath: "/usr/share/zoneinfo",
+				Optional:   true,
 			},
 		},
 		RuntimeFiles: []RuntimeFile{
@@ -115,6 +133,17 @@ func TestValidateTemplateRejectsDuplicatePaths(t *testing.T) {
 				CopyDependencies: true,
 			},
 		},
+		RuntimeTrees: []RuntimeTree{
+			{
+				HostPath:   "/usr/share/zoneinfo",
+				TargetPath: "/usr/share/zoneinfo",
+			},
+			{
+				HostPath:   "/usr/share/zoneinfo",
+				TargetPath: "/usr/share/zoneinfo",
+				Optional:   true,
+			},
+		},
 		RuntimeFiles: []RuntimeFile{
 			{
 				HostPath:   "/etc/hosts",
@@ -135,6 +164,7 @@ func TestValidateTemplateRejectsDuplicatePaths(t *testing.T) {
 	for _, needle := range []string{
 		`directory path "/workspace" is duplicated`,
 		`binary target path "/bin/sh" is duplicated`,
+		`runtime tree target path "/usr/share/zoneinfo" is duplicated`,
 		`runtime file target path "/etc/hosts" is duplicated`,
 	} {
 		if !strings.Contains(err.Error(), needle) {
@@ -156,6 +186,52 @@ func TestOpenclawTemplateIncludesNodeAndGit(t *testing.T) {
 	for _, want := range []string{"node", "npm", "npx", "git", "bash"} {
 		if !contains(lookups, want) {
 			t.Fatalf("expected openclaw template to include %q, got %v", want, lookups)
+		}
+	}
+}
+
+func TestOpenclawLevelsComposeIncrementally(t *testing.T) {
+	levels := []struct {
+		name  string
+		needs []string
+	}{
+		{name: "openclaw-chat-only", needs: []string{"node", "npm", "npx", "openssl"}},
+		{name: "openclaw-work", needs: []string{"bash", "find", "jq", "rg"}},
+		{name: "openclaw-developer", needs: []string{"git", "make", "fdfind", "python3", "sqlite3", "go", "rustc", "cargo"}},
+		{name: "openclaw-admin", needs: []string{"ip", "ping", "dig", "lsof", "iptables", "nft", "nc", "ssh"}},
+		{name: "openclaw-root", needs: []string{"sudo", "apt", "gpg", "strace", "gdb", "nsenter", "parted", "mkfs.ext4", "mkfs.xfs"}},
+	}
+	for _, level := range levels {
+		template, ok := LookupTemplate(level.name)
+		if !ok {
+			t.Fatalf("expected %s template to exist", level.name)
+		}
+
+		var lookups []string
+		for _, binary := range template.Binaries {
+			lookups = append(lookups, binary.LookupName)
+		}
+		for _, want := range level.needs {
+			if !contains(lookups, want) {
+				t.Fatalf("expected %s template to include %q, got %v", level.name, want, lookups)
+			}
+		}
+	}
+}
+
+func TestOpenclawChatOnlyTemplateIncludesRuntimeTrees(t *testing.T) {
+	template, ok := LookupTemplate("openclaw-chat-only")
+	if !ok {
+		t.Fatal("expected openclaw-chat-only template to exist")
+	}
+
+	var treeTargets []string
+	for _, runtimeTree := range template.RuntimeTrees {
+		treeTargets = append(treeTargets, runtimeTree.TargetPath)
+	}
+	for _, want := range []string{"/usr/share/zoneinfo", "/usr/lib/locale", "/usr/share/locale"} {
+		if !contains(treeTargets, want) {
+			t.Fatalf("expected openclaw-chat-only template to include runtime tree %q, got %v", want, treeTargets)
 		}
 	}
 }

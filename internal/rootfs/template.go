@@ -17,6 +17,7 @@ type Template struct {
 	Description    string          `json:"description"`
 	Directories    []Directory     `json:"directories,omitempty"`
 	Binaries       []Binary        `json:"binaries,omitempty"`
+	RuntimeTrees   []RuntimeTree   `json:"runtime_trees,omitempty"`
 	RuntimeFiles   []RuntimeFile   `json:"runtime_files,omitempty"`
 	GeneratedFiles []GeneratedFile `json:"generated_files,omitempty"`
 }
@@ -33,6 +34,12 @@ type Binary struct {
 	CopyDependencies bool   `json:"copy_dependencies,omitempty"`
 }
 
+type RuntimeTree struct {
+	HostPath   string `json:"host_path"`
+	TargetPath string `json:"target_path"`
+	Optional   bool   `json:"optional,omitempty"`
+}
+
 type RuntimeFile struct {
 	HostPath   string `json:"host_path"`
 	TargetPath string `json:"target_path"`
@@ -46,11 +53,16 @@ type GeneratedFile struct {
 }
 
 var BuiltInTemplates = map[string]Template{
-	"basic":            basicTemplate(),
-	"node":             nodeTemplate(),
-	"python":           pythonTemplate(),
-	"openclaw":         openclawTemplate(),
-	"openclaw-systemd": openclawSystemdTemplate(),
+	"basic":              basicTemplate(),
+	"node":               nodeTemplate(),
+	"python":             pythonTemplate(),
+	"openclaw":           openclawTemplate(),
+	"openclaw-chat-only": openclawChatOnlyTemplate(),
+	"openclaw-work":      openclawWorkTemplate(),
+	"openclaw-developer": openclawDeveloperTemplate(),
+	"openclaw-admin":     openclawAdminTemplate(),
+	"openclaw-root":      openclawRootTemplate(),
+	"openclaw-systemd":   openclawSystemdTemplate(),
 }
 
 func TemplateNames() []string {
@@ -82,7 +94,7 @@ func ValidateTemplate(template Template) error {
 	var problems []error
 	seenDirectories := make(map[string]struct{}, len(template.Directories))
 	seenBinaries := make(map[string]struct{}, len(template.Binaries))
-	seenFiles := make(map[string]struct{}, len(template.RuntimeFiles)+len(template.GeneratedFiles))
+	seenPaths := make(map[string]struct{}, len(template.RuntimeTrees)+len(template.RuntimeFiles)+len(template.GeneratedFiles))
 	if template.Version != TemplateVersionV1 {
 		problems = append(problems, fmt.Errorf("template %q must declare version %q", template.Name, TemplateVersionV1))
 	}
@@ -122,6 +134,19 @@ func ValidateTemplate(template Template) error {
 			problems = append(problems, fmt.Errorf("template %q binary %d lookup name %q must be a PATH name, not a path", template.Name, idx, binary.LookupName))
 		}
 	}
+	for idx, runtimeTree := range template.RuntimeTrees {
+		if !filepath.IsAbs(runtimeTree.HostPath) {
+			problems = append(problems, fmt.Errorf("template %q runtime tree %d host path %q must be absolute", template.Name, idx, runtimeTree.HostPath))
+		}
+		if !filepath.IsAbs(runtimeTree.TargetPath) {
+			problems = append(problems, fmt.Errorf("template %q runtime tree %d target path %q must be absolute", template.Name, idx, runtimeTree.TargetPath))
+		}
+		if _, exists := seenPaths[runtimeTree.TargetPath]; exists {
+			problems = append(problems, fmt.Errorf("template %q runtime tree target path %q is duplicated", template.Name, runtimeTree.TargetPath))
+			continue
+		}
+		seenPaths[runtimeTree.TargetPath] = struct{}{}
+	}
 	for idx, runtimeFile := range template.RuntimeFiles {
 		if !filepath.IsAbs(runtimeFile.HostPath) {
 			problems = append(problems, fmt.Errorf("template %q runtime file %d host path %q must be absolute", template.Name, idx, runtimeFile.HostPath))
@@ -129,21 +154,21 @@ func ValidateTemplate(template Template) error {
 		if !filepath.IsAbs(runtimeFile.TargetPath) {
 			problems = append(problems, fmt.Errorf("template %q runtime file %d target path %q must be absolute", template.Name, idx, runtimeFile.TargetPath))
 		}
-		if _, exists := seenFiles[runtimeFile.TargetPath]; exists {
+		if _, exists := seenPaths[runtimeFile.TargetPath]; exists {
 			problems = append(problems, fmt.Errorf("template %q runtime file target path %q is duplicated", template.Name, runtimeFile.TargetPath))
 			continue
 		}
-		seenFiles[runtimeFile.TargetPath] = struct{}{}
+		seenPaths[runtimeFile.TargetPath] = struct{}{}
 	}
 	for idx, generatedFile := range template.GeneratedFiles {
 		if !filepath.IsAbs(generatedFile.TargetPath) {
 			problems = append(problems, fmt.Errorf("template %q generated file %d target path %q must be absolute", template.Name, idx, generatedFile.TargetPath))
 		}
-		if _, exists := seenFiles[generatedFile.TargetPath]; exists {
+		if _, exists := seenPaths[generatedFile.TargetPath]; exists {
 			problems = append(problems, fmt.Errorf("template %q generated file target path %q is duplicated", template.Name, generatedFile.TargetPath))
 			continue
 		}
-		seenFiles[generatedFile.TargetPath] = struct{}{}
+		seenPaths[generatedFile.TargetPath] = struct{}{}
 	}
 	if len(problems) == 0 {
 		return nil
@@ -216,14 +241,198 @@ func pythonTemplate() Template {
 func openclawTemplate() Template {
 	template := nodeTemplate()
 	template.Name = "openclaw"
-	template.Description = "OpenClaw-oriented rootfs template with Node.js, Git, and a writable workspace."
+	template.Description = "OpenClaw-oriented compatibility template with Node.js, Git, Bash, and a writable workspace."
 	template.Directories = appendUniqueDirectories(template.Directories,
 		directory("/workspace", 0o755),
 		directory("/home", 0o755),
 	)
-	template.Binaries = append(template.Binaries,
+	template.Binaries = appendUniqueBinaries(template.Binaries,
 		lookupBinary("bash", "/bin/bash"),
 		lookupBinary("git", "/usr/bin/git"),
+	)
+	return template
+}
+
+func openclawChatOnlyTemplate() Template {
+	template := nodeTemplate()
+	template.Name = "openclaw-chat-only"
+	template.Description = "OpenClaw chat-only rootfs level with Node.js, TLS material, locales, tzdata, and OpenSSL."
+	template.RuntimeTrees = appendUniqueRuntimeTrees(template.RuntimeTrees,
+		optionalRuntimeTree("/usr/share/zoneinfo", "/usr/share/zoneinfo"),
+		optionalRuntimeTree("/usr/lib/locale", "/usr/lib/locale"),
+		optionalRuntimeTree("/usr/share/locale", "/usr/share/locale"),
+	)
+	template.RuntimeFiles = appendUniqueRuntimeFiles(template.RuntimeFiles,
+		optionalRuntimeFile("/etc/localtime", "/etc/localtime"),
+		optionalRuntimeFile("/etc/timezone", "/etc/timezone"),
+		optionalRuntimeFile("/etc/ssl/openssl.cnf", "/etc/ssl/openssl.cnf"),
+	)
+	template.Binaries = appendUniqueBinaries(template.Binaries,
+		lookupBinary("openssl", "/usr/bin/openssl"),
+	)
+	return template
+}
+
+func openclawWorkTemplate() Template {
+	template := openclawChatOnlyTemplate()
+	template.Name = "openclaw-work"
+	template.Description = "OpenClaw work rootfs level with shell, archive, patching, JSON, and search tooling."
+	template.Directories = appendUniqueDirectories(template.Directories,
+		directory("/home", 0o755),
+	)
+	template.RuntimeTrees = appendUniqueRuntimeTrees(template.RuntimeTrees,
+		optionalRuntimeTree("/lib/terminfo", "/lib/terminfo"),
+		optionalRuntimeTree("/usr/share/terminfo", "/usr/share/terminfo"),
+	)
+	template.RuntimeFiles = appendUniqueRuntimeFiles(template.RuntimeFiles,
+		optionalRuntimeFile("/usr/share/misc/magic.mgc", "/usr/share/misc/magic.mgc"),
+	)
+	template.Binaries = appendUniqueBinaries(template.Binaries,
+		lookupBinary("bash", "/bin/bash"),
+		lookupBinary("cp", "/bin/cp"),
+		lookupBinary("mv", "/bin/mv"),
+		lookupBinary("ln", "/bin/ln"),
+		lookupBinary("chmod", "/bin/chmod"),
+		lookupBinary("chown", "/bin/chown"),
+		lookupBinary("touch", "/bin/touch"),
+		lookupBinary("sleep", "/bin/sleep"),
+		lookupBinary("stat", "/usr/bin/stat"),
+		lookupBinary("tee", "/usr/bin/tee"),
+		lookupBinary("head", "/usr/bin/head"),
+		lookupBinary("tail", "/usr/bin/tail"),
+		lookupBinary("sort", "/usr/bin/sort"),
+		lookupBinary("uniq", "/usr/bin/uniq"),
+		lookupBinary("cut", "/usr/bin/cut"),
+		lookupBinary("wc", "/usr/bin/wc"),
+		lookupBinary("du", "/usr/bin/du"),
+		lookupBinary("df", "/usr/bin/df"),
+		lookupBinary("basename", "/usr/bin/basename"),
+		lookupBinary("dirname", "/usr/bin/dirname"),
+		lookupBinary("readlink", "/usr/bin/readlink"),
+		lookupBinary("printf", "/usr/bin/printf"),
+		lookupBinary("id", "/usr/bin/id"),
+		lookupBinary("whoami", "/usr/bin/whoami"),
+		lookupBinary("uname", "/usr/bin/uname"),
+		lookupBinary("seq", "/usr/bin/seq"),
+		lookupBinary("tr", "/usr/bin/tr"),
+		lookupBinary("find", "/usr/bin/find"),
+		lookupBinary("xargs", "/usr/bin/xargs"),
+		lookupBinary("grep", "/usr/bin/grep"),
+		lookupBinary("sed", "/usr/bin/sed"),
+		lookupBinary("awk", "/usr/bin/awk"),
+		lookupBinary("diff", "/usr/bin/diff"),
+		lookupBinary("patch", "/usr/bin/patch"),
+		lookupBinary("less", "/usr/bin/less"),
+		lookupBinary("file", "/usr/bin/file"),
+		lookupBinary("tar", "/usr/bin/tar"),
+		lookupBinary("gzip", "/usr/bin/gzip"),
+		lookupBinary("bzip2", "/usr/bin/bzip2"),
+		lookupBinary("xz", "/usr/bin/xz"),
+		lookupBinary("zip", "/usr/bin/zip"),
+		lookupBinary("unzip", "/usr/bin/unzip"),
+		lookupBinary("jq", "/usr/bin/jq"),
+		lookupBinary("rg", "/usr/bin/rg"),
+	)
+	return template
+}
+
+func openclawDeveloperTemplate() Template {
+	template := openclawWorkTemplate()
+	template.Name = "openclaw-developer"
+	template.Description = "OpenClaw developer rootfs level with VCS, editors, interpreters, databases, and common build toolchains."
+	template.Binaries = appendUniqueBinaries(template.Binaries,
+		lookupBinary("git", "/usr/bin/git"),
+		lookupBinary("make", "/usr/bin/make"),
+		lookupBinary("ps", "/usr/bin/ps"),
+		lookupBinary("pgrep", "/usr/bin/pgrep"),
+		lookupBinary("pkill", "/usr/bin/pkill"),
+		lookupBinary("curl", "/usr/bin/curl"),
+		lookupBinary("wget", "/usr/bin/wget"),
+		lookupBinary("fdfind", "/usr/bin/fdfind"),
+		lookupBinary("xxd", "/usr/bin/xxd"),
+		lookupBinary("vim", "/usr/bin/vim"),
+		lookupBinary("python3", "/usr/bin/python3"),
+		lookupBinary("pip3", "/usr/bin/pip3"),
+		lookupBinary("sqlite3", "/usr/bin/sqlite3"),
+		lookupBinary("gcc", "/usr/bin/gcc"),
+		lookupBinary("g++", "/usr/bin/g++"),
+		lookupBinary("cc", "/usr/bin/cc"),
+		lookupBinary("ld", "/usr/bin/ld"),
+		lookupBinary("ar", "/usr/bin/ar"),
+		lookupBinary("as", "/usr/bin/as"),
+		lookupBinary("strip", "/usr/bin/strip"),
+		lookupBinary("go", "/usr/bin/go"),
+		lookupBinary("rustc", "/usr/bin/rustc"),
+		lookupBinary("cargo", "/usr/bin/cargo"),
+	)
+	template.RuntimeTrees = appendUniqueRuntimeTrees(template.RuntimeTrees,
+		optionalRuntimeTree("/usr/lib/python3", "/usr/lib/python3"),
+		optionalRuntimeTree("/usr/lib/python3.12", "/usr/lib/python3.12"),
+		optionalRuntimeTree("/usr/lib/python3/dist-packages", "/usr/lib/python3/dist-packages"),
+		optionalRuntimeTree("/usr/local/lib/python3.12", "/usr/local/lib/python3.12"),
+		optionalRuntimeTree("/usr/local/go", "/usr/local/go"),
+		optionalRuntimeTree("/usr/lib/go", "/usr/lib/go"),
+		optionalRuntimeTree("/usr/lib/rustlib", "/usr/lib/rustlib"),
+		optionalRuntimeTree("/usr/lib/cargo", "/usr/lib/cargo"),
+	)
+	return template
+}
+
+func openclawAdminTemplate() Template {
+	template := openclawDeveloperTemplate()
+	template.Name = "openclaw-admin"
+	template.Description = "OpenClaw admin rootfs level with networking, process, capability, and sync utilities."
+	template.Binaries = appendUniqueBinaries(template.Binaries,
+		lookupBinary("ip", "/usr/sbin/ip"),
+		lookupBinary("ss", "/usr/bin/ss"),
+		lookupBinary("ping", "/bin/ping"),
+		lookupBinary("dig", "/usr/bin/dig"),
+		lookupBinary("host", "/usr/bin/host"),
+		lookupBinary("nslookup", "/usr/bin/nslookup"),
+		lookupBinary("lsof", "/usr/bin/lsof"),
+		lookupBinary("killall", "/usr/bin/killall"),
+		lookupBinary("fuser", "/usr/bin/fuser"),
+		lookupBinary("mount", "/usr/bin/mount"),
+		lookupBinary("umount", "/usr/bin/umount"),
+		lookupBinary("lsblk", "/usr/bin/lsblk"),
+		lookupBinary("blkid", "/usr/sbin/blkid"),
+		lookupBinary("flock", "/usr/bin/flock"),
+		lookupBinary("capsh", "/usr/sbin/capsh"),
+		lookupBinary("getcap", "/usr/sbin/getcap"),
+		lookupBinary("setcap", "/usr/sbin/setcap"),
+		lookupBinary("iptables", "/usr/sbin/iptables"),
+		lookupBinary("nft", "/usr/sbin/nft"),
+		lookupBinary("nc", "/usr/bin/nc"),
+		lookupBinary("rsync", "/usr/bin/rsync"),
+		lookupBinary("ssh", "/usr/bin/ssh"),
+	)
+	return template
+}
+
+func openclawRootTemplate() Template {
+	template := openclawAdminTemplate()
+	template.Name = "openclaw-root"
+	template.Description = "OpenClaw root rootfs level with package management, tracing, debugging, namespace, and filesystem tooling."
+	template.Binaries = appendUniqueBinaries(template.Binaries,
+		lookupBinary("sudo", "/usr/bin/sudo"),
+		lookupBinary("apt", "/usr/bin/apt"),
+		lookupBinary("apt-cache", "/usr/bin/apt-cache"),
+		lookupBinary("apt-get", "/usr/bin/apt-get"),
+		lookupBinary("gpg", "/usr/bin/gpg"),
+		lookupBinary("strace", "/usr/bin/strace"),
+		lookupBinary("gdb", "/usr/bin/gdb"),
+		lookupBinary("nsenter", "/usr/bin/nsenter"),
+		lookupBinary("socat", "/usr/bin/socat"),
+		lookupBinary("parted", "/usr/sbin/parted"),
+		lookupBinary("mkfs.ext4", "/usr/sbin/mkfs.ext4"),
+		lookupBinary("e2fsck", "/usr/sbin/e2fsck"),
+		lookupBinary("resize2fs", "/usr/sbin/resize2fs"),
+		lookupBinary("tune2fs", "/usr/sbin/tune2fs"),
+		lookupBinary("mkfs.xfs", "/usr/sbin/mkfs.xfs"),
+		lookupBinary("xfs_repair", "/usr/sbin/xfs_repair"),
+	)
+	template.RuntimeFiles = appendUniqueRuntimeFiles(template.RuntimeFiles,
+		optionalRuntimeFile("/usr/share/keyrings/debian-archive-keyring.gpg", "/usr/share/keyrings/debian-archive-keyring.gpg"),
 	)
 	return template
 }
@@ -241,7 +450,7 @@ func openclawSystemdTemplate() Template {
 		directory("/var/lib/systemd", 0o755),
 		directory("/var/log/journal", 0o755),
 	)
-	template.Binaries = append(template.Binaries,
+	template.Binaries = appendUniqueBinaries(template.Binaries,
 		lookupBinary("systemd", "/usr/bin/systemd"),
 		lookupBinary("systemctl", "/usr/bin/systemctl"),
 		lookupBinary("journalctl", "/usr/bin/journalctl"),
@@ -273,6 +482,7 @@ var commonRuntimeFiles = []RuntimeFile{
 func cloneTemplate(template Template) Template {
 	template.Directories = slices.Clone(template.Directories)
 	template.Binaries = slices.Clone(template.Binaries)
+	template.RuntimeTrees = slices.Clone(template.RuntimeTrees)
 	template.RuntimeFiles = slices.Clone(template.RuntimeFiles)
 	template.GeneratedFiles = slices.Clone(template.GeneratedFiles)
 	return template
@@ -294,6 +504,21 @@ func runtimeFile(hostPath string, targetPath string) RuntimeFile {
 	return RuntimeFile{
 		HostPath:   hostPath,
 		TargetPath: targetPath,
+	}
+}
+
+func runtimeTree(hostPath string, targetPath string) RuntimeTree {
+	return RuntimeTree{
+		HostPath:   hostPath,
+		TargetPath: targetPath,
+	}
+}
+
+func optionalRuntimeTree(hostPath string, targetPath string) RuntimeTree {
+	return RuntimeTree{
+		HostPath:   hostPath,
+		TargetPath: targetPath,
+		Optional:   true,
 	}
 }
 
@@ -321,6 +546,30 @@ func appendUniqueDirectories(existing []Directory, extra ...Directory) []Directo
 			continue
 		}
 		existing = append(existing, dir)
+	}
+	return existing
+}
+
+func appendUniqueBinaries(existing []Binary, extra ...Binary) []Binary {
+	for _, binary := range extra {
+		if slices.ContainsFunc(existing, func(candidate Binary) bool {
+			return candidate.TargetPath == binary.TargetPath
+		}) {
+			continue
+		}
+		existing = append(existing, binary)
+	}
+	return existing
+}
+
+func appendUniqueRuntimeTrees(existing []RuntimeTree, extra ...RuntimeTree) []RuntimeTree {
+	for _, runtimeTree := range extra {
+		if slices.ContainsFunc(existing, func(candidate RuntimeTree) bool {
+			return candidate.TargetPath == runtimeTree.TargetPath && candidate.HostPath == runtimeTree.HostPath
+		}) {
+			continue
+		}
+		existing = append(existing, runtimeTree)
 	}
 	return existing
 }
