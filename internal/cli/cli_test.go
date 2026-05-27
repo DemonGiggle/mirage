@@ -678,7 +678,7 @@ func TestDoctorUsesPresetRootfsRequirements(t *testing.T) {
 	}
 
 	got := out.String()
-	if !strings.Contains(got, "preset recommended rootfs template: openclaw") {
+	if !strings.Contains(got, "preset recommended rootfs template: openclaw-developer") {
 		t.Fatalf("expected preset template hint, got %q", got)
 	}
 	if !strings.Contains(err.Error(), `command "node"`) {
