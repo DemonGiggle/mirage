@@ -3,9 +3,10 @@
 This document defines the draft Mirage network rule model that should become the
 lower-level design baseline for future network work.
 
-This first pass focuses on schema shape and validation boundaries. Matching
-semantics, precedence, and loopback behavior beyond the schema surface are
-follow-up design work.
+This document now covers two design slices:
+
+- schema shape and validation boundaries
+- matching semantics, precedence, and loopback treatment
 
 ## Status
 
@@ -243,6 +244,225 @@ The parser and validator should reject the following explicitly:
 - non-integer ports
 - port ranges such as `"80-90"`
 
+## Matching semantics
+
+This section defines how Mirage should interpret the schema once a policy is
+valid.
+
+### Directional evaluation
+
+- ingress rules evaluate traffic entering the sandbox
+- egress rules evaluate traffic leaving the sandbox
+- loopback traffic is classified into the dedicated `loopback` zone before
+  ingress or egress rule matching is considered
+
+### Rule evaluation model
+
+Mirage v1 should use **first-match wins** within each directional rule list.
+
+That means:
+
+1. evaluate rules in the order written
+2. the first rule whose selector, protocol, and ports all match decides the
+   result
+3. later rules are ignored once a match is found
+
+### Allow and deny precedence
+
+Mirage v1 should not define a hidden global rule such as "deny always overrides
+allow" or "allow always overrides deny."
+
+Instead, **rule order is the precedence mechanism**:
+
+- an earlier `deny` beats a later `allow`
+- an earlier `allow` beats a later `deny`
+
+This keeps precedence explicit in the written policy rather than split between
+rule order and an extra action hierarchy.
+
+### Default-action semantics
+
+If no rule matches inside a directional section:
+
+- `ingress.default` decides ingress traffic
+- `egress.default` decides egress traffic
+
+Defaults are therefore the fallback only after ordered rule matching fails to
+find a match.
+
+### Match shape
+
+A rule matches only when all applicable fields match:
+
+- the selector matches the remote endpoint
+- the protocol matches
+- the port matches when the rule declares `ports`
+
+If any one of those checks fails, Mirage continues to the next rule.
+
+## Loopback treatment
+
+Loopback is a separate policy zone in v1.
+
+### Why it is separate
+
+Mirage should treat loopback explicitly because it behaves differently from
+general ingress and egress traffic, and because hiding it inside normal selector
+matching would blur the design.
+
+### Loopback classification
+
+The `loopback` section governs traffic whose effective peer address is loopback:
+
+- IPv4 loopback: `127.0.0.0/8`
+- IPv6 loopback: `::1`
+
+This classification happens before ingress or egress rule evaluation.
+
+### Relationship to ingress and egress
+
+- ingress and egress rules do **not** match loopback addresses in v1
+- loopback traffic is controlled only by `loopback.default`
+- v1 has no per-loopback rule list, so there is no loopback rule ordering yet
+
+This means loopback is explicit, separate, and intentionally narrow:
+
+- `loopback.default: allow` permits loopback traffic regardless of
+  `ingress.default` or `egress.default`
+- `loopback.default: deny` denies loopback traffic regardless of
+  `ingress.default` or `egress.default`
+
+## Canonical semantic examples
+
+### Example: earlier deny beats later allow
+
+```yaml
+networkPolicy:
+  version: 1
+  loopback:
+    default: allow
+  ingress:
+    default: deny
+    rules: []
+  egress:
+    default: deny
+    rules:
+      - name: deny-private-v4
+        action: deny
+        to:
+          cidr: 10.0.0.0/8
+        protocol: any
+      - name: allow-one-host
+        action: allow
+        to:
+          ip: 10.0.0.5
+        protocol: tcp
+        ports: [443]
+```
+
+Result:
+
+- egress to `10.0.0.5:443/tcp` is **denied**
+- the first rule already matched, so the later allow rule is never reached
+
+### Example: earlier allow beats later deny
+
+```yaml
+networkPolicy:
+  version: 1
+  loopback:
+    default: allow
+  ingress:
+    default: deny
+    rules: []
+  egress:
+    default: deny
+    rules:
+      - name: allow-private-v4
+        action: allow
+        to:
+          cidr: 192.168.0.0/16
+        protocol: any
+      - name: deny-one-host
+        action: deny
+        to:
+          ip: 192.168.1.10
+        protocol: tcp
+        ports: [443]
+```
+
+Result:
+
+- egress to `192.168.1.10:443/tcp` is **allowed**
+- the broad allow matched first, so the later deny never applies
+
+If Mirage users want the host-specific deny to win, they must place it earlier.
+
+### Example: default applies when no rule matches
+
+```yaml
+networkPolicy:
+  version: 1
+  loopback:
+    default: allow
+  ingress:
+    default: allow
+    rules:
+      - name: deny-admin-range
+        action: deny
+        from:
+          cidr: 198.51.100.0/24
+        protocol: any
+  egress:
+    default: deny
+    rules: []
+```
+
+Result:
+
+- ingress from `203.0.113.7` is **allowed**
+- no ingress rule matched, so `ingress.default: allow` decides the outcome
+
+### Example: loopback allow is separate from egress deny
+
+```yaml
+networkPolicy:
+  version: 1
+  loopback:
+    default: allow
+  ingress:
+    default: deny
+    rules: []
+  egress:
+    default: deny
+    rules: []
+```
+
+Result:
+
+- a connection to `127.0.0.1:5432` is **allowed**
+- loopback traffic does not fall through to `egress.default`
+
+### Example: loopback deny is separate from egress allow
+
+```yaml
+networkPolicy:
+  version: 1
+  loopback:
+    default: deny
+  ingress:
+    default: deny
+    rules: []
+  egress:
+    default: allow
+    rules: []
+```
+
+Result:
+
+- a connection to `::1:8080` is **denied**
+- `egress.default: allow` does not override `loopback.default: deny`
+
 ## Canonical valid examples
 
 ### Fully offline policy
@@ -421,15 +641,13 @@ Why invalid:
 
 - v1 keeps port syntax intentionally narrow and integer-only
 
-## Explicit non-goals for this schema pass
+## Open questions that remain outside this pass
 
-This schema pass does **not** settle:
+This document still does **not** settle:
 
-- rule evaluation order
-- allow/deny precedence
-- default-action semantics when multiple rules could appear relevant
-- exact loopback matching semantics
 - domain resolution timing or refresh behavior
 - wildcard domains
 - private-range or LAN classification semantics
+- stateful enforcement details in the eventual backend
+- exact mapping from conceptual policy matches to packet-flow enforcement hooks
 - final CLI or preset UX built on top of this model
