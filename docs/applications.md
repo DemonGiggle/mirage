@@ -78,4 +78,4 @@ Start the local OpenClaw gateway on port `18789`:
   built-in preset, create a preset file with the extra allow-list entries and
   use `--preset-file` together with `--preset`.
 - For the exact built-in template contents, see
-  [usage.md#what-rootfs-init---template-prepares](usage.md#what-rootfs-init---template-prepares).
+  [rootfs.md#built-in-templates](rootfs.md#built-in-templates).

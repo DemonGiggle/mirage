@@ -53,6 +53,7 @@ gofmt -w $(find . -name '*.go' -print)
 - `internal/cli`: argument parsing and command dispatch
 - `internal/runner`: namespace runner, mounts, cgroups, and execution handoff
 - `internal/spec`: config structures, presets, and validation
+- `docs/rootfs.md`: rootfs choice, template catalog, and generation details
 - `docs/usage.md`: user-facing command guide
 - `docs/isolation.md`: current isolation matrix and caveats
 - `docs/architecture.md`: internal design and run flow

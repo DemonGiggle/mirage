@@ -67,25 +67,11 @@ Check the local environment:
 ./bin/mirage doctor
 ```
 
-Generate a runnable rootfs from the built-in basic template:
+Generate a runnable rootfs from the built-in `basic` template:
 
 ```bash
 ./bin/mirage rootfs init --template basic --output /srv/mirage/basic-rootfs
 ```
-
-The built-in templates are:
-
-- `basic`: minimal shell and inspection tools
-- `node`: `basic` plus Node.js, npm, npx, `/workspace`, and CA trust material
-- `python`: `basic` plus Python, pip, `/workspace`, and CA trust material
-- `openclaw-chat-only`: `node` plus locale/tzdata runtime data and `openssl`
-- `openclaw-work`: `openclaw-chat-only` plus common shell, archive, patch, JSON, and search tooling
-- `openclaw-developer`: `openclaw-work` plus VCS, editors, Python, SQLite, and build-toolchain entrypoints
-- `openclaw-admin`: `openclaw-developer` plus networking, process, and capability tools
-- `openclaw-root`: `openclaw-admin` plus package-management, tracing, debugging, namespace, and filesystem tools
-
-See [docs/usage.md](docs/usage.md#rootfs-templates) for the exact prepared
-layout behind each template.
 
 Validate that rootfs before trying to run inside it:
 
@@ -99,60 +85,15 @@ Run a simple command with the built-in offline preset:
 ./bin/mirage run --rootfs / --preset offline -- /bin/echo hello
 ```
 
-Run a guest init entrypoint as sandbox PID 1:
-
-```bash
-./bin/mirage run \
-  --rootfs /srv/mirage/systemd-rootfs \
-  --net host \
-  --runtime-mode init \
-  -- /usr/lib/systemd/systemd
-```
-
-Init mode currently targets a narrow guest-systemd contract: unified cgroup v2,
-a delegated host `systemd-run --user --scope` leaf, and guest-visible
-`/sys/fs/cgroup` exposure inside dedicated rootfs runs. `--rootfs /` is not
-part of that init-mode contract. Init-mode runs also get a managed `/dev`, a
-read-only `/sys`, runtime state directories under `/run`, and a `container=mirage`
-environment hint for guest init processes.
-
-Track a long-lived init-mode sandbox from the host:
-
-```bash
-./bin/mirage sandbox start \
-  --name openclaw \
-  --rootfs /srv/mirage/systemd-rootfs \
-  --service-unit openclaw.service \
-  -- /usr/bin/systemd
-
-./bin/mirage sandbox status --name openclaw
-./bin/mirage sandbox logs --name openclaw --lines 100
-./bin/mirage sandbox stop --name openclaw
-```
-
-This tracked lifecycle stays intentionally small:
-
-- one named sandbox maps to one host-side user-systemd scope
-- logs are surfaced through Mirage-managed stdout/stderr and launch log files
-- live namespace entry and journal extraction are not yet general-purpose host
-  commands
-
-Run with a dedicated rootfs and explicit mounts:
-
-```bash
-./bin/mirage run \
-  --rootfs /srv/mirage/rootfs \
-  --ro-bind /home/gigo/workspace/project:/workspace \
-  --rw-bind /home/gigo/workspace/project-tmp:/tmp/work \
-  --preset openai \
-  --cwd /workspace \
-  -- app
-```
+For the full template catalog, dedicated-rootfs guidance, guest-init workflows,
+bind mounts, presets, and tracked sandbox commands, use the docs linked below.
 
 ## Documentation Map
 
 - [docs/applications.md](docs/applications.md): application-oriented setup flows
   such as installing and launching OpenClaw inside Mirage
+- [docs/rootfs.md](docs/rootfs.md): rootfs choice, template catalog, schema, and
+  guest-init rootfs validation guidance
 - [docs/usage.md](docs/usage.md): installation assumptions, command patterns,
   presets, and common run examples
 - [docs/isolation.md](docs/isolation.md): current isolation matrix, guarantees,

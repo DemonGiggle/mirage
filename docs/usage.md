@@ -2,7 +2,8 @@
 
 This document describes how to run `mirage`. For implementation details, see
 [architecture.md](architecture.md). For current guarantees and caveats, see
-[isolation.md](isolation.md).
+[isolation.md](isolation.md). For rootfs choice, built-in templates, and
+guest-init rootfs validation, see [rootfs.md](rootfs.md).
 
 ## Host Prerequisites
 
@@ -141,7 +142,7 @@ Init mode also manages a broader runtime mount contract for guest init systems:
 Because Mirage owns those runtime paths in init mode, user bind mounts cannot
 target them or their managed subpaths.
 
-## Rootfs Guidance
+## Rootfs Workflows
 
 When you use a custom `--rootfs`, that root filesystem must contain:
 
@@ -157,122 +158,8 @@ When bind mounts target `--rootfs /`, `mirage` expects the guest path to
 already exist on the host root. It will not create new host-side mountpoints in
 that mode.
 
-## Rootfs Templates
-
-`mirage` now defines a rootfs template model that is intentionally separate from
-network presets.
-
-A V1 rootfs template describes:
-
-- template `version`, `name`, and `description`
-- directories that should exist in the generated rootfs
-- binaries copied either from an explicit host absolute path or from host `PATH`
-- whether each binary should bring along its shared-library dependency closure
-- runtime trees copied recursively from the host into the rootfs
-- runtime files copied from the host into the rootfs
-
-Built-in V1 templates currently include:
-
-- `basic`
-- `node`
-- `python`
-- `openclaw-chat-only`
-- `openclaw-work`
-- `openclaw-developer`
-- `openclaw-admin`
-- `openclaw-root`
-
-Every built-in template currently prepares the same baseline runtime layout:
-
-- runtime directories: `/proc`, `/tmp`, and `/run`
-- common runtime files: `/etc/hosts`, `/etc/resolv.conf`, and `/etc/nsswitch.conf`
-- declared binaries copied into the rootfs together with their ELF dependency
-  closures
-- shebang interpreters copied when a declared command is a script wrapper
-- generated files written directly by Mirage for small rootfs assets such as an
-  empty `/etc/machine-id`
-
-For systemd-oriented rootfs validation, use:
-
-```bash
-./bin/mirage doctor \
-  --rootfs /srv/mirage/systemd-rootfs \
-  --runtime-mode init \
-  --service-unit openclaw.service
-```
-
-Here `/srv/mirage/systemd-rootfs` is assumed to be a pre-configured custom
-rootfs that already contains `systemd` and the required service unit. That
-checks the guest init binary, required runtime paths, `/etc/machine-id`, and
-whether the requested service unit is present at
-`/etc/systemd/system/<name>` or `/usr/lib/systemd/system/<name>`.
-
-### What `rootfs init --template` prepares
-
-| Template | What it prepares | Good starting point for |
-| --- | --- | --- |
-| `basic` | Shell and inspection basics: `/bin/sh`, `/bin/ls`, `/bin/cat`, `/bin/mkdir`, `/bin/pwd`, `/bin/rm`, `/bin/true`, `/bin/false`, and `/usr/bin/env` | Sanity checks, simple shell commands, and minimal rootfs runs |
-| `node` | Everything from `basic`, plus `/workspace`, `/etc/ssl/certs`, `node`, `npm`, `npx`, and common CA bundle files when present on the host | Node.js-oriented tooling and HTTPS-capable Node workloads |
-| `python` | Everything from `basic`, plus `/workspace`, `/etc/ssl/certs`, `python3`, `pip3`, and common CA bundle files when present on the host | Python-oriented tooling and HTTPS-capable Python workloads |
-| `openclaw-chat-only` | Everything from `node`, plus locale/tzdata runtime data and `openssl` | Minimal OpenClaw chat-oriented runs that need Node.js, TLS, and locale/timezone data |
-| `openclaw-work` | Everything from `openclaw-chat-only`, plus shell, archive, patching, JSON, and search tooling | OpenClaw work sessions with common Unix utilities |
-| `openclaw-developer` | Everything from `openclaw-work`, plus VCS, editors, Python, SQLite, and common build-toolchain entrypoints | OpenClaw development-oriented sessions |
-| `openclaw-admin` | Everything from `openclaw-developer`, plus networking, process, and capability utilities | OpenClaw troubleshooting and host/network administration tasks |
-| `openclaw-root` | Everything from `openclaw-admin`, plus package-management, tracing, debugging, namespace, and filesystem tools | Privileged or recovery-oriented OpenClaw sessions |
-
-Notes:
-
-- `mirage rootfs init` reports missing host assets as warnings and still writes the
-  rest of the rootfs so you can copy any missing files in afterward.
-- `basic` is the smallest built-in template and the best first choice when you
-  just want a runnable rootfs for commands like `/bin/ls` or `/bin/sh`.
-- `node`, `python`, and all `openclaw*` templates intentionally add a writable
-  `/workspace` layout because those flows commonly mount or use project trees there.
-- the leveled `openclaw-*` templates compose strictly from the previous level
-  plus the current level's additions.
-- The OpenClaw presets currently recommend the `openclaw-developer` template
-  and expect `node` to be present, so `mirage doctor --preset openclaw-openai
-  --rootfs ...` can check that expectation directly.
-- For an end-to-end OpenClaw install and launch flow, see
-  [applications.md#openclaw](applications.md#openclaw).
-
-Schema shape:
-
-```json
-{
-  "version": "v1",
-  "name": "basic",
-  "description": "Small runnable base rootfs with shell and core inspection tools.",
-  "directories": [
-    {"path": "/proc", "mode": 493},
-    {"path": "/tmp", "mode": 1023},
-    {"path": "/run", "mode": 493}
-  ],
-  "binaries": [
-    {
-      "target_path": "/bin/sh",
-      "lookup_name": "sh",
-      "copy_dependencies": true
-    },
-    {
-      "target_path": "/usr/bin/env",
-      "host_path": "/usr/bin/env",
-      "copy_dependencies": true
-    }
-  ],
-  "runtime_trees": [
-    {"host_path": "/usr/share/zoneinfo", "target_path": "/usr/share/zoneinfo", "optional": true}
-  ],
-  "runtime_files": [
-    {"host_path": "/etc/hosts", "target_path": "/etc/hosts"},
-    {"host_path": "/etc/resolv.conf", "target_path": "/etc/resolv.conf"}
-  ]
-}
-```
-
-This schema is the shared input model for upcoming rootfs generation and
-rootfs-aware diagnostics. It remains distinct from network presets, which still
-only describe runtime policy defaults.
+For the built-in template catalog, the rootfs schema, `rootfs init` behavior,
+and guest-init rootfs validation flows, see [rootfs.md](rootfs.md).
 
 ## Tracked Sandbox Lifecycle For Guest `systemd`
 
@@ -419,6 +306,8 @@ output:
 
 ## Related Docs
 
+- [rootfs.md](rootfs.md): rootfs selection, template catalog, and generation
+  details
 - [applications.md](applications.md): application-oriented setup flows such as
   OpenClaw installation and launch
 - [isolation.md](isolation.md): exact current behavior and caveats
