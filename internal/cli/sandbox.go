@@ -79,7 +79,6 @@ func runSandboxStart(args []string, stdout, stderr io.Writer) error {
 	fs.SetOutput(stderr)
 
 	var cfg spec.Config
-	var warnCSV string
 	var name string
 	var serviceUnit string
 	var stateDir string
@@ -90,14 +89,10 @@ func runSandboxStart(args []string, stdout, stderr io.Writer) error {
 	fs.StringVar(&cfg.RootFS, "rootfs", "", "Path to the sandbox root filesystem")
 	fs.Var(stringSliceValue{target: &cfg.ROBind}, "ro-bind", "Read-only bind mount host:guest")
 	fs.Var(stringSliceValue{target: &cfg.RWBind}, "rw-bind", "Writable bind mount host:guest")
-	fs.Var(stringSliceValue{target: &cfg.AllowHosts}, "allow-host", "Allow egress to host:port")
-	fs.Var(stringSliceValue{target: &cfg.AllowCIDRs}, "allow-cidr", "Allow egress to CIDR")
-	fs.Var(stringSliceValue{target: &cfg.AllowPorts}, "allow-port", "Allow egress to port or proto/port")
 	fs.Var(stringSliceValue{target: &cfg.Env}, "env", "Environment variable in KEY=VALUE form")
 	fs.StringVar((*string)(&cfg.NetworkMode), "net", string(spec.NetworkHost), "Network mode: none, host")
 	fs.StringVar(&cfg.Preset, "preset", "", "Named preset to apply before inline overrides")
 	fs.StringVar(&cfg.PresetFile, "preset-file", "", "Path to a local preset YAML file")
-	fs.StringVar(&warnCSV, "warn", "", "Warn modes, currently supports: net")
 	fs.StringVar(&cfg.StdoutLog, "stdout-log", "", "Write guest init stdout to a host-side log file")
 	fs.StringVar(&cfg.StderrLog, "stderr-log", "", "Write guest init stderr to a host-side log file")
 	fs.StringVar(&cfg.Cwd, "cwd", "", "Working directory inside the sandbox")
@@ -111,9 +106,7 @@ func runSandboxStart(args []string, stdout, stderr io.Writer) error {
 	if !sandboxNamePattern.MatchString(name) {
 		return errors.New("sandbox start requires --name matching [A-Za-z0-9][A-Za-z0-9_-]*")
 	}
-
 	cfg.RuntimeMode = spec.RuntimeModeInit
-	cfg.Warn = splitCSV(warnCSV)
 	cfg.Command = fs.Args()
 	cfg.ScopeName = sandboxScopeUnit(name)
 
@@ -464,20 +457,8 @@ func buildSandboxRunArgs(cfg spec.Config) []string {
 	for _, item := range cfg.RWBind {
 		args = append(args, "--rw-bind", item)
 	}
-	for _, item := range cfg.AllowHosts {
-		args = append(args, "--allow-host", item)
-	}
-	for _, item := range cfg.AllowCIDRs {
-		args = append(args, "--allow-cidr", item)
-	}
-	for _, item := range cfg.AllowPorts {
-		args = append(args, "--allow-port", item)
-	}
 	for _, item := range cfg.Env {
 		args = append(args, "--env", item)
-	}
-	if len(cfg.Warn) > 0 {
-		args = append(args, "--warn", strings.Join(cfg.Warn, ","))
 	}
 	if cfg.StdoutLog != "" {
 		args = append(args, "--stdout-log", cfg.StdoutLog)

@@ -9,34 +9,28 @@ boundary is weaker than the long-term design. For usage examples, see
 
 There are three sources of behavior to keep separate:
 
-- preset choice: mainly affects network stance
-- runner behavior: creates namespaces and applies mounts
-- rootfs choice: determines how strong the filesystem and `/proc` view are
+- network mode or preset choice
+- runner behavior: namespaces, mounts, and cgroups
+- rootfs choice: how strong the filesystem and `/proc` view are
 
 Most confusion comes from mixing those together.
 
-## Built-In Preset Matrix
+## Stable Network Contract
 
-Built-in presets currently change network behavior only. Process, mount, UTS,
-and IPC namespaces come from the Linux runner, not from individual presets.
+Mirage now presents only two stable network modes:
 
-| Preset | Network isolation | Process namespace | Mount namespace | UTS namespace | IPC namespace | Rootfs isolation | `/proc` view |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| `offline` | Yes: separate netns with no network | Yes | Yes | Yes | Yes | Depends on `--rootfs` | Fresh sandbox `/proc` only when `--rootfs` is not `/` |
-| `github` | Partial: separate netns with observed allow-list for `github.com:443` | Yes | Yes | Yes | Yes | Depends on `--rootfs` | Fresh sandbox `/proc` only when `--rootfs` is not `/` |
-| `openai` | Partial: separate netns with observed allow-list for OpenAI endpoints | Yes | Yes | Yes | Yes | Depends on `--rootfs` | Fresh sandbox `/proc` only when `--rootfs` is not `/` |
-| `openclaw-offline` | Yes: separate netns with no network | Yes | Yes | Yes | Yes | Depends on `--rootfs` | Fresh sandbox `/proc` only when `--rootfs` is not `/` |
-| `openclaw-openai` | Partial: separate netns with observed allow-list for OpenAI and GitHub endpoints | Yes | Yes | Yes | Yes | Depends on `--rootfs` | Fresh sandbox `/proc` only when `--rootfs` is not `/` |
+| Mode | Network behavior |
+| --- | --- |
+| `host` | No network namespace isolation; the workload uses the host network stack |
+| `none` | Dedicated network namespace with no network access |
 
-## What Each Column Really Means
+The built-in `offline` and `openclaw-offline` presets both resolve to
+`network: none`.
 
-### Network isolation
+Anything more granular than `host` / `none` is intentionally deferred to future
+design work.
 
-- `offline` and `openclaw-offline` use a separate network namespace with no
-  network access
-- `github`, `openai`, and `openclaw-openai` use the current observed isolated
-  mode with a narrow allow-list
-- `host` mode is available as a raw flag, but it is not a built-in preset
+## What Mirage Isolates Today
 
 ### Process namespace
 
@@ -71,7 +65,7 @@ Today you can rely on:
 
 - namespace-backed process-tree execution on Linux
 - explicit bind-mount application
-- network mode selection through presets or inline flags
+- stable `host` / `none` network mode selection through presets or inline flags
 - delegated cgroup v2 memory and PID limits
 - delegated unified cgroup v2 exposure for `--runtime-mode init`
 - init-mode-only managed runtime mounts for `/dev`, `/sys`, and `/run`
@@ -84,16 +78,15 @@ Today you should assume:
 - `--rootfs /` exposes the host root as the sandbox root
 - `--rootfs /` does not provide a fresh procfs view
 - rootfs handoff still ends with `chroot`, not `pivot_root`
-- isolated networking is still observation-driven rather than a full firewall
-  model with routable allow-listed egress
 - guest init cgroup support is limited to unified cgroup v2 with a delegated
   host systemd scope and a dedicated rootfs
+- future firewall, diagnostics, and preset redesign work is not implemented yet
 
 ## Practical Guidance
 
 - use `--rootfs /` only for quick local checks and simple host-root-based runs
 - use a dedicated rootfs when filesystem separation or proc visibility matters
-- treat presets as network policy helpers, not full sandbox profiles
+- treat presets as convenience defaults, not full sandbox profiles
 - choose the runtime mode deliberately:
   - `direct` for one-shot commands where Mirage owns the foreground workload
   - `init` for guest-init-style sandboxes that need a dedicated rootfs, a
@@ -101,7 +94,7 @@ Today you should assume:
 - for `init` mode, prefer `mirage sandbox start/status/stop/logs` over ad hoc
   backgrounding so the host-visible state and logs stay coherent
 - use this document as the source of truth for current behavior, and
-  [roadmap.md](roadmap.md) for what is still planned
+  [roadmap.md](roadmap.md) for deferred work
 
 ## Guest-Init-Specific Caveats
 
@@ -115,7 +108,6 @@ Compared with direct-exec sandboxes, guest-init sandboxes currently add:
 But they still have important limits:
 
 - they require a dedicated rootfs and do not support `--rootfs /`
-- they are incompatible with the current observed isolated-network path
 - host-visible logs come from Mirage-managed stdout/stderr and launch files, not
   from a general live guest journal API
 - Mirage still does not provide a generic `exec into running sandbox` command

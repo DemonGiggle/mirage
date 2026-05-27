@@ -8,7 +8,6 @@ operation, see [usage.md](usage.md).
 - Linux
 - Go 1.24.4 or newer
 - `unshare` on `PATH`
-- `strace` on `PATH` for isolated-network behavior and related tests
 - `systemd-run` with a working user manager session for delegated `--memory`
   and `--pids`, and for init-mode cgroup delegation
 
@@ -33,9 +32,6 @@ Run the full test suite:
 ```bash
 go test ./...
 ```
-
-The end-to-end isolated-network tests shell out to `strace`, so the effective
-execution environment must be able to resolve it.
 
 ## Formatting
 

@@ -32,10 +32,8 @@ see [isolation.md](isolation.md).
 
 - add network namespace modes
 - implement `none` and `host`
-- add a minimal `isolated` mode
-- add warn-mode event logging
-- convert skipped network allow-rule and warn-mode probes into enforced regression tests
-- refine isolated-mode policy from observed connect enforcement toward routable allow-listed egress
+- reduce the public network contract to the stable `host` / `none` core
+- defer future firewall, diagnostics, and preset redesign into follow-up design work
 
 ## Phase 4
 
@@ -47,6 +45,5 @@ see [isolation.md](isolation.md).
 
 ## Phase 5
 
-- persist observed network attempts
-- derive suggested allow lists
 - support reusable local preset files
+- revisit future network policy and diagnostics only after a new core model is defined

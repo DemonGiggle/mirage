@@ -35,7 +35,7 @@ func TestPresetList(t *testing.T) {
 	}
 
 	got := out.String()
-	for _, name := range []string{"offline", "github", "openai", "openclaw-offline", "openclaw-openai"} {
+	for _, name := range []string{"offline", "openclaw-offline"} {
 		if !strings.Contains(got, name) {
 			t.Fatalf("expected preset list to contain %q, got %q", name, got)
 		}
@@ -48,10 +48,8 @@ func TestPresetListWithPresetFile(t *testing.T) {
 
 	presetFile := filepath.Join(t.TempDir(), "presets.yaml")
 	if err := os.WriteFile(presetFile, []byte(`presets:
-  - name: team-openai
-    network: isolated
-    allow_hosts:
-      - example.com:443
+  - name: team-offline
+    network: none
     description: Team preset
 `), 0o644); err != nil {
 		t.Fatalf("write preset file: %v", err)
@@ -62,7 +60,7 @@ func TestPresetListWithPresetFile(t *testing.T) {
 	}
 
 	got := out.String()
-	if !strings.Contains(got, "team-openai") {
+	if !strings.Contains(got, "team-offline") {
 		t.Fatalf("expected preset list to contain team preset, got %q", got)
 	}
 }
@@ -74,8 +72,7 @@ func TestRunDryRun(t *testing.T) {
 	err := Run([]string{
 		"run",
 		"--rootfs", "/srv/rootfs",
-		"--preset", "openai",
-		"--warn", "net",
+		"--preset", "offline",
 		"--dry-run",
 		"--",
 		"echo", "hello",
@@ -85,7 +82,7 @@ func TestRunDryRun(t *testing.T) {
 	}
 
 	got := out.String()
-	if !strings.Contains(got, "preset: openai") {
+	if !strings.Contains(got, "preset: offline") {
 		t.Fatalf("expected dry run output to mention preset, got %q", got)
 	}
 	if !strings.Contains(got, "execution: skipped (--dry-run)") {
@@ -108,10 +105,8 @@ func TestRunDryRunWithPresetFile(t *testing.T) {
 
 	presetFile := filepath.Join(t.TempDir(), "presets.yaml")
 	if err := os.WriteFile(presetFile, []byte(`presets:
-  - name: team-openai
-    network: isolated
-    allow_hosts:
-      - example.com:443
+  - name: team-offline
+    network: none
     description: Team preset
 `), 0o644); err != nil {
 		t.Fatalf("write preset file: %v", err)
@@ -121,7 +116,7 @@ func TestRunDryRunWithPresetFile(t *testing.T) {
 		"run",
 		"--rootfs", "/srv/rootfs",
 		"--preset-file", presetFile,
-		"--preset", "team-openai",
+		"--preset", "team-offline",
 		"--dry-run",
 		"--",
 		"echo", "hello",
@@ -134,27 +129,26 @@ func TestRunDryRunWithPresetFile(t *testing.T) {
 	if !strings.Contains(got, "preset-file: "+presetFile) {
 		t.Fatalf("expected dry run output to mention preset file, got %q", got)
 	}
-	if !strings.Contains(got, "allow-host:") || !strings.Contains(got, "example.com:443") {
-		t.Fatalf("expected dry run output to mention preset host, got %q", got)
+	if !strings.Contains(got, "preset: team-offline") || !strings.Contains(got, "net: none") {
+		t.Fatalf("expected dry run output to mention simplified preset networking, got %q", got)
 	}
 }
 
-func TestRunRejectsAllowRulesWithNetNone(t *testing.T) {
+func TestRunRejectsUnsupportedNetworkMode(t *testing.T) {
 	var out bytes.Buffer
 	var errBuf bytes.Buffer
 
 	err := Run([]string{
 		"run",
 		"--rootfs", "/srv/rootfs",
-		"--net", "none",
-		"--allow-host", "github.com:443",
+		"--net", "isolated",
 		"--",
 		"echo", "hello",
 	}, &out, &errBuf)
 	if err == nil {
 		t.Fatal("expected validation error, got nil")
 	}
-	if !strings.Contains(err.Error(), "allow rules are incompatible with --net none") {
+	if !strings.Contains(err.Error(), `invalid network mode "isolated"`) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -179,7 +173,7 @@ func TestRunRejectsInitModeWithHostRootfs(t *testing.T) {
 	}
 }
 
-func TestRunRejectsInitModeWithObservedNetworking(t *testing.T) {
+func TestRunRejectsInitModeWithUnsupportedNetworkMode(t *testing.T) {
 	var out bytes.Buffer
 	var errBuf bytes.Buffer
 
@@ -194,7 +188,7 @@ func TestRunRejectsInitModeWithObservedNetworking(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected validation error, got nil")
 	}
-	if !strings.Contains(err.Error(), "runtime-mode init is incompatible with observed networking") {
+	if !strings.Contains(err.Error(), `invalid network mode "isolated"`) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -415,7 +409,7 @@ func TestEnsurePresetRootfsAutoGeneratesRecommendedTemplate(t *testing.T) {
 	rootfsPath := filepath.Join(t.TempDir(), "openclaw-rootfs")
 	cfg := spec.Config{
 		RootFS: rootfsPath,
-		Preset: "openclaw-openai",
+		Preset: "openclaw-offline",
 	}
 	var errBuf bytes.Buffer
 	if err := ensurePresetRootfs(cfg, &errBuf); err != nil {
@@ -475,9 +469,7 @@ func TestEnsurePresetRootfsReportsMissingAssets(t *testing.T) {
 	}
 }
 
-func TestDoctorReportsObservedNetworkingUnavailableWithoutStrace(t *testing.T) {
-	t.Setenv("PATH", "")
-
+func TestDoctorReportsStableNetworkModes(t *testing.T) {
 	var out bytes.Buffer
 	var errBuf bytes.Buffer
 
@@ -486,11 +478,8 @@ func TestDoctorReportsObservedNetworkingUnavailableWithoutStrace(t *testing.T) {
 	}
 
 	got := out.String()
-	if !strings.Contains(got, "observed isolated networking: unavailable") {
-		t.Fatalf("expected doctor output to report observed networking as unavailable, got %q", got)
-	}
-	if !strings.Contains(got, "requires strace on PATH") {
-		t.Fatalf("expected doctor output to mention missing strace, got %q", got)
+	if !strings.Contains(got, "stable network modes: host, none") {
+		t.Fatalf("expected doctor output to report stable network modes, got %q", got)
 	}
 }
 
@@ -711,7 +700,7 @@ func TestDoctorUsesPresetRootfsRequirements(t *testing.T) {
 	err := Run([]string{
 		"doctor",
 		"--rootfs", rootfsPath,
-		"--preset", "openclaw-openai",
+		"--preset", "openclaw-offline",
 	}, &out, &errBuf)
 	if err == nil {
 		t.Fatal("expected preset rootfs validation to fail on missing node")

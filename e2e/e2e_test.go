@@ -59,8 +59,7 @@ func TestRunDryRunE2E(t *testing.T) {
 		"go", "run", "./cmd/mirage",
 		"run",
 		"--rootfs", "/",
-		"--preset", "openai",
-		"--warn", "net",
+		"--preset", "offline",
 		"--stdout-log", stdoutLog,
 		"--dry-run",
 		"--",
@@ -76,7 +75,7 @@ func TestRunDryRunE2E(t *testing.T) {
 	got := string(output)
 	for _, needle := range []string{
 		"mirage run preview",
-		"preset: openai",
+		"preset: offline",
 		"stdout-log: " + stdoutLog,
 		"execution: skipped (--dry-run)",
 	} {
@@ -95,7 +94,6 @@ func TestRunPropagatesInteractiveStdin(t *testing.T) {
 		"run",
 		"--rootfs", "/",
 		"--net", "host",
-		"--warn", "net",
 		"--",
 		"sh", "-c", "IFS= read -r line; printf '%s' \"$line\"",
 	)
@@ -534,96 +532,6 @@ func TestRunUsesTmpfsForSandboxTmp(t *testing.T) {
 	}
 }
 
-func TestRunWarnsWhenIsolatedNetworkRulesAreNotEnforced(t *testing.T) {
-	requireNamespaceBackend(t)
-	requireObservedNetworkBackend(t)
-
-	repoRoot := projectRoot(t)
-	tmp := t.TempDir()
-	stdoutLog := filepath.Join(tmp, "stdout.log")
-
-	cmd := exec.Command(
-		"go", "run", "./cmd/mirage",
-		"run",
-		"--rootfs", "/",
-		"--net", "isolated",
-		"--stdout-log", stdoutLog,
-		"--",
-		"sh", "-c", "printf 'isolated-ok'",
-	)
-	cmd.Dir = repoRoot
-
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("expected isolated network run to succeed: %v\noutput:\n%s", err, string(output))
-	}
-
-	got := string(output)
-	if !strings.Contains(got, "note: network backend: dedicated net namespace with observed policy enforcement") {
-		t.Fatalf("expected isolated network note, got:\n%s", got)
-	}
-	if !strings.Contains(got, "isolated-ok") {
-		t.Fatalf("expected workload output, got:\n%s", got)
-	}
-
-	stdoutData, err := os.ReadFile(stdoutLog)
-	if err != nil {
-		t.Fatalf("read isolated stdout log: %v", err)
-	}
-	if string(stdoutData) != "isolated-ok" {
-		t.Fatalf("unexpected isolated stdout log content: %q", string(stdoutData))
-	}
-}
-
-func TestRunIsolatedNetworkRejectsUndeclaredConnectAttempt(t *testing.T) {
-	requireNamespaceBackend(t)
-	requireObservedNetworkBackend(t)
-
-	repoRoot := projectRoot(t)
-	cmd := exec.Command(
-		"go", "run", "./cmd/mirage",
-		"run",
-		"--rootfs", "/",
-		"--net", "isolated",
-		"--",
-		"bash", "-lc", "echo >/dev/tcp/203.0.113.10/443 || true",
-	)
-	cmd.Dir = repoRoot
-
-	output, err := cmd.CombinedOutput()
-	if err == nil {
-		t.Fatalf("expected undeclared isolated connect attempt to fail policy, got output:\n%s", string(output))
-	}
-	if !strings.Contains(string(output), "isolated network policy blocked attempted connections: 203.0.113.10:443") {
-		t.Fatalf("unexpected policy failure output:\n%s", string(output))
-	}
-}
-
-func TestRunIsolatedNetworkAllowsDeclaredConnectAttempt(t *testing.T) {
-	requireNamespaceBackend(t)
-	requireObservedNetworkBackend(t)
-
-	repoRoot := projectRoot(t)
-	cmd := exec.Command(
-		"go", "run", "./cmd/mirage",
-		"run",
-		"--rootfs", "/",
-		"--net", "isolated",
-		"--allow-host", "203.0.113.10:443",
-		"--",
-		"bash", "-lc", "echo >/dev/tcp/203.0.113.10/443 || true",
-	)
-	cmd.Dir = repoRoot
-
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("expected declared isolated connect attempt to pass policy: %v\noutput:\n%s", err, string(output))
-	}
-	if !strings.Contains(string(output), "note: network backend: dedicated net namespace with observed policy enforcement") {
-		t.Fatalf("expected observed-policy note, got:\n%s", string(output))
-	}
-}
-
 func projectRoot(t *testing.T) string {
 	t.Helper()
 	root, err := filepath.Abs("..")
@@ -648,12 +556,4 @@ func requireNamespaceBackend(t *testing.T) {
 	}
 
 	t.Fatalf("namespace capability probe failed unexpectedly: %v\noutput:\n%s", err, msg)
-}
-
-func requireObservedNetworkBackend(t *testing.T) {
-	t.Helper()
-
-	if _, err := exec.LookPath("strace"); err != nil {
-		t.Skip("observed isolated network backend requires strace on PATH")
-	}
 }
