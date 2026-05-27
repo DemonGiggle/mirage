@@ -173,23 +173,6 @@ func TestValidateTemplateRejectsDuplicatePaths(t *testing.T) {
 	}
 }
 
-func TestOpenclawTemplateIncludesNodeAndGit(t *testing.T) {
-	template, ok := LookupTemplate("openclaw")
-	if !ok {
-		t.Fatal("expected openclaw template to exist")
-	}
-
-	var lookups []string
-	for _, binary := range template.Binaries {
-		lookups = append(lookups, binary.LookupName)
-	}
-	for _, want := range []string{"node", "npm", "npx", "git", "bash"} {
-		if !contains(lookups, want) {
-			t.Fatalf("expected openclaw template to include %q, got %v", want, lookups)
-		}
-	}
-}
-
 func TestOpenclawLevelsComposeIncrementally(t *testing.T) {
 	levels := []struct {
 		name  string
@@ -246,41 +229,6 @@ func TestAppendUniqueRuntimeTreesDeduplicatesByTargetPath(t *testing.T) {
 	}
 	if got[0].HostPath != "/usr/lib/python3.11" {
 		t.Fatalf("expected first runtime tree to be kept, got %v", got)
-	}
-}
-
-func TestOpenclawSystemdTemplateIncludesSystemdAssets(t *testing.T) {
-	template, ok := LookupTemplate("openclaw-systemd")
-	if !ok {
-		t.Fatal("expected openclaw-systemd template to exist")
-	}
-
-	var directories []string
-	for _, dir := range template.Directories {
-		directories = append(directories, dir.Path)
-	}
-	for _, want := range []string{"/dev", "/sys", "/sys/fs/cgroup", "/etc/systemd/system", "/usr/lib/systemd/system"} {
-		if !contains(directories, want) {
-			t.Fatalf("expected openclaw-systemd template to include directory %q, got %v", want, directories)
-		}
-	}
-
-	var lookups []string
-	for _, binary := range template.Binaries {
-		lookups = append(lookups, binary.LookupName)
-	}
-	for _, want := range []string{"node", "systemd", "systemctl", "journalctl", "systemd-tmpfiles"} {
-		if !contains(lookups, want) {
-			t.Fatalf("expected openclaw-systemd template to include %q, got %v", want, lookups)
-		}
-	}
-
-	var generatedTargets []string
-	for _, file := range template.GeneratedFiles {
-		generatedTargets = append(generatedTargets, file.TargetPath)
-	}
-	if !contains(generatedTargets, "/etc/machine-id") {
-		t.Fatalf("expected openclaw-systemd template to seed /etc/machine-id, got %v", generatedTargets)
 	}
 }
 

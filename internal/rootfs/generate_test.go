@@ -2,12 +2,15 @@ package rootfs
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+var errRecursiveSymlink = errors.New("recursive symlink")
 
 func TestParseLDDOutput(t *testing.T) {
 	output := []byte(`
@@ -402,6 +405,86 @@ func TestGenerateRejectsNonEmptyOutputRoot(t *testing.T) {
 	}
 }
 
+func TestGenerateWithAllowOverwriteReusesNonEmptyOutputRoot(t *testing.T) {
+	outputRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(outputRoot, "etc"), 0o755); err != nil {
+		t.Fatalf("create existing etc dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(outputRoot, "etc", "demo.conf"), []byte("old\n"), 0o644); err != nil {
+		t.Fatalf("write existing target file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(outputRoot, "keep.txt"), []byte("keep\n"), 0o644); err != nil {
+		t.Fatalf("write unrelated file: %v", err)
+	}
+
+	err := GenerateWithOptions(outputRoot, Template{
+		Version:     TemplateVersionV1,
+		Name:        "custom",
+		Description: "Custom template",
+		GeneratedFiles: []GeneratedFile{
+			{TargetPath: "/etc/demo.conf", Content: "new=yes\n", Mode: 0o600},
+		},
+	}, GenerateOptions{AllowOverwrite: true})
+	if err != nil {
+		t.Fatalf("GenerateWithOptions returned error: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(outputRoot, "etc", "demo.conf"))
+	if err != nil {
+		t.Fatalf("read overwritten file: %v", err)
+	}
+	if string(data) != "new=yes\n" {
+		t.Fatalf("expected overwritten file content, got %q", string(data))
+	}
+	if _, err := os.Stat(filepath.Join(outputRoot, "keep.txt")); err != nil {
+		t.Fatalf("expected unrelated file to remain: %v", err)
+	}
+}
+
+func TestGenerateWithAllowOverwriteReplacesFileWithDirectory(t *testing.T) {
+	outputRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outputRoot, "workspace"), []byte("old\n"), 0o644); err != nil {
+		t.Fatalf("write existing conflicting file: %v", err)
+	}
+
+	err := GenerateWithOptions(outputRoot, Template{
+		Version:     TemplateVersionV1,
+		Name:        "custom",
+		Description: "Custom template",
+		Directories: []Directory{{Path: "/workspace", Mode: 0o755}},
+	}, GenerateOptions{AllowOverwrite: true})
+	if err != nil {
+		t.Fatalf("GenerateWithOptions returned error: %v", err)
+	}
+
+	info, err := os.Stat(filepath.Join(outputRoot, "workspace"))
+	if err != nil {
+		t.Fatalf("stat workspace directory: %v", err)
+	}
+	if !info.IsDir() {
+		t.Fatalf("expected workspace to be a directory, got mode %v", info.Mode())
+	}
+}
+
+func TestGenerateWithAllowOverwriteRejectsDirectoryAtFileTarget(t *testing.T) {
+	outputRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(outputRoot, "etc", "demo.conf"), 0o755); err != nil {
+		t.Fatalf("create existing conflicting directory: %v", err)
+	}
+
+	err := GenerateWithOptions(outputRoot, Template{
+		Version:     TemplateVersionV1,
+		Name:        "custom",
+		Description: "Custom template",
+		GeneratedFiles: []GeneratedFile{
+			{TargetPath: "/etc/demo.conf", Content: "new=yes\n", Mode: 0o600},
+		},
+	}, GenerateOptions{AllowOverwrite: true})
+	if err == nil || !strings.Contains(err.Error(), `target path "/etc/demo.conf" already exists and is a directory`) {
+		t.Fatalf("expected existing directory rejection, got %v", err)
+	}
+}
+
 func TestGenerateWritesGeneratedFiles(t *testing.T) {
 	outputRoot := filepath.Join(t.TempDir(), "rootfs")
 	err := Generate(outputRoot, Template{
@@ -567,5 +650,124 @@ func TestGenerateCopiesSymlinkedNodeModuleLaunchers(t *testing.T) {
 		if _, err := os.Stat(target); err != nil {
 			t.Fatalf("expected generated target %q to exist: %v", target, err)
 		}
+	}
+}
+
+func TestGenerateCollapsesRelocatedAbsoluteSymlinkLoops(t *testing.T) {
+	hostRoot := filepath.Join(t.TempDir(), "host")
+	if err := os.MkdirAll(filepath.Join(hostRoot, "bin"), 0o755); err != nil {
+		t.Fatalf("create host bin dir: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(hostRoot, "usr", "bin"), 0o755); err != nil {
+		t.Fatalf("create host usr/bin dir: %v", err)
+	}
+
+	hostTarget := filepath.Join(hostRoot, "bin", "bash")
+	if err := os.WriteFile(hostTarget, []byte("bash binary\n"), 0o755); err != nil {
+		t.Fatalf("write host target file: %v", err)
+	}
+	hostLink := filepath.Join(hostRoot, "usr", "bin", "bash")
+	if err := os.Symlink(hostTarget, hostLink); err != nil {
+		t.Fatalf("create host symlink: %v", err)
+	}
+
+	outputRoot := filepath.Join(t.TempDir(), "rootfs")
+	err := Generate(outputRoot, Template{
+		Version:     TemplateVersionV1,
+		Name:        "custom",
+		Description: "Custom template",
+		Binaries: []Binary{
+			{
+				HostPath:         hostLink,
+				TargetPath:       hostTarget,
+				CopyDependencies: false,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Generate returned error: %v", err)
+	}
+
+	targetPath := filepath.Join(outputRoot, strings.TrimPrefix(hostTarget, "/"))
+	info, err := os.Lstat(targetPath)
+	if err != nil {
+		t.Fatalf("lstat generated target: %v", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		t.Fatalf("expected relocated self-referential symlink to collapse into a file, got symlink")
+	}
+}
+
+func TestGenerateOpenclawDeveloperHasNoRecursiveSymlinks(t *testing.T) {
+	bashPath, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("host PATH does not contain bash")
+	}
+	info, err := os.Lstat(bashPath)
+	if err != nil {
+		t.Fatalf("lstat bash path: %v", err)
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		t.Skip("host bash path is not a symlink on this host")
+	}
+
+	template, ok := LookupTemplate("openclaw-developer")
+	if !ok {
+		t.Fatal("expected openclaw-developer template to exist")
+	}
+
+	outputRoot := filepath.Join(t.TempDir(), "rootfs")
+	if err := Generate(outputRoot, template); err != nil {
+		t.Fatalf("Generate returned error: %v", err)
+	}
+	if err := assertNoRecursiveSymlinks(outputRoot); err != nil {
+		t.Fatalf("expected generated rootfs to avoid recursive symlinks: %v", err)
+	}
+}
+
+func assertNoRecursiveSymlinks(root string) error {
+	return filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.Type()&os.ModeSymlink == 0 {
+			return nil
+		}
+		if _, err := resolveRootfsSymlink(root, path); errors.Is(err, errRecursiveSymlink) {
+			return fmt.Errorf("%s: %w", path, err)
+		}
+		return nil
+	})
+}
+
+func resolveRootfsSymlink(root string, path string) (string, error) {
+	seen := make(map[string]struct{})
+	current := path
+	for {
+		if _, exists := seen[current]; exists {
+			return "", errRecursiveSymlink
+		}
+		seen[current] = struct{}{}
+
+		info, err := os.Lstat(current)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return "", nil
+			}
+			return "", err
+		}
+		if info.Mode()&os.ModeSymlink == 0 {
+			return current, nil
+		}
+
+		linkTarget, err := os.Readlink(current)
+		if err != nil {
+			return "", err
+		}
+		if filepath.IsAbs(linkTarget) {
+			current = filepath.Join(root, strings.TrimPrefix(linkTarget, "/"))
+			continue
+		}
+		current = filepath.Clean(filepath.Join(filepath.Dir(current), linkTarget))
 	}
 }

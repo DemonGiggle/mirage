@@ -16,7 +16,7 @@ func TestLoadPresetFile(t *testing.T) {
       "network": "isolated",
       "allow_hosts": ["example.com:443"],
       "rootfs": {
-        "template": "openclaw",
+        "template": "openclaw-developer",
         "required_commands": ["node"],
         "recommended_cwd": "/workspace"
       },
@@ -42,7 +42,7 @@ func TestLoadPresetFile(t *testing.T) {
 	if len(got.AllowHosts) != 1 || got.AllowHosts[0] != "example.com:443" {
 		t.Fatalf("unexpected allow hosts: %#v", got.AllowHosts)
 	}
-	if got.Rootfs.RecommendedTemplate != "openclaw" {
+	if got.Rootfs.RecommendedTemplate != "openclaw-developer" {
 		t.Fatalf("unexpected recommended template: %#v", got.Rootfs)
 	}
 	if len(got.Rootfs.RequiredCommands) != 1 || got.Rootfs.RequiredCommands[0] != "node" {
@@ -78,7 +78,7 @@ func TestBuiltInOpenclawPresetIncludesRootfsExpectations(t *testing.T) {
 	if len(preset.AllowPorts) != 1 || preset.AllowPorts[0] != "443" {
 		t.Fatalf("unexpected allow ports: %#v", preset.AllowPorts)
 	}
-	if preset.Rootfs.RecommendedTemplate != "openclaw" {
+	if preset.Rootfs.RecommendedTemplate != "openclaw-developer" {
 		t.Fatalf("unexpected recommended template: %#v", preset.Rootfs)
 	}
 	if len(preset.Rootfs.RequiredCommands) != 1 || preset.Rootfs.RequiredCommands[0] != "node" {

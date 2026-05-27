@@ -29,6 +29,7 @@ const (
 
 	openClawGatewayAddress = "127.0.0.1:18789"
 	openClawGatewayPort    = "18789"
+	defaultSandboxPath     = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 )
 
 func Execute(cfg spec.Config, stdout, stderr io.Writer) error {
@@ -76,6 +77,9 @@ func Execute(cfg spec.Config, stdout, stderr io.Writer) error {
 	for _, item := range cfg.RWBind {
 		backendArgs = append(backendArgs, "--rw-bind", item)
 	}
+	for _, item := range cfg.Env {
+		backendArgs = append(backendArgs, "--env", item)
+	}
 	backendArgs = append(backendArgs, "--")
 	backendArgs = append(backendArgs, cfg.Command...)
 
@@ -115,11 +119,7 @@ func Execute(cfg spec.Config, stdout, stderr io.Writer) error {
 	cmd.Stdout = stdoutTarget
 	cmd.Stderr = stderrTarget
 	cmd.Stdin = os.Stdin
-	env := append(os.Environ(), cfg.Env...)
-	if spec.NormalizeRuntimeMode(cfg.RuntimeMode) == spec.RuntimeModeInit && !hasEnvKey(env, "container") {
-		env = append(env, "container=mirage")
-	}
-	cmd.Env = env
+	cmd.Env = os.Environ()
 
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("backend command failed: %w", err)
@@ -180,6 +180,7 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 	var resolvedAllowHosts []string
 	var roBind []string
 	var rwBind []string
+	var envItems []string
 
 	fs.StringVar(&rootfs, "rootfs", "", "backend rootfs")
 	fs.StringVar(&cwd, "cwd", "", "backend cwd")
@@ -192,6 +193,7 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 	fs.Var(stringSliceValue{target: &resolvedAllowHosts}, "resolved-allow-host", "backend resolved allow-host")
 	fs.Var(stringSliceValue{target: &roBind}, "ro-bind", "backend read-only bind mount")
 	fs.Var(stringSliceValue{target: &rwBind}, "rw-bind", "backend read-write bind mount")
+	fs.Var(stringSliceValue{target: &envItems}, "env", "backend environment variable")
 
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -256,16 +258,17 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
+	sandboxEnv := buildSandboxEnv(envItems, resolvedRuntimeMode)
 
 	if resolvedRuntimeMode == spec.RuntimeModeInit {
-		return runInitCommand(command, policy, rootfs)
+		return runInitCommand(command, policy, rootfs, sandboxEnv)
 	}
 
-	return runDirectCommand(command, policy, rootfs, stdout, stderr)
+	return runDirectCommand(command, policy, rootfs, sandboxEnv, stdout, stderr)
 }
 
-func runDirectCommand(command []string, policy networkPolicy, rootfs string, stdout, stderr io.Writer) error {
-	cleanup, err := maybeStartTransientOpenClawGateway(command, rootfs)
+func runDirectCommand(command []string, policy networkPolicy, rootfs string, sandboxEnv []string, stdout, stderr io.Writer) error {
+	cleanup, err := maybeStartTransientOpenClawGateway(command, rootfs, sandboxEnv)
 	if err != nil {
 		return err
 	}
@@ -274,19 +277,19 @@ func runDirectCommand(command []string, policy networkPolicy, rootfs string, std
 	}
 	if shouldObserveNetwork(policy) {
 		if err := EnsureObservedNetworkToolAvailable(); err == nil {
-			return runObservedCommand(command, policy, stdout, stderr)
+			return runObservedCommand(command, policy, sandboxEnv, stdout, stderr)
 		}
 	}
 
-	return execCommandInSandbox(command, rootfs)
+	return execCommandInSandbox(command, rootfs, sandboxEnv)
 }
 
-func maybeStartTransientOpenClawGateway(command []string, rootfs string) (func(), error) {
+func maybeStartTransientOpenClawGateway(command []string, rootfs string, sandboxEnv []string) (func(), error) {
 	if !shouldStartTransientOpenClawGateway(command) || canReachLoopbackAddress(openClawGatewayAddress) {
 		return nil, nil
 	}
 
-	binary, err := resolveCommandBinary(command[0], rootfs)
+	binary, err := resolveCommandBinary(command[0], rootfs, sandboxEnv)
 	if err != nil {
 		return nil, fmt.Errorf("resolve transient OpenClaw gateway helper %q: %w", command[0], err)
 	}
@@ -295,7 +298,7 @@ func maybeStartTransientOpenClawGateway(command []string, rootfs string) (func()
 	cmd.Stdin = strings.NewReader("")
 	cmd.Stdout = io.Discard
 	cmd.Stderr = io.Discard
-	cmd.Env = os.Environ()
+	cmd.Env = sandboxEnv
 
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("start transient OpenClaw gateway helper: %w", err)
@@ -330,19 +333,19 @@ func maybeStartTransientOpenClawGateway(command []string, rootfs string) (func()
 	return nil, fmt.Errorf("transient OpenClaw gateway helper did not become reachable at %s within 10s", openClawGatewayAddress)
 }
 
-func runInitCommand(command []string, policy networkPolicy, rootfs string) error {
+func runInitCommand(command []string, policy networkPolicy, rootfs string, sandboxEnv []string) error {
 	if shouldObserveNetwork(policy) {
 		return errors.New("init mode does not support observed networking because the guest init command must remain sandbox PID 1")
 	}
-	return execCommandInSandbox(command, rootfs)
+	return execCommandInSandbox(command, rootfs, sandboxEnv)
 }
 
-func execCommandInSandbox(command []string, rootfs string) error {
-	binary, err := resolveCommandBinary(command[0], rootfs)
+func execCommandInSandbox(command []string, rootfs string, sandboxEnv []string) error {
+	binary, err := resolveCommandBinary(command[0], rootfs, sandboxEnv)
 	if err != nil {
 		return err
 	}
-	return syscall.Exec(binary, command, os.Environ())
+	return syscall.Exec(binary, command, sandboxEnv)
 }
 
 func requiresCgroupScope(cfg spec.Config) bool {
@@ -460,16 +463,13 @@ func currentCgroupPath() (string, error) {
 	return "", errors.New("resolve current cgroup: unified cgroup v2 path not found")
 }
 
-func resolveCommandBinary(commandName string, rootfs string) (string, error) {
-	binary, err := exec.LookPath(commandName)
+func resolveCommandBinary(commandName string, rootfs string, sandboxEnv []string) (string, error) {
+	binary, err := lookPathInEnv(commandName, envValue(sandboxEnv, "PATH", defaultSandboxPath))
 	if err == nil {
 		return binary, nil
 	}
 	if rootfs != "" && rootfs != "/" && !strings.ContainsRune(commandName, os.PathSeparator) {
-		pathHint := "using the current PATH"
-		if os.Getenv("PATH") == "" {
-			pathHint = "with an empty PATH"
-		}
+		pathHint := fmt.Sprintf("using sandbox PATH %q", envValue(sandboxEnv, "PATH", defaultSandboxPath))
 		return "", fmt.Errorf(
 			"resolve command %q inside rootfs %q %s: %w; install the executable in the rootfs, set PATH for the sandbox, or invoke it by absolute path inside the rootfs",
 			commandName,
@@ -914,6 +914,63 @@ func hasEnvKey(items []string, key string) bool {
 	return false
 }
 
+func buildSandboxEnv(items []string, runtimeMode spec.RuntimeMode) []string {
+	env := []string{"PATH=" + defaultSandboxPath}
+	for _, item := range items {
+		key, _, ok := strings.Cut(item, "=")
+		if !ok || key == "" {
+			continue
+		}
+		env = setEnvValue(env, key, item)
+	}
+	if runtimeMode == spec.RuntimeModeInit && !hasEnvKey(env, "container") {
+		env = append(env, "container=mirage")
+	}
+	return env
+}
+
+func envValue(items []string, key string, fallback string) string {
+	prefix := key + "="
+	for idx := len(items) - 1; idx >= 0; idx-- {
+		if strings.HasPrefix(items[idx], prefix) {
+			return strings.TrimPrefix(items[idx], prefix)
+		}
+	}
+	return fallback
+}
+
+func setEnvValue(items []string, key string, value string) []string {
+	prefix := key + "="
+	for idx, item := range items {
+		if strings.HasPrefix(item, prefix) {
+			items[idx] = value
+			return items
+		}
+	}
+	return append(items, value)
+}
+
+func lookPathInEnv(file string, searchPath string) (string, error) {
+	if strings.ContainsRune(file, os.PathSeparator) {
+		return exec.LookPath(file)
+	}
+	for _, dir := range filepath.SplitList(searchPath) {
+		if dir == "" {
+			dir = "."
+		}
+		candidate := filepath.Join(dir, file)
+		info, err := os.Stat(candidate)
+		if err != nil {
+			continue
+		}
+		if info.IsDir() || info.Mode().Perm()&0o111 == 0 {
+			continue
+		}
+		return candidate, nil
+	}
+	return "", exec.ErrNotFound
+}
+
 type networkPolicy struct {
 	Mode               string
 	WarnNet            bool
@@ -1007,7 +1064,7 @@ func canReachLoopbackAddress(address string) bool {
 	return true
 }
 
-func runObservedCommand(command []string, policy networkPolicy, stdout, stderr io.Writer) error {
+func runObservedCommand(command []string, policy networkPolicy, sandboxEnv []string, stdout, stderr io.Writer) error {
 	if err := EnsureObservedNetworkToolAvailable(); err != nil {
 		return err
 	}
@@ -1026,7 +1083,7 @@ func runObservedCommand(command []string, policy networkPolicy, stdout, stderr i
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
-	cmd.Env = os.Environ()
+	cmd.Env = sandboxEnv
 
 	runErr := cmd.Run()
 

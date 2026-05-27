@@ -222,15 +222,3 @@ func appendUniqueRuntimeFiles(existing []RuntimeFile, extra ...RuntimeFile) []Ru
 	}
 	return existing
 }
-
-func appendUniqueGeneratedFiles(existing []GeneratedFile, extra ...GeneratedFile) []GeneratedFile {
-	for _, generatedFile := range extra {
-		if slices.ContainsFunc(existing, func(candidate GeneratedFile) bool {
-			return candidate.TargetPath == generatedFile.TargetPath
-		}) {
-			continue
-		}
-		existing = append(existing, generatedFile)
-	}
-	return existing
-}

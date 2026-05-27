@@ -18,7 +18,6 @@ right template depends on how much tooling you want available inside the guest.
 | `openclaw-developer` | `openclaw-work` plus Git, editors, Python, SQLite, and common build-toolchain entrypoints |
 | `openclaw-admin` | `openclaw-developer` plus networking, process, and capability utilities |
 | `openclaw-root` | `openclaw-admin` plus package-management, tracing, debugging, namespace, and filesystem tools |
-| `openclaw` | The backward-compatible OpenClaw template used by the current built-in OpenClaw presets |
 
 The leveled `openclaw-*` templates compose from the previous level, so each
 later level includes the earlier one plus additional tools and runtime data.
@@ -37,9 +36,9 @@ If you want a different tool surface, replace `openclaw-developer` with one of
 the other OpenClaw templates listed above.
 
 The built-in `openclaw-openai` preset is a good starting point for OpenClaw
-installation and launch flows because it recommends the OpenClaw rootfs layout,
-defaults the working directory to `/workspace`, allows outbound HTTPS, and also
-permits the local gateway port `127.0.0.1:18789`.
+installation and launch flows because it recommends the `openclaw-developer`
+rootfs level, defaults the working directory to `/workspace`, allows outbound
+HTTPS, and also permits the local gateway port `127.0.0.1:18789`.
 
 Install the package inside the generated rootfs:
 
@@ -79,4 +78,4 @@ Start the local OpenClaw gateway on port `18789`:
   built-in preset, create a preset file with the extra allow-list entries and
   use `--preset-file` together with `--preset`.
 - For the exact built-in template contents, see
-  [usage.md#what-rootfs-init---template-prepares](usage.md#what-rootfs-init---template-prepares).
+  [rootfs.md#built-in-templates](rootfs.md#built-in-templates).
