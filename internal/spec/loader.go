@@ -120,7 +120,7 @@ func validatePresetDocument(doc presetFileDocument, source string) (map[string]P
 			return nil, fmt.Errorf("preset file %q defines duplicate preset %q", source, preset.Name)
 		}
 		switch preset.NetworkMode {
-		case NetworkNone, NetworkIsolated, NetworkHost:
+		case NetworkNone, NetworkHost:
 		default:
 			return nil, fmt.Errorf("preset file %q preset %q has invalid network mode %q", source, preset.Name, preset.NetworkMode)
 		}

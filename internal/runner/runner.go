@@ -1,13 +1,11 @@
 package runner
 
 import (
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"net"
-	"net/netip"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -56,22 +54,6 @@ func Execute(cfg spec.Config, stdout, stderr io.Writer) error {
 	}
 	if cfg.Hostname != "" {
 		backendArgs = append(backendArgs, "--hostname", cfg.Hostname)
-	}
-	for _, warn := range cfg.Warn {
-		backendArgs = append(backendArgs, "--warn", warn)
-	}
-	for _, item := range cfg.AllowCIDRs {
-		backendArgs = append(backendArgs, "--allow-cidr", item)
-	}
-	for _, item := range cfg.AllowPorts {
-		backendArgs = append(backendArgs, "--allow-port", item)
-	}
-	resolvedAllowHosts, err := resolveAllowHosts(cfg.AllowHosts)
-	if err != nil {
-		return err
-	}
-	for _, item := range resolvedAllowHosts {
-		backendArgs = append(backendArgs, "--resolved-allow-host", item)
 	}
 	for _, item := range cfg.ROBind {
 		backendArgs = append(backendArgs, "--ro-bind", item)
@@ -176,10 +158,6 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 	var hostname string
 	var netMode string
 	var runtimeMode string
-	var warnModes []string
-	var allowCIDRs []string
-	var allowPorts []string
-	var resolvedAllowHosts []string
 	var roBind []string
 	var rwBind []string
 	var envItems []string
@@ -189,10 +167,6 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 	fs.StringVar(&hostname, "hostname", "", "backend hostname")
 	fs.StringVar(&netMode, "net", "", "backend network mode")
 	fs.StringVar(&runtimeMode, "runtime-mode", string(spec.RuntimeModeDirect), "backend runtime mode")
-	fs.Var(stringSliceValue{target: &warnModes}, "warn", "backend warn mode")
-	fs.Var(stringSliceValue{target: &allowCIDRs}, "allow-cidr", "backend allowed cidr")
-	fs.Var(stringSliceValue{target: &allowPorts}, "allow-port", "backend allowed port")
-	fs.Var(stringSliceValue{target: &resolvedAllowHosts}, "resolved-allow-host", "backend resolved allow-host")
 	fs.Var(stringSliceValue{target: &roBind}, "ro-bind", "backend read-only bind mount")
 	fs.Var(stringSliceValue{target: &rwBind}, "rw-bind", "backend read-write bind mount")
 	fs.Var(stringSliceValue{target: &envItems}, "env", "backend environment variable")
@@ -208,7 +182,7 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 	if resolvedRuntimeMode != spec.RuntimeModeDirect && resolvedRuntimeMode != spec.RuntimeModeInit {
 		return fmt.Errorf("unsupported backend runtime mode %q", runtimeMode)
 	}
-	if netMode != string(spec.NetworkHost) && netMode != string(spec.NetworkNone) && netMode != string(spec.NetworkIsolated) {
+	if netMode != string(spec.NetworkHost) && netMode != string(spec.NetworkNone) {
 		return fmt.Errorf("unsupported backend network mode %q", netMode)
 	}
 	if resolvedRuntimeMode == spec.RuntimeModeInit && (rootfs == "" || rootfs == "/") {
@@ -256,23 +230,19 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 		}
 	}
 
-	policy, err := buildNetworkPolicy(netMode, warnModes, resolvedAllowHosts, allowCIDRs, allowPorts)
-	if err != nil {
-		return err
-	}
 	sandboxEnv, err := buildSandboxEnv(envItems, resolvedRuntimeMode, rootfs)
 	if err != nil {
 		return err
 	}
 
 	if resolvedRuntimeMode == spec.RuntimeModeInit {
-		return runInitCommand(command, policy, rootfs, sandboxEnv)
+		return runInitCommand(command, rootfs, sandboxEnv)
 	}
 
-	return runDirectCommand(command, policy, rootfs, sandboxEnv, stdout, stderr)
+	return runDirectCommand(command, rootfs, sandboxEnv)
 }
 
-func runDirectCommand(command []string, policy networkPolicy, rootfs string, sandboxEnv []string, stdout, stderr io.Writer) error {
+func runDirectCommand(command []string, rootfs string, sandboxEnv []string) error {
 	cleanup, err := maybeStartTransientOpenClawGateway(command, rootfs, sandboxEnv)
 	if err != nil {
 		return err
@@ -280,17 +250,6 @@ func runDirectCommand(command []string, policy networkPolicy, rootfs string, san
 	if cleanup != nil {
 		defer cleanup()
 	}
-	if shouldObserveNetwork(policy) {
-		if err := EnsureObservedNetworkToolAvailable(); err == nil {
-			binary, err := resolveCommandBinary(command[0], rootfs, sandboxEnv)
-			if err != nil {
-				return err
-			}
-			execCommand := append([]string{binary}, command[1:]...)
-			return runObservedCommand(execCommand, command, policy, sandboxEnv, stdout, stderr)
-		}
-	}
-
 	return execCommandInSandbox(command, rootfs, sandboxEnv)
 }
 
@@ -343,10 +302,7 @@ func maybeStartTransientOpenClawGateway(command []string, rootfs string, sandbox
 	return nil, fmt.Errorf("transient OpenClaw gateway helper did not become reachable at %s within 10s", openClawGatewayAddress)
 }
 
-func runInitCommand(command []string, policy networkPolicy, rootfs string, sandboxEnv []string) error {
-	if shouldObserveNetwork(policy) {
-		return errors.New("init mode does not support observed networking because the guest init command must remain sandbox PID 1")
-	}
+func runInitCommand(command []string, rootfs string, sandboxEnv []string) error {
 	return execCommandInSandbox(command, rootfs, sandboxEnv)
 }
 
@@ -507,7 +463,6 @@ func buildUnshareArgs(cfg spec.Config) ([]string, error) {
 
 	switch cfg.NetworkMode {
 	case spec.NetworkHost:
-	case spec.NetworkIsolated:
 	case spec.NetworkNone:
 		args = append(args, "--net")
 	default:
@@ -1019,72 +974,6 @@ func lookPathInEnv(file string, searchPath string) (string, error) {
 	return "", exec.ErrNotFound
 }
 
-type networkPolicy struct {
-	Mode               string
-	WarnNet            bool
-	ResolvedAllowHosts []hostPort
-	AllowCIDRs         []netip.Prefix
-	AllowPorts         []int
-}
-
-type hostPort struct {
-	Host string
-	Port int
-}
-
-type connectAttempt struct {
-	Address string `json:"address"`
-	Allowed bool   `json:"allowed"`
-	Raw     string `json:"raw"`
-}
-
-type warnRecord struct {
-	Timestamp   time.Time        `json:"timestamp"`
-	NetworkMode string           `json:"network_mode"`
-	Command     []string         `json:"command"`
-	Attempts    []connectAttempt `json:"attempts"`
-}
-
-func buildNetworkPolicy(netMode string, warnModes []string, resolvedAllowHosts, allowCIDRs, allowPorts []string) (networkPolicy, error) {
-	policy := networkPolicy{Mode: netMode}
-	for _, item := range warnModes {
-		if item == "net" {
-			policy.WarnNet = true
-		}
-	}
-	for _, item := range resolvedAllowHosts {
-		host, port, err := net.SplitHostPort(item)
-		if err != nil {
-			return networkPolicy{}, fmt.Errorf("parse resolved allow-host %q: %w", item, err)
-		}
-		portNumber, err := strconv.Atoi(port)
-		if err != nil {
-			return networkPolicy{}, fmt.Errorf("parse resolved allow-host port %q: %w", item, err)
-		}
-		policy.ResolvedAllowHosts = append(policy.ResolvedAllowHosts, hostPort{Host: host, Port: portNumber})
-	}
-	for _, item := range allowCIDRs {
-		prefix, err := netip.ParsePrefix(item)
-		if err != nil {
-			return networkPolicy{}, fmt.Errorf("parse allow-cidr %q: %w", item, err)
-		}
-		policy.AllowCIDRs = append(policy.AllowCIDRs, prefix)
-	}
-	for _, item := range allowPorts {
-		portString := strings.TrimPrefix(item, "tcp/")
-		portNumber, err := strconv.Atoi(portString)
-		if err != nil {
-			return networkPolicy{}, fmt.Errorf("parse allow-port %q: %w", item, err)
-		}
-		policy.AllowPorts = append(policy.AllowPorts, portNumber)
-	}
-	return policy, nil
-}
-
-func shouldObserveNetwork(policy networkPolicy) bool {
-	return policy.Mode == string(spec.NetworkIsolated) || policy.WarnNet
-}
-
 func shouldStartTransientOpenClawGateway(command []string) bool {
 	if len(command) < 2 || filepath.Base(command[0]) != "openclaw" || command[1] != "onboard" {
 		return false
@@ -1110,229 +999,6 @@ func canReachLoopbackAddress(address string) bool {
 	}
 	_ = conn.Close()
 	return true
-}
-
-func runObservedCommand(execCommand []string, recordCommand []string, policy networkPolicy, sandboxEnv []string, stdout, stderr io.Writer) error {
-	if err := EnsureObservedNetworkToolAvailable(); err != nil {
-		return err
-	}
-
-	traceFile, err := os.CreateTemp("", "mirage-strace-*.log")
-	if err != nil {
-		return fmt.Errorf("create network trace file: %w", err)
-	}
-	tracePath := traceFile.Name()
-	_ = traceFile.Close()
-	defer os.Remove(tracePath)
-
-	straceArgs := []string{"-f", "-e", "trace=connect", "-s", "0", "-o", tracePath, "--"}
-	straceArgs = append(straceArgs, execCommand...)
-	cmd := exec.Command("strace", straceArgs...)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = stdout
-	cmd.Stderr = stderr
-	cmd.Env = sandboxEnv
-
-	runErr := cmd.Run()
-
-	attempts, parseErr := parseConnectAttempts(tracePath, policy)
-	if parseErr != nil {
-		return parseErr
-	}
-	if policy.WarnNet {
-		if err := persistWarnRecord(policy, recordCommand, attempts); err != nil {
-			return err
-		}
-	}
-	if policy.Mode == string(spec.NetworkIsolated) {
-		if err := enforceObservedPolicy(attempts); err != nil {
-			return err
-		}
-	}
-	if runErr != nil {
-		return runErr
-	}
-	return nil
-}
-
-func EnsureObservedNetworkToolAvailable() error {
-	if _, err := exec.LookPath("strace"); err != nil {
-		return fmt.Errorf("observed isolated networking requires strace on PATH: %w", err)
-	}
-	return nil
-}
-
-func parseConnectAttempts(tracePath string, policy networkPolicy) ([]connectAttempt, error) {
-	data, err := os.ReadFile(tracePath)
-	if err != nil {
-		return nil, fmt.Errorf("read network trace: %w", err)
-	}
-
-	var attempts []connectAttempt
-	for _, line := range strings.Split(string(data), "\n") {
-		if !strings.Contains(line, "connect(") {
-			continue
-		}
-		address, ok := extractConnectAddress(line)
-		if !ok {
-			attempts = append(attempts, connectAttempt{Address: "unknown", Allowed: false, Raw: line})
-			continue
-		}
-		attempts = append(attempts, connectAttempt{
-			Address: address,
-			Allowed: isAllowedAddress(address, policy),
-			Raw:     line,
-		})
-	}
-	return attempts, nil
-}
-
-func extractConnectAddress(line string) (string, bool) {
-	if idx := strings.Index(line, `sin_port=htons(`); idx >= 0 {
-		portStart := idx + len(`sin_port=htons(`)
-		portEnd := strings.Index(line[portStart:], ")")
-		if portEnd < 0 {
-			return "", false
-		}
-		port := line[portStart : portStart+portEnd]
-		addrMarker := `inet_addr("`
-		addrIdx := strings.Index(line, addrMarker)
-		if addrIdx < 0 {
-			return "", false
-		}
-		addrStart := addrIdx + len(addrMarker)
-		addrEnd := strings.Index(line[addrStart:], `")`)
-		if addrEnd < 0 {
-			return "", false
-		}
-		host := line[addrStart : addrStart+addrEnd]
-		return net.JoinHostPort(host, port), true
-	}
-	if idx := strings.Index(line, `sin6_port=htons(`); idx >= 0 {
-		portStart := idx + len(`sin6_port=htons(`)
-		portEnd := strings.Index(line[portStart:], ")")
-		if portEnd < 0 {
-			return "", false
-		}
-		port := line[portStart : portStart+portEnd]
-		addrMarker := `inet_pton(AF_INET6, "`
-		addrIdx := strings.Index(line, addrMarker)
-		if addrIdx < 0 {
-			return "", false
-		}
-		addrStart := addrIdx + len(addrMarker)
-		addrEnd := strings.Index(line[addrStart:], `"`)
-		if addrEnd < 0 {
-			return "", false
-		}
-		host := line[addrStart : addrStart+addrEnd]
-		return net.JoinHostPort(host, port), true
-	}
-	return "", false
-}
-
-func isAllowedAddress(address string, policy networkPolicy) bool {
-	host, portString, err := net.SplitHostPort(address)
-	if err != nil {
-		return false
-	}
-	port, err := strconv.Atoi(portString)
-	if err != nil {
-		return false
-	}
-	if port == 53 && len(policy.AllowPorts) > 0 {
-		return true
-	}
-	for _, allowed := range policy.ResolvedAllowHosts {
-		if allowed.Host == host && allowed.Port == port {
-			return true
-		}
-	}
-	ip, err := netip.ParseAddr(host)
-	if err == nil {
-		for _, prefix := range policy.AllowCIDRs {
-			if prefix.Contains(ip) {
-				return true
-			}
-		}
-	}
-	for _, allowedPort := range policy.AllowPorts {
-		if allowedPort == port {
-			return true
-		}
-	}
-	return false
-}
-
-func enforceObservedPolicy(attempts []connectAttempt) error {
-	var disallowed []string
-	for _, attempt := range attempts {
-		if attempt.Address == "unknown" || strings.HasSuffix(attempt.Address, ":0") {
-			continue
-		}
-		if !attempt.Allowed {
-			disallowed = append(disallowed, attempt.Address)
-		}
-	}
-	if len(disallowed) == 0 {
-		return nil
-	}
-	return fmt.Errorf("isolated network policy blocked attempted connections: %s", strings.Join(disallowed, ", "))
-}
-
-func persistWarnRecord(policy networkPolicy, command []string, attempts []connectAttempt) error {
-	record := warnRecord{
-		Timestamp:   time.Now().UTC(),
-		NetworkMode: policy.Mode,
-		Command:     append([]string{}, command...),
-		Attempts:    attempts,
-	}
-	stateDir := os.Getenv("MIRAGE_STATE_DIR")
-	if stateDir == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return fmt.Errorf("resolve home for warn record: %w", err)
-		}
-		stateDir = filepath.Join(home, ".local", "state", "mirage")
-	}
-	warnDir := filepath.Join(stateDir, "warn")
-	if err := os.MkdirAll(warnDir, 0o755); err != nil {
-		return fmt.Errorf("create warn state directory: %w", err)
-	}
-	payload, err := json.Marshal(record)
-	if err != nil {
-		return fmt.Errorf("marshal warn record: %w", err)
-	}
-	filename := filepath.Join(warnDir, fmt.Sprintf("net-%d.json", time.Now().UnixNano()))
-	if err := os.WriteFile(filename, append(payload, '\n'), 0o644); err != nil {
-		return fmt.Errorf("write warn record: %w", err)
-	}
-	return nil
-}
-
-func resolveAllowHosts(entries []string) ([]string, error) {
-	var out []string
-	for _, entry := range entries {
-		host, port, err := net.SplitHostPort(entry)
-		if err != nil {
-			return nil, fmt.Errorf("parse allow-host %q: %w", entry, err)
-		}
-		if ip, err := netip.ParseAddr(host); err == nil {
-			out = append(out, net.JoinHostPort(ip.String(), port))
-			continue
-		}
-		ips, err := net.LookupIP(host)
-		if err != nil {
-			return nil, fmt.Errorf("resolve allow-host %q: %w", entry, err)
-		}
-		if len(ips) == 0 {
-			return nil, fmt.Errorf("resolve allow-host %q: no addresses returned", entry)
-		}
-		for _, ip := range ips {
-			out = append(out, net.JoinHostPort(ip.String(), port))
-		}
-	}
-	return out, nil
 }
 
 func prepareLogWriter(path string, fallback io.Writer) (io.Closer, io.Writer, error) {
@@ -1372,12 +1038,6 @@ func PlanNotes(cfg spec.Config) []string {
 		notes = append(notes, "network backend: host namespace")
 	case spec.NetworkNone:
 		notes = append(notes, "network backend: dedicated net namespace without host network")
-	case spec.NetworkIsolated:
-		if err := EnsureObservedNetworkToolAvailable(); err == nil {
-			notes = append(notes, "network backend: host namespace with observed policy enforcement")
-		} else {
-			notes = append(notes, "network backend: host namespace without observed policy enforcement (strace unavailable)")
-		}
 	}
 	if cfg.StdoutLog != "" || cfg.StderrLog != "" {
 		var exports []string

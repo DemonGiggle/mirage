@@ -11,9 +11,8 @@ import (
 type NetworkMode string
 
 const (
-	NetworkNone     NetworkMode = "none"
-	NetworkIsolated NetworkMode = "isolated"
-	NetworkHost     NetworkMode = "host"
+	NetworkNone NetworkMode = "none"
+	NetworkHost NetworkMode = "host"
 )
 
 type RuntimeMode string
@@ -32,9 +31,6 @@ type RootfsExpectations struct {
 type Preset struct {
 	Name        string             `json:"name" yaml:"name"`
 	NetworkMode NetworkMode        `json:"network" yaml:"network"`
-	AllowHosts  []string           `json:"allow_hosts" yaml:"allow_hosts"`
-	AllowCIDRs  []string           `json:"allow_cidrs" yaml:"allow_cidrs"`
-	AllowPorts  []string           `json:"allow_ports" yaml:"allow_ports"`
 	Rootfs      RootfsExpectations `json:"rootfs,omitempty" yaml:"rootfs,omitempty"`
 	Description string             `json:"description" yaml:"description"`
 }
@@ -46,12 +42,8 @@ type Config struct {
 	ScopeName   string
 	Preset      string
 	PresetFile  string
-	Warn        []string
 	ROBind      []string
 	RWBind      []string
-	AllowHosts  []string
-	AllowCIDRs  []string
-	AllowPorts  []string
 	Env         []string
 	StdoutLog   string
 	StderrLog   string
@@ -86,15 +78,6 @@ func ApplyPreset(cfg Config) (Config, error) {
 	}
 	if cfg.NetworkMode == "" {
 		cfg.NetworkMode = preset.NetworkMode
-	}
-	if len(cfg.AllowHosts) == 0 && len(preset.AllowHosts) > 0 {
-		cfg.AllowHosts = append([]string{}, preset.AllowHosts...)
-	}
-	if len(cfg.AllowCIDRs) == 0 && len(preset.AllowCIDRs) > 0 {
-		cfg.AllowCIDRs = append([]string{}, preset.AllowCIDRs...)
-	}
-	if len(cfg.AllowPorts) == 0 && len(preset.AllowPorts) > 0 {
-		cfg.AllowPorts = append([]string{}, preset.AllowPorts...)
 	}
 	return cfg, nil
 }
@@ -150,7 +133,7 @@ func Validate(cfg Config) error {
 		problems = append(problems, fmt.Errorf("invalid runtime mode %q", cfg.RuntimeMode))
 	}
 	switch cfg.NetworkMode {
-	case NetworkNone, NetworkIsolated, NetworkHost:
+	case NetworkNone, NetworkHost:
 	case "":
 		problems = append(problems, errors.New("network mode is required"))
 	default:
@@ -158,17 +141,6 @@ func Validate(cfg Config) error {
 	}
 	if len(cfg.Command) == 0 {
 		problems = append(problems, errors.New("command is required after --"))
-	}
-	if cfg.NetworkMode == NetworkNone && (len(cfg.AllowHosts) > 0 || len(cfg.AllowCIDRs) > 0 || len(cfg.AllowPorts) > 0) {
-		problems = append(problems, errors.New("allow rules are incompatible with --net none"))
-	}
-	for _, warn := range cfg.Warn {
-		if warn != "net" {
-			problems = append(problems, fmt.Errorf("unsupported warn mode %q", warn))
-		}
-	}
-	if NormalizeRuntimeMode(cfg.RuntimeMode) == RuntimeModeInit && (cfg.NetworkMode == NetworkIsolated || slicesContains(cfg.Warn, "net")) {
-		problems = append(problems, errors.New("runtime-mode init is incompatible with observed networking; use --net host or --net none without --warn net"))
 	}
 	if NormalizeRuntimeMode(cfg.RuntimeMode) == RuntimeModeInit && (cfg.RootFS == "" || cfg.RootFS == "/") {
 		problems = append(problems, errors.New("runtime-mode init requires a dedicated rootfs; use --rootfs with a non-root directory"))
@@ -211,9 +183,6 @@ func Summary(cfg Config) string {
 	if cfg.PresetFile != "" {
 		fmt.Fprintf(&b, "preset-file: %s\n", cfg.PresetFile)
 	}
-	if len(cfg.Warn) > 0 {
-		fmt.Fprintf(&b, "warn: %s\n", strings.Join(cfg.Warn, ", "))
-	}
 	if cfg.Cwd != "" {
 		fmt.Fprintf(&b, "cwd: %s\n", cfg.Cwd)
 	}
@@ -235,24 +204,6 @@ func Summary(cfg Config) string {
 	if len(cfg.RWBind) > 0 {
 		fmt.Fprintf(&b, "rw-bind:\n")
 		for _, item := range cfg.RWBind {
-			fmt.Fprintf(&b, "  - %s\n", item)
-		}
-	}
-	if len(cfg.AllowHosts) > 0 {
-		fmt.Fprintf(&b, "allow-host:\n")
-		for _, item := range cfg.AllowHosts {
-			fmt.Fprintf(&b, "  - %s\n", item)
-		}
-	}
-	if len(cfg.AllowCIDRs) > 0 {
-		fmt.Fprintf(&b, "allow-cidr:\n")
-		for _, item := range cfg.AllowCIDRs {
-			fmt.Fprintf(&b, "  - %s\n", item)
-		}
-	}
-	if len(cfg.AllowPorts) > 0 {
-		fmt.Fprintf(&b, "allow-port:\n")
-		for _, item := range cfg.AllowPorts {
 			fmt.Fprintf(&b, "  - %s\n", item)
 		}
 	}

@@ -32,8 +32,6 @@ defense against a determined kernel-level adversary.
 - `bind mount`: an explicit mapping from a host path into the sandbox, either
   read-only or read-write
 - `network preset`: a named policy bundle that sets the default network stance
-- `warn mode`: an observation mode that records attempted network access for
-  later review
 - `runtime mode`: whether Mirage launches a direct workload entrypoint or an
   init-oriented entrypoint that must become sandbox PID 1
 
@@ -44,7 +42,7 @@ The intended model is simple:
 1. the CLI resolves a final config
 2. the runner creates the requested isolation context
 3. the direct workload or guest init entrypoint executes inside that context
-4. optional logs and observation records are persisted on the host
+4. optional logs are persisted on the host
 
 `mirage` is therefore a thin control plane in front of normal Linux isolation
 primitives, not a custom container platform.
@@ -76,11 +74,10 @@ The runner is responsible for:
 - entering delegated cgroup v2 limits when configured
 - executing the final command according to the selected runtime mode
 
-### Observation and State
+### State
 
 The current implementation can persist:
 
-- warn-mode network observations
 - host-visible stdout and stderr logs
 
 This state is intentionally plain and local rather than hidden behind a daemon.
@@ -127,8 +124,7 @@ The current init-mode contract is intentionally narrow:
 
 - it preserves a true guest PID 1 handoff
 - it does not yet add a Mirage supervisor above that init process
-- it is currently incompatible with observed networking, because the current
-  `strace`-based network path would otherwise replace guest init as PID 1
+- it shares the same stable `host` / `none` network contract as direct mode
 - it assumes a unified cgroup v2 host and always enters a delegated
   `systemd-run --user --scope` leaf before guest init starts
 - it currently requires a dedicated rootfs, because host-root mode keeps the
@@ -175,12 +171,10 @@ The current network modes are intentionally small:
 
 - `host`: no network namespace isolation
 - `none`: separate network namespace with no network access
-- `isolated`: separate network namespace with observed connect-attempt
-  enforcement
 
-The `isolated` implementation is currently observation-driven rather than a
-full routable firewall model. That is why the project still treats network
-architecture as incomplete rather than finished.
+Anything richer than that is intentionally deferred. Future firewall,
+diagnostics, and preset redesign work should be rebuilt on top of a new network
+model rather than inherited from the removed observed-policy surface.
 
 ## Rootfs Direction
 
@@ -221,10 +215,7 @@ flowchart TD
     G --> H[Apply mounts and cgroup limits]
     H --> I[Configure network behavior]
     I --> J[Launch workload]
-    J --> K{Warn mode enabled?}
-    K -- yes --> L[Persist observations]
-    K -- no --> M[Wait for exit]
-    L --> M
+    J --> K[Wait for exit]
 ```
 
 ## Relationship To Other Docs

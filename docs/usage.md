@@ -10,7 +10,6 @@ guest-init rootfs validation, see [rootfs.md](rootfs.md).
 - Linux
 - Go 1.24.4 or newer if building from source
 - `unshare` on `PATH` for namespace-backed execution
-- `strace` on `PATH` for `--net isolated`, `--warn net`, and related tests
 - `systemd-run` with a working user manager session for delegated `--memory`
   and `--pids`
 
@@ -123,9 +122,8 @@ Common options include:
 `--runtime-mode direct` keeps the current one-command model: the requested
 workload becomes sandbox PID 1. `--runtime-mode init` is for guest init systems
 such as `systemd`; the requested init binary becomes sandbox PID 1 directly
-instead of being wrapped by Mirage. Because the current isolated-network path is
-implemented by an observation wrapper, init mode currently requires `--net host`
-or `--net none` without `--warn net`.
+instead of being wrapped by Mirage. The stable network choices for both runtime
+modes are `--net host` and `--net none`.
 
 Init mode currently defines a narrow guest cgroup contract:
 
@@ -251,31 +249,28 @@ Example:
 
 `mirage` supports:
 
-- built-in presets such as `offline`, `github`, and `openai`
+- built-in presets such as `offline` and `openclaw-offline`
 - local YAML preset files merged with the built-ins
 
 Example preset file:
 
 ```yaml
 presets:
-  - name: team-openai
-    network: isolated
-    allow_hosts:
-      - api.openai.com:443
-      - github.com:443
+  - name: team-offline
+    network: none
     rootfs:
       template: openclaw-developer
       required_commands:
         - node
       recommended_cwd: /workspace
-    description: Team preset for OpenAI-backed agent work
+    description: Team preset for local-only agent work
 ```
 
 Use it with:
 
 ```bash
 ./bin/mirage preset list --preset-file ./presets.yaml
-./bin/mirage run --rootfs /srv/rootfs --preset-file ./presets.yaml --preset team-openai -- app
+./bin/mirage run --rootfs /srv/rootfs --preset-file ./presets.yaml --preset team-offline -- app
 ```
 
 For the exact isolation behavior of each built-in preset, see
@@ -289,17 +284,18 @@ path. A preset can recommend a rootfs template or required commands, while
 
 The current network philosophy is intentionally narrow:
 
-- use `offline` or `--net none` when the workload should not reach the network
-- use `openai` or `github` when only a small allow-list is needed
-- use `--warn net` to record attempted access while refining a preset
+- use `offline`, `openclaw-offline`, or `--net none` when the workload should
+  not reach the network
+- use `--net host` when the workload truly needs outbound access
+- treat richer policy, diagnostics, and preset design as future work rather than
+  an implied current feature
 
 Example:
 
 ```bash
 ./bin/mirage run \
   --rootfs /srv/mirage/rootfs \
-  --preset openai \
-  --warn net \
+  --net host \
   -- app
 ```
 

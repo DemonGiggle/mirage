@@ -11,9 +11,7 @@ func TestLoadPresetsFromFS(t *testing.T) {
 		"presets/custom.yaml": {
 			Data: []byte(`presets:
   - name: custom
-    network: isolated
-    allow_hosts:
-      - example.com:443
+    network: host
     description: Custom preset
 `),
 		},
@@ -26,7 +24,7 @@ func TestLoadPresetsFromFS(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected custom preset to be loaded, got %v", presets)
 	}
-	if len(preset.AllowHosts) != 1 || preset.AllowHosts[0] != "example.com:443" {
+	if preset.NetworkMode != NetworkHost {
 		t.Fatalf("unexpected preset content: %#v", preset)
 	}
 }
@@ -36,7 +34,7 @@ func TestLoadPresetsFromFSRejectsUnknownFields(t *testing.T) {
 		"presets/custom.yaml": {
 			Data: []byte(`presets:
   - name: custom
-    network: isolated
+    network: host
     unknown_field: true
 `),
 		},
@@ -57,7 +55,7 @@ func TestLoadBuiltInPresetsFromEmbed(t *testing.T) {
 	if len(presets) != len(BuiltInPresets) {
 		t.Fatalf("unexpected built-in preset count: got %d want %d", len(presets), len(BuiltInPresets))
 	}
-	for _, name := range []string{"offline", "github", "openai", "openclaw-offline", "openclaw-openai"} {
+	for _, name := range []string{"offline", "openclaw-offline"} {
 		if _, ok := presets[name]; !ok {
 			t.Fatalf("expected built-in embedded preset %q, got %v", name, PresetNames())
 		}

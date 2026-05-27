@@ -35,17 +35,16 @@ Pick the template level you want, then generate a dedicated rootfs:
 If you want a different tool surface, replace `openclaw-developer` with one of
 the other OpenClaw templates listed above.
 
-The built-in `openclaw-openai` preset is a good starting point for OpenClaw
-installation and launch flows because it recommends the `openclaw-developer`
-rootfs level, defaults the working directory to `/workspace`, allows outbound
-HTTPS, and also permits the local gateway port `127.0.0.1:18789`.
+The built-in `openclaw-offline` preset is a good starting point for local-only
+OpenClaw execution because it recommends the `openclaw-developer` rootfs level
+and defaults the working directory to `/workspace`.
 
 Install the package inside the generated rootfs:
 
 ```bash
 ./bin/mirage run \
   --rootfs /srv/mirage/openclaw-rootfs \
-  --preset openclaw-openai \
+  --net host \
   --cwd /workspace \
   -- npm i -g openclaw
 ```
@@ -55,7 +54,7 @@ Run the onboarding flow:
 ```bash
 ./bin/mirage run \
   --rootfs /srv/mirage/openclaw-rootfs \
-  --preset openclaw-openai \
+  --net host \
   --cwd /workspace \
   -- openclaw onboard
 ```
@@ -65,7 +64,7 @@ Start the local OpenClaw gateway on port `18789`:
 ```bash
 ./bin/mirage run \
   --rootfs /srv/mirage/openclaw-rootfs \
-  --preset openclaw-openai \
+  --net host \
   --cwd /workspace \
   -- openclaw gateway --port 18789
 ```
@@ -74,8 +73,8 @@ Start the local OpenClaw gateway on port `18789`:
 
 - If you want a smaller or stricter installation environment, choose a narrower
   rootfs level such as `openclaw-chat-only` or `openclaw-work`.
-- If your OpenClaw workflow needs additional network destinations beyond the
-  built-in preset, create a preset file with the extra allow-list entries and
-  use `--preset-file` together with `--preset`.
+- Use `--net none` or the `openclaw-offline` preset for local-only work, and
+  switch to `--net host` explicitly when the workflow truly needs outbound
+  network access.
 - For the exact built-in template contents, see
   [rootfs.md#built-in-templates](rootfs.md#built-in-templates).

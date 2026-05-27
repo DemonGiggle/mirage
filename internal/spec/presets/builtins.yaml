@@ -3,19 +3,6 @@ presets:
     network: none
     description: No network access.
 
-  - name: github
-    network: isolated
-    allow_hosts:
-      - github.com:443
-    description: Allow GitHub over HTTPS.
-
-  - name: openai
-    network: isolated
-    allow_hosts:
-      - api.openai.com:443
-      - chatgpt.com:443
-    description: Allow the minimum expected OpenAI endpoints over HTTPS.
-
   - name: openclaw-offline
     network: none
     rootfs:
@@ -24,16 +11,3 @@ presets:
         - node
       recommended_cwd: /workspace
     description: OpenClaw-oriented offline preset for local-only agent work.
-
-  - name: openclaw-openai
-    network: isolated
-    allow_hosts:
-      - 127.0.0.1:18789
-    allow_ports:
-      - "443"
-    rootfs:
-      template: openclaw-developer
-      required_commands:
-        - node
-      recommended_cwd: /workspace
-    description: OpenClaw-oriented preset for HTTPS-capable agent work with the openclaw-developer rootfs template and the local gateway loopback port.

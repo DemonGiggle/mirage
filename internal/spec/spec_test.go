@@ -10,10 +10,8 @@ import (
 func TestLoadPresetFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "presets.yaml")
 	if err := os.WriteFile(path, []byte(`presets:
-  - name: team-openai
-    network: isolated
-    allow_hosts:
-      - example.com:443
+  - name: team-offline
+    network: none
     rootfs:
       template: openclaw-developer
       required_commands:
@@ -29,15 +27,12 @@ func TestLoadPresetFile(t *testing.T) {
 		t.Fatalf("LoadPresetFile returned error: %v", err)
 	}
 
-	got, ok := presets["team-openai"]
+	got, ok := presets["team-offline"]
 	if !ok {
-		t.Fatalf("expected team-openai preset, got %#v", presets)
+		t.Fatalf("expected team-offline preset, got %#v", presets)
 	}
-	if got.NetworkMode != NetworkIsolated {
+	if got.NetworkMode != NetworkNone {
 		t.Fatalf("unexpected network mode: %q", got.NetworkMode)
-	}
-	if len(got.AllowHosts) != 1 || got.AllowHosts[0] != "example.com:443" {
-		t.Fatalf("unexpected allow hosts: %#v", got.AllowHosts)
 	}
 	if got.Rootfs.RecommendedTemplate != "openclaw-developer" {
 		t.Fatalf("unexpected recommended template: %#v", got.Rootfs)
@@ -82,12 +77,9 @@ func TestLoadPresetFileRejectsJSONExtension(t *testing.T) {
 }
 
 func TestBuiltInOpenclawPresetIncludesRootfsExpectations(t *testing.T) {
-	preset := BuiltInPresets["openclaw-openai"]
-	if len(preset.AllowHosts) != 1 || preset.AllowHosts[0] != "127.0.0.1:18789" {
-		t.Fatalf("unexpected allow hosts: %#v", preset.AllowHosts)
-	}
-	if len(preset.AllowPorts) != 1 || preset.AllowPorts[0] != "443" {
-		t.Fatalf("unexpected allow ports: %#v", preset.AllowPorts)
+	preset := BuiltInPresets["openclaw-offline"]
+	if preset.NetworkMode != NetworkNone {
+		t.Fatalf("unexpected network mode: %q", preset.NetworkMode)
 	}
 	if preset.Rootfs.RecommendedTemplate != "openclaw-developer" {
 		t.Fatalf("unexpected recommended template: %#v", preset.Rootfs)
@@ -103,9 +95,9 @@ func TestBuiltInOpenclawPresetIncludesRootfsExpectations(t *testing.T) {
 func TestAvailablePresetsMergesLocalYAMLOverBuiltIns(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "presets.yaml")
 	if err := os.WriteFile(path, []byte(`presets:
-  - name: openai
+  - name: offline
     network: host
-    description: Override built-in openai preset
+    description: Override built-in offline preset
 `), 0o644); err != nil {
 		t.Fatalf("write preset file: %v", err)
 	}
@@ -115,14 +107,14 @@ func TestAvailablePresetsMergesLocalYAMLOverBuiltIns(t *testing.T) {
 		t.Fatalf("AvailablePresets returned error: %v", err)
 	}
 
-	got, ok := presets["openai"]
+	got, ok := presets["offline"]
 	if !ok {
-		t.Fatalf("expected openai preset, got %#v", presets)
+		t.Fatalf("expected offline preset, got %#v", presets)
 	}
 	if got.NetworkMode != NetworkHost {
 		t.Fatalf("expected local preset to override built-in, got %#v", got)
 	}
-	if got.Description != "Override built-in openai preset" {
+	if got.Description != "Override built-in offline preset" {
 		t.Fatalf("unexpected preset description: %#v", got)
 	}
 }
@@ -139,15 +131,15 @@ func TestValidateRejectsInvalidRuntimeMode(t *testing.T) {
 	}
 }
 
-func TestValidateRejectsInitModeWithObservedNetworking(t *testing.T) {
+func TestValidateRejectsUnsupportedNetworkMode(t *testing.T) {
 	err := Validate(Config{
 		RootFS:      "/srv/rootfs",
-		NetworkMode: NetworkIsolated,
+		NetworkMode: NetworkMode("isolated"),
 		RuntimeMode: RuntimeModeInit,
 		Command:     []string{"/sbin/init"},
 	})
-	if err == nil || !strings.Contains(err.Error(), "runtime-mode init is incompatible with observed networking") {
-		t.Fatalf("expected init-mode networking error, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), `invalid network mode "isolated"`) {
+		t.Fatalf("expected invalid network mode error, got %v", err)
 	}
 }
 

@@ -9,7 +9,7 @@ The project target is pragmatic:
 - CLI first
 - namespace-based isolation
 - explicit rootfs and bind-mount control
-- simple network presets
+- small stable network contract
 - enough guardrails for daily agent and developer workflows
 
 `mirage` is not trying to become another Docker or Kubernetes clone.
@@ -33,8 +33,8 @@ Today the project includes:
 - chroot-based rootfs handoff when using a non-`/` rootfs
 - a shared V1 rootfs template schema with curated built-in templates
 - read-only and read-write bind mounts
-- built-in network presets and local preset files
-- observed network enforcement for `--net isolated`
+- built-in `offline` presets and local preset files
+- stable `host` and `none` network modes
 - stdout and stderr export to host-visible log files
 - delegated cgroup v2 memory and PID limits
 - tracked sandbox lifecycle commands for init-mode runs (`sandbox start/status/stop/logs`)
@@ -109,8 +109,8 @@ bind mounts, presets, and tracked sandbox commands, use the docs linked below.
 The current backend is useful, but still transitional:
 
 - rootfs handoff still ends with `chroot`, not `pivot_root`
-- isolated networking is enforced through observed connect attempts rather than
-  a full routable firewall-backed model
+- future firewall and richer preset design are intentionally deferred beyond the
+  current `host` / `none` network contract
 - proc and mount hardening around `--rootfs /` is intentionally documented as a
   current limitation rather than a solved property
 
