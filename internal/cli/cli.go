@@ -378,7 +378,6 @@ func runSandbox(args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 	cfg.Command = fs.Args()
-	cfg.Command = fs.Args()
 
 	resolved, err := spec.ApplyPreset(cfg)
 	if err != nil {

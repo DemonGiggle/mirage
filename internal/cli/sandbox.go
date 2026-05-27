@@ -107,7 +107,6 @@ func runSandboxStart(args []string, stdout, stderr io.Writer) error {
 		return errors.New("sandbox start requires --name matching [A-Za-z0-9][A-Za-z0-9_-]*")
 	}
 	cfg.RuntimeMode = spec.RuntimeModeInit
-	cfg.RuntimeMode = spec.RuntimeModeInit
 	cfg.Command = fs.Args()
 	cfg.ScopeName = sandboxScopeUnit(name)
 
