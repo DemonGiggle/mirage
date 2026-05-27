@@ -473,13 +473,6 @@ func runtimeFile(hostPath string, targetPath string) RuntimeFile {
 	}
 }
 
-func runtimeTree(hostPath string, targetPath string) RuntimeTree {
-	return RuntimeTree{
-		HostPath:   hostPath,
-		TargetPath: targetPath,
-	}
-}
-
 func optionalRuntimeTree(hostPath string, targetPath string) RuntimeTree {
 	return RuntimeTree{
 		HostPath:   hostPath,
@@ -493,14 +486,6 @@ func optionalRuntimeFile(hostPath string, targetPath string) RuntimeFile {
 		HostPath:   hostPath,
 		TargetPath: targetPath,
 		Optional:   true,
-	}
-}
-
-func generatedFile(targetPath string, content string, mode uint32) GeneratedFile {
-	return GeneratedFile{
-		TargetPath: targetPath,
-		Content:    content,
-		Mode:       mode,
 	}
 }
 
@@ -548,18 +533,6 @@ func appendUniqueRuntimeFiles(existing []RuntimeFile, extra ...RuntimeFile) []Ru
 			continue
 		}
 		existing = append(existing, runtimeFile)
-	}
-	return existing
-}
-
-func appendUniqueGeneratedFiles(existing []GeneratedFile, extra ...GeneratedFile) []GeneratedFile {
-	for _, generatedFile := range extra {
-		if slices.ContainsFunc(existing, func(candidate GeneratedFile) bool {
-			return candidate.TargetPath == generatedFile.TargetPath
-		}) {
-			continue
-		}
-		existing = append(existing, generatedFile)
 	}
 	return existing
 }

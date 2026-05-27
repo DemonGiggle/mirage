@@ -201,8 +201,10 @@ For systemd-oriented rootfs validation, use:
   --service-unit openclaw.service
 ```
 
-That checks the guest init binary, required runtime paths, `/etc/machine-id`,
-and whether the requested service unit is present at
+Here `/srv/mirage/systemd-rootfs` is assumed to be a pre-configured custom
+rootfs that already contains `systemd` and the required service unit. That
+checks the guest init binary, required runtime paths, `/etc/machine-id`, and
+whether the requested service unit is present at
 `/etc/systemd/system/<name>` or `/usr/lib/systemd/system/<name>`.
 
 ### What `rootfs init --template` prepares
