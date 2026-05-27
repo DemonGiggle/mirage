@@ -116,7 +116,8 @@ Fields:
 - `action`: required, `allow` or `deny`
 - `from`: required ingress selector
 - `protocol`: required, `tcp`, `udp`, `icmp`, or `any`
-- `ports`: optional list of integer ports
+- `ports`: optional list of integer ports; when omitted, the rule matches any
+  port for the selected protocol
 
 ### Egress rule
 
@@ -135,7 +136,8 @@ Fields:
 - `action`: required, `allow` or `deny`
 - `to`: required egress selector
 - `protocol`: required, `tcp`, `udp`, `icmp`, or `any`
-- `ports`: optional list of integer ports
+- `ports`: optional list of integer ports; when omitted, the rule matches any
+  port for the selected protocol
 
 Using separate rule types lets Mirage reject directional misuse structurally:
 
@@ -231,6 +233,8 @@ The parser and validator should reject the following explicitly:
 - invalid CIDR
 - `domain` used in ingress
 - `domain` combined with `ip` or `cidr`
+- loopback IP literals used in ingress or egress selectors
+- loopback CIDRs used in ingress or egress selectors
 
 ### Protocol and port validation
 
@@ -297,6 +301,7 @@ A rule matches only when all applicable fields match:
 - the selector matches the remote endpoint
 - the protocol matches
 - the port matches when the rule declares `ports`
+- when `ports` is omitted, the rule matches any port for the selected protocol
 
 If any one of those checks fails, Mirage continues to the next rule.
 
@@ -317,13 +322,18 @@ The `loopback` section governs traffic whose effective peer address is loopback:
 - IPv4 loopback: `127.0.0.0/8`
 - IPv6 loopback: `::1`
 
-This classification happens before ingress or egress rule evaluation.
+This classification happens before ingress or egress rule evaluation:
+
+- for ingress, Mirage classifies loopback using the source peer address
+- for egress, Mirage classifies loopback using the destination peer address
 
 ### Relationship to ingress and egress
 
 - ingress and egress rules do **not** match loopback addresses in v1
 - loopback traffic is controlled only by `loopback.default`
 - v1 has no per-loopback rule list, so there is no loopback rule ordering yet
+- loopback IPs and loopback CIDRs are invalid in ingress and egress rules rather
+  than silently ignored
 
 This means loopback is explicit, separate, and intentionally narrow:
 
