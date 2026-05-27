@@ -65,7 +65,7 @@ Examples:
   mirage run --rootfs / --net none -- echo hello
   mirage run --rootfs /srv/systemd-rootfs --net host --runtime-mode init -- /usr/lib/systemd/systemd
   mirage run --rootfs /srv/rootfs --preset openai --warn net -- app
-  mirage run --rootfs /srv/rootfs --preset-file ./presets.json --preset team-openai -- app
+  mirage run --rootfs /srv/rootfs --preset-file ./presets.yaml --preset team-openai -- app
 `)
 }
 
@@ -75,7 +75,7 @@ func runPreset(args []string, stdout io.Writer) error {
 		fs.SetOutput(io.Discard)
 
 		var presetFile string
-		fs.StringVar(&presetFile, "preset-file", "", "Path to a local preset JSON file")
+		fs.StringVar(&presetFile, "preset-file", "", "Path to a local preset YAML file")
 		if err := fs.Parse(args[1:]); err != nil {
 			return err
 		}
@@ -168,7 +168,7 @@ func runDoctor(args []string, stdout, stderr io.Writer) error {
 	fs.StringVar(&command, "command", "", "Command to resolve and validate inside the rootfs")
 	fs.StringVar(&cwd, "cwd", "", "Working directory to validate inside the rootfs")
 	fs.StringVar(&preset, "preset", "", "Named preset to resolve while validating")
-	fs.StringVar(&presetFile, "preset-file", "", "Path to a local preset JSON file")
+	fs.StringVar(&presetFile, "preset-file", "", "Path to a local preset YAML file")
 	fs.StringVar(&runtimeMode, "runtime-mode", string(spec.RuntimeModeDirect), "Runtime mode to validate against: direct, init")
 	fs.StringVar(&serviceUnit, "service-unit", "", "Systemd unit to validate inside the rootfs when runtime-mode=init")
 
@@ -374,7 +374,7 @@ func runSandbox(args []string, stdout, stderr io.Writer) error {
 	fs.StringVar((*string)(&cfg.RuntimeMode), "runtime-mode", string(spec.RuntimeModeDirect), "Runtime mode: direct, init")
 	fs.StringVar(&cfg.ScopeName, "scope-name", "", "Internal: explicit systemd user scope unit name")
 	fs.StringVar(&cfg.Preset, "preset", "", "Named preset to apply before inline overrides")
-	fs.StringVar(&cfg.PresetFile, "preset-file", "", "Path to a local preset JSON file")
+	fs.StringVar(&cfg.PresetFile, "preset-file", "", "Path to a local preset YAML file")
 	fs.StringVar(&warnCSV, "warn", "", "Warn modes, currently supports: net")
 	fs.StringVar(&cfg.StdoutLog, "stdout-log", "", "Write workload stdout to a host-side log file")
 	fs.StringVar(&cfg.StderrLog, "stderr-log", "", "Write workload stderr to a host-side log file")

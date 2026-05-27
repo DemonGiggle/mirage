@@ -46,17 +46,14 @@ func TestPresetListWithPresetFile(t *testing.T) {
 	var out bytes.Buffer
 	var errBuf bytes.Buffer
 
-	presetFile := filepath.Join(t.TempDir(), "presets.json")
-	if err := os.WriteFile(presetFile, []byte(`{
-  "presets": [
-    {
-      "name": "team-openai",
-      "network": "isolated",
-      "allow_hosts": ["example.com:443"],
-      "description": "Team preset"
-    }
-  ]
-}`), 0o644); err != nil {
+	presetFile := filepath.Join(t.TempDir(), "presets.yaml")
+	if err := os.WriteFile(presetFile, []byte(`presets:
+  - name: team-openai
+    network: isolated
+    allow_hosts:
+      - example.com:443
+    description: Team preset
+`), 0o644); err != nil {
 		t.Fatalf("write preset file: %v", err)
 	}
 
@@ -109,17 +106,14 @@ func TestRunDryRunWithPresetFile(t *testing.T) {
 	var out bytes.Buffer
 	var errBuf bytes.Buffer
 
-	presetFile := filepath.Join(t.TempDir(), "presets.json")
-	if err := os.WriteFile(presetFile, []byte(`{
-  "presets": [
-    {
-      "name": "team-openai",
-      "network": "isolated",
-      "allow_hosts": ["example.com:443"],
-      "description": "Team preset"
-    }
-  ]
-}`), 0o644); err != nil {
+	presetFile := filepath.Join(t.TempDir(), "presets.yaml")
+	if err := os.WriteFile(presetFile, []byte(`presets:
+  - name: team-openai
+    network: isolated
+    allow_hosts:
+      - example.com:443
+    description: Team preset
+`), 0o644); err != nil {
 		t.Fatalf("write preset file: %v", err)
 	}
 
@@ -450,18 +444,13 @@ func TestEnsurePresetRootfsReportsMissingAssets(t *testing.T) {
 		},
 	})
 
-	presetFile := filepath.Join(t.TempDir(), "presets.json")
-	if err := os.WriteFile(presetFile, []byte(`{
-  "presets": [
-    {
-      "name": "team-missing",
-      "network": "none",
-      "rootfs": {
-        "template": "`+templateName+`"
-      }
-    }
-  ]
-}`), 0o644); err != nil {
+	presetFile := filepath.Join(t.TempDir(), "presets.yaml")
+	if err := os.WriteFile(presetFile, []byte(`presets:
+  - name: team-missing
+    network: none
+    rootfs:
+      template: `+templateName+`
+`), 0o644); err != nil {
 		t.Fatalf("write preset file: %v", err)
 	}
 
@@ -564,19 +553,18 @@ func TestDoctorPrintsDeduplicatedPresetCommands(t *testing.T) {
 		t.Fatalf("Generate returned error: %v", err)
 	}
 
-	presetFile := filepath.Join(t.TempDir(), "presets.json")
-	if err := os.WriteFile(presetFile, []byte(`{
-  "presets": [
-    {
-      "name": "team-basic",
-      "network": "none",
-      "rootfs": {
-        "required_commands": [" /bin/ls ", "/bin/sh", "/bin/ls", ""]
-      },
-      "description": "Basic rootfs validation preset."
-    }
-  ]
-}`), 0o644); err != nil {
+	presetFile := filepath.Join(t.TempDir(), "presets.yaml")
+	if err := os.WriteFile(presetFile, []byte(`presets:
+  - name: team-basic
+    network: none
+    rootfs:
+      required_commands:
+        - " /bin/ls "
+        - /bin/sh
+        - /bin/ls
+        - ""
+    description: Basic rootfs validation preset.
+`), 0o644); err != nil {
 		t.Fatalf("WriteFile returned error: %v", err)
 	}
 

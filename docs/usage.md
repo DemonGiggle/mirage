@@ -252,33 +252,30 @@ Example:
 `mirage` supports:
 
 - built-in presets such as `offline`, `github`, and `openai`
-- local preset files merged with the built-ins
+- local YAML preset files merged with the built-ins
 
 Example preset file:
 
-```json
-{
-  "presets": [
-    {
-      "name": "team-openai",
-      "network": "isolated",
-      "allow_hosts": ["api.openai.com:443", "github.com:443"],
-      "rootfs": {
-        "template": "openclaw-developer",
-        "required_commands": ["node"],
-        "recommended_cwd": "/workspace"
-      },
-      "description": "Team preset for OpenAI-backed agent work"
-    }
-  ]
-}
+```yaml
+presets:
+  - name: team-openai
+    network: isolated
+    allow_hosts:
+      - api.openai.com:443
+      - github.com:443
+    rootfs:
+      template: openclaw-developer
+      required_commands:
+        - node
+      recommended_cwd: /workspace
+    description: Team preset for OpenAI-backed agent work
 ```
 
 Use it with:
 
 ```bash
-./bin/mirage preset list --preset-file ./presets.json
-./bin/mirage run --rootfs /srv/rootfs --preset-file ./presets.json --preset team-openai -- app
+./bin/mirage preset list --preset-file ./presets.yaml
+./bin/mirage run --rootfs /srv/rootfs --preset-file ./presets.yaml --preset team-openai -- app
 ```
 
 For the exact isolation behavior of each built-in preset, see
