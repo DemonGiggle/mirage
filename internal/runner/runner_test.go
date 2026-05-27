@@ -50,6 +50,24 @@ func TestIsAllowedAddress(t *testing.T) {
 	}
 }
 
+func TestIsAllowedAddressAllowsDNSWhenPortPolicyPresent(t *testing.T) {
+	policy := networkPolicy{AllowPorts: []int{443}}
+	if !isAllowedAddress("198.51.100.7:53", policy) {
+		t.Fatal("expected DNS connect to be allowed when arbitrary outbound ports are allowed")
+	}
+}
+
+func TestEnforceObservedPolicyIgnoresUnknownAndPortZero(t *testing.T) {
+	err := enforceObservedPolicy([]connectAttempt{
+		{Address: "unknown", Allowed: false},
+		{Address: "203.0.113.10:0", Allowed: false},
+		{Address: "[2001:db8::1]:0", Allowed: false},
+	})
+	if err != nil {
+		t.Fatalf("expected non-actionable observer records to be ignored, got %v", err)
+	}
+}
+
 func TestPersistWarnRecord(t *testing.T) {
 	stateDir := t.TempDir()
 	t.Setenv("MIRAGE_STATE_DIR", stateDir)
@@ -83,7 +101,11 @@ func TestResolveAllowHosts(t *testing.T) {
 }
 
 func TestResolveCommandBinaryMentionsRootfsWhenPathLookupFails(t *testing.T) {
-	_, err := resolveCommandBinary("definitely-missing-command", "/tmp/test-rootfs", buildSandboxEnv(nil, spec.RuntimeModeDirect))
+	sandboxEnv, err := buildSandboxEnv(nil, spec.RuntimeModeDirect, "/tmp/test-rootfs")
+	if err != nil {
+		t.Fatalf("buildSandboxEnv returned error: %v", err)
+	}
+	_, err = resolveCommandBinary("definitely-missing-command", "/tmp/test-rootfs", sandboxEnv)
 	if err == nil {
 		t.Fatal("expected missing command lookup to fail")
 	}
@@ -323,9 +345,18 @@ func TestHasEnvKey(t *testing.T) {
 func TestBuildSandboxEnvDoesNotInheritHostVariables(t *testing.T) {
 	t.Setenv("SECRET_TOKEN", "host-secret")
 
-	env := buildSandboxEnv([]string{"FOO=bar"}, spec.RuntimeModeDirect)
+	env, err := buildSandboxEnv([]string{"FOO=bar"}, spec.RuntimeModeDirect, "/sandbox-rootfs")
+	if err != nil {
+		t.Fatalf("buildSandboxEnv returned error: %v", err)
+	}
 	if !hasEnvKey(env, "PATH") {
 		t.Fatal("expected managed sandbox PATH to be present")
+	}
+	if got := envValue(env, "HOME", ""); got != defaultSandboxHome {
+		t.Fatalf("expected default HOME %q, got %q", defaultSandboxHome, got)
+	}
+	if got := envValue(env, "USER", ""); got != defaultSandboxUser {
+		t.Fatalf("expected default USER %q, got %q", defaultSandboxUser, got)
 	}
 	if hasEnvKey(env, "SECRET_TOKEN") {
 		t.Fatal("did not expect host-only variable to be inherited into sandbox env")
@@ -336,10 +367,19 @@ func TestBuildSandboxEnvDoesNotInheritHostVariables(t *testing.T) {
 }
 
 func TestBuildSandboxEnvSupportsPathOverrideAndInitContainer(t *testing.T) {
-	env := buildSandboxEnv([]string{"PATH=/custom/bin", "TERM=xterm-256color"}, spec.RuntimeModeInit)
+	env, err := buildSandboxEnv([]string{"PATH=/custom/bin", "HOME=/workspace", "USER=workspace-user", "TERM=xterm-256color"}, spec.RuntimeModeInit, "/sandbox-rootfs")
+	if err != nil {
+		t.Fatalf("buildSandboxEnv returned error: %v", err)
+	}
 
 	if got := envValue(env, "PATH", ""); got != "/custom/bin" {
 		t.Fatalf("expected PATH override to win, got %q", got)
+	}
+	if got := envValue(env, "HOME", ""); got != "/workspace" {
+		t.Fatalf("expected HOME override to win, got %q", got)
+	}
+	if got := envValue(env, "USER", ""); got != "workspace-user" {
+		t.Fatalf("expected USER override to win, got %q", got)
 	}
 	pathCount := 0
 	for _, item := range env {
@@ -365,7 +405,11 @@ func TestResolveCommandBinaryUsesSandboxPath(t *testing.T) {
 		t.Fatalf("write demo binary: %v", err)
 	}
 
-	resolved, err := resolveCommandBinary("demo", "/tmp/test-rootfs", buildSandboxEnv([]string{"PATH=" + dir}, spec.RuntimeModeDirect))
+	sandboxEnv, err := buildSandboxEnv([]string{"PATH=" + dir}, spec.RuntimeModeDirect, "/tmp/test-rootfs")
+	if err != nil {
+		t.Fatalf("buildSandboxEnv returned error: %v", err)
+	}
+	resolved, err := resolveCommandBinary("demo", "/tmp/test-rootfs", sandboxEnv)
 	if err != nil {
 		t.Fatalf("resolveCommandBinary returned error: %v", err)
 	}
@@ -411,10 +455,13 @@ printf '%s\n' "$1" > "$FAKE_STRACE_RECORD"
 	}
 
 	command := []string{"demo", "arg1"}
-	sandboxEnv := buildSandboxEnv([]string{
+	sandboxEnv, err := buildSandboxEnv([]string{
 		"PATH=" + sandboxBinDir,
 		"FAKE_STRACE_RECORD=" + recordPath,
-	}, spec.RuntimeModeDirect)
+	}, spec.RuntimeModeDirect, t.TempDir())
+	if err != nil {
+		t.Fatalf("buildSandboxEnv returned error: %v", err)
+	}
 	if err := runDirectCommand(command, networkPolicy{WarnNet: true}, t.TempDir(), sandboxEnv, io.Discard, io.Discard); err != nil {
 		t.Fatalf("runDirectCommand returned error: %v", err)
 	}
