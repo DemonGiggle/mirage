@@ -81,9 +81,7 @@ func TestResolveAllowHosts(t *testing.T) {
 }
 
 func TestResolveCommandBinaryMentionsRootfsWhenPathLookupFails(t *testing.T) {
-	t.Setenv("PATH", "/bin:/usr/bin")
-
-	_, err := resolveCommandBinary("definitely-missing-command", "/tmp/test-rootfs")
+	_, err := resolveCommandBinary("definitely-missing-command", "/tmp/test-rootfs", buildSandboxEnv(nil, spec.RuntimeModeDirect))
 	if err == nil {
 		t.Fatal("expected missing command lookup to fail")
 	}
@@ -91,7 +89,7 @@ func TestResolveCommandBinaryMentionsRootfsWhenPathLookupFails(t *testing.T) {
 	got := err.Error()
 	for _, needle := range []string{
 		`resolve command "definitely-missing-command" inside rootfs "/tmp/test-rootfs"`,
-		`using the current PATH`,
+		`using sandbox PATH`,
 		`install the executable in the rootfs, set PATH for the sandbox, or invoke it by absolute path inside the rootfs`,
 	} {
 		if !strings.Contains(got, needle) {
@@ -317,6 +315,60 @@ func TestHasEnvKey(t *testing.T) {
 	}
 	if hasEnvKey(items, "HOME") {
 		t.Fatal("did not expect missing env key to be reported present")
+	}
+}
+
+func TestBuildSandboxEnvDoesNotInheritHostVariables(t *testing.T) {
+	t.Setenv("SECRET_TOKEN", "host-secret")
+
+	env := buildSandboxEnv([]string{"FOO=bar"}, spec.RuntimeModeDirect)
+	if !hasEnvKey(env, "PATH") {
+		t.Fatal("expected managed sandbox PATH to be present")
+	}
+	if hasEnvKey(env, "SECRET_TOKEN") {
+		t.Fatal("did not expect host-only variable to be inherited into sandbox env")
+	}
+	if !hasEnvKey(env, "FOO") {
+		t.Fatal("expected explicit sandbox env variable to be present")
+	}
+}
+
+func TestBuildSandboxEnvSupportsPathOverrideAndInitContainer(t *testing.T) {
+	env := buildSandboxEnv([]string{"PATH=/custom/bin", "TERM=xterm-256color"}, spec.RuntimeModeInit)
+
+	if got := envValue(env, "PATH", ""); got != "/custom/bin" {
+		t.Fatalf("expected PATH override to win, got %q", got)
+	}
+	pathCount := 0
+	for _, item := range env {
+		if strings.HasPrefix(item, "PATH=") {
+			pathCount++
+		}
+	}
+	if pathCount != 1 {
+		t.Fatalf("expected a single PATH entry, got %d entries: %v", pathCount, env)
+	}
+	if !hasEnvKey(env, "container") {
+		t.Fatal("expected init mode to inject container=mirage")
+	}
+	if got := envValue(env, "TERM", ""); got != "xterm-256color" {
+		t.Fatalf("expected TERM to be preserved from explicit env, got %q", got)
+	}
+}
+
+func TestResolveCommandBinaryUsesSandboxPath(t *testing.T) {
+	dir := t.TempDir()
+	binary := filepath.Join(dir, "demo")
+	if err := os.WriteFile(binary, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write demo binary: %v", err)
+	}
+
+	resolved, err := resolveCommandBinary("demo", "/tmp/test-rootfs", buildSandboxEnv([]string{"PATH=" + dir}, spec.RuntimeModeDirect))
+	if err != nil {
+		t.Fatalf("resolveCommandBinary returned error: %v", err)
+	}
+	if resolved != binary {
+		t.Fatalf("expected resolved path %q, got %q", binary, resolved)
 	}
 }
 

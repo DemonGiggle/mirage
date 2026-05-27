@@ -115,6 +115,7 @@ Common options include:
 - `--runtime-mode`: `direct` (default) or `init`
 - `--ro-bind`: read-only `host:guest` bind mount
 - `--rw-bind`: read-write `host:guest` bind mount
+- `--env`: explicit sandbox environment variable in `KEY=VALUE` form
 - `--cwd`: working directory inside the sandbox
 - `--stdout-log` and `--stderr-log`: host-visible log export targets
 - `--memory` and `--pids`: delegated cgroup v2 limits
@@ -151,6 +152,11 @@ Init mode also manages a broader runtime mount contract for guest init systems:
 
 Because Mirage owns those runtime paths in init mode, user bind mounts cannot
 target them or their managed subpaths.
+
+Mirage does not inherit arbitrary host environment variables into the sandboxed
+workload. The managed sandbox environment starts from an explicit `PATH`, adds
+any `--env KEY=VALUE` entries you provide, and adds `container=mirage` for
+init-mode runs unless you override `container` yourself.
 
 ## Rootfs Workflows
 
