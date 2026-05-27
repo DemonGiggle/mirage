@@ -30,6 +30,8 @@ see [isolation.md](isolation.md).
 
 ## Phase 3
 
+- use [network-model-review.md](network-model-review.md) as the review baseline
+  for network-model refinement work
 - add network namespace modes
 - implement `none` and `host`
 - add a minimal `isolated` mode

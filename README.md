@@ -98,6 +98,8 @@ bind mounts, presets, and tracked sandbox commands, use the docs linked below.
   presets, and common run examples
 - [docs/isolation.md](docs/isolation.md): current isolation matrix, guarantees,
   and known caveats
+- [docs/network-model-review.md](docs/network-model-review.md): detailed review
+  of current network-model pain points and refinement questions
 - [docs/architecture.md](docs/architecture.md): control-plane and backend
   design, namespace setup, and run flow
 - [docs/development.md](docs/development.md): build, test, formatting, and repo

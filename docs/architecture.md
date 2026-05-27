@@ -180,7 +180,9 @@ The current network modes are intentionally small:
 
 The `isolated` implementation is currently observation-driven rather than a
 full routable firewall model. That is why the project still treats network
-architecture as incomplete rather than finished.
+architecture as incomplete rather than finished. For a more explicit review of
+where the current operator contract is still rough, see
+[network-model-review.md](network-model-review.md).
 
 ## Rootfs Direction
 

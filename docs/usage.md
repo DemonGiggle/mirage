@@ -324,5 +324,7 @@ output:
 - [applications.md](applications.md): application-oriented setup flows such as
   OpenClaw installation and launch
 - [isolation.md](isolation.md): exact current behavior and caveats
+- [network-model-review.md](network-model-review.md): current network-model
+  review, usability gaps, and refinement questions
 - [architecture.md](architecture.md): internal implementation model
 - [development.md](development.md): build, tests, and contributor workflow
