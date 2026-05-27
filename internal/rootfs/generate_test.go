@@ -200,6 +200,70 @@ func TestGenerateWithReportSkipsOptionalMissingAssets(t *testing.T) {
 	}
 }
 
+func TestGenerateWithReportSkipsOptionalMissingBinaryLookup(t *testing.T) {
+	outputRoot := filepath.Join(t.TempDir(), "rootfs")
+	report, err := GenerateWithReport(outputRoot, Template{
+		Version:     TemplateVersionV1,
+		Name:        "custom",
+		Description: "Custom template",
+		Binaries: []Binary{
+			{
+				LookupName:       "definitely-missing-binary",
+				TargetPath:       "/usr/bin/demo",
+				CopyDependencies: true,
+				Optional:         true,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("GenerateWithReport returned error: %v", err)
+	}
+	if len(report.MissingAssets) != 0 {
+		t.Fatalf("expected optional missing binary lookup to stay silent, got %v", report.MissingAssets)
+	}
+	if _, err := os.Stat(filepath.Join(outputRoot, "usr", "bin", "demo")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected optional missing binary to be skipped, stat err=%v", err)
+	}
+}
+
+func TestGenerateWithReportSkipsOptionalBinaryWithMissingDependencies(t *testing.T) {
+	hostPath, err := exec.LookPath("host")
+	if err != nil {
+		t.Skip("host PATH does not contain host")
+	}
+	lddReport, err := lddDependencyReport(hostPath)
+	if err != nil {
+		t.Skipf("host binary ldd inspection failed: %v", err)
+	}
+	if len(lddReport.missing) == 0 {
+		t.Skip("host binary does not have missing shared library dependencies")
+	}
+
+	outputRoot := filepath.Join(t.TempDir(), "rootfs")
+	report, err := GenerateWithReport(outputRoot, Template{
+		Version:     TemplateVersionV1,
+		Name:        "custom",
+		Description: "Custom template",
+		Binaries: []Binary{
+			{
+				HostPath:         hostPath,
+				TargetPath:       "/usr/bin/host",
+				CopyDependencies: true,
+				Optional:         true,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("GenerateWithReport returned error: %v", err)
+	}
+	if len(report.MissingAssets) != 0 {
+		t.Fatalf("expected optional binary with missing dependencies to stay silent, got %v", report.MissingAssets)
+	}
+	if _, err := os.Stat(filepath.Join(outputRoot, "usr", "bin", "host")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected optional binary with missing dependencies to be skipped, stat err=%v", err)
+	}
+}
+
 func TestGenerateCopiesNSSModulesReferencedByNSSwitch(t *testing.T) {
 	required := []string{"files", "dns"}
 	for _, module := range required {

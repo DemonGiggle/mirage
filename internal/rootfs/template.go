@@ -32,6 +32,7 @@ type Binary struct {
 	HostPath         string `json:"host_path,omitempty"`
 	LookupName       string `json:"lookup_name,omitempty"`
 	CopyDependencies bool   `json:"copy_dependencies,omitempty"`
+	Optional         bool   `json:"optional,omitempty"`
 }
 
 type RuntimeTree struct {
@@ -393,7 +394,7 @@ func openclawAdminTemplate() Template {
 		lookupBinary("ss", "/usr/bin/ss"),
 		lookupBinary("ping", "/bin/ping"),
 		lookupBinary("dig", "/usr/bin/dig"),
-		lookupBinary("host", "/usr/bin/host"),
+		optionalLookupBinary("host", "/usr/bin/host"),
 		lookupBinary("nslookup", "/usr/bin/nslookup"),
 		lookupBinary("lsof", "/usr/bin/lsof"),
 		lookupBinary("killall", "/usr/bin/killall"),
@@ -407,7 +408,7 @@ func openclawAdminTemplate() Template {
 		lookupBinary("getcap", "/usr/sbin/getcap"),
 		lookupBinary("setcap", "/usr/sbin/setcap"),
 		lookupBinary("iptables", "/usr/sbin/iptables"),
-		lookupBinary("nft", "/usr/sbin/nft"),
+		optionalLookupBinary("nft", "/usr/sbin/nft"),
 		lookupBinary("nc", "/usr/bin/nc"),
 		lookupBinary("rsync", "/usr/bin/rsync"),
 		lookupBinary("ssh", "/usr/bin/ssh"),
@@ -504,6 +505,12 @@ func lookupBinary(name string, targetPath string) Binary {
 		LookupName:       name,
 		CopyDependencies: true,
 	}
+}
+
+func optionalLookupBinary(name string, targetPath string) Binary {
+	binary := lookupBinary(name, targetPath)
+	binary.Optional = true
+	return binary
 }
 
 func runtimeFile(hostPath string, targetPath string) RuntimeFile {

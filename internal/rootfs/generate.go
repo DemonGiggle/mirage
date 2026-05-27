@@ -192,17 +192,87 @@ func (g *generator) writeGeneratedFile(generatedFile GeneratedFile) error {
 
 func (g *generator) copyTemplateBinary(binary Binary) error {
 	if binary.HostPath != "" {
+		if binary.Optional {
+			available, err := binaryCopyAvailable(binary.HostPath, binary.TargetPath, binary.CopyDependencies)
+			if err != nil {
+				return err
+			}
+			if !available {
+				return nil
+			}
+		}
 		return g.copyHostBinary(binary.HostPath, binary.TargetPath, binary.CopyDependencies)
 	}
 	source, err := exec.LookPath(binary.LookupName)
 	if err != nil {
 		if errors.Is(err, exec.ErrNotFound) {
+			if binary.Optional {
+				return nil
+			}
 			g.recordMissing(fmt.Sprintf("PATH lookup %q", binary.LookupName), binary.TargetPath, "template binary")
 			return nil
 		}
 		return fmt.Errorf("resolve binary %q on host PATH: %w", binary.LookupName, err)
 	}
+	if binary.Optional {
+		available, err := binaryCopyAvailable(source, binary.TargetPath, binary.CopyDependencies)
+		if err != nil {
+			return err
+		}
+		if !available {
+			return nil
+		}
+	}
 	return g.copyHostBinary(source, binary.TargetPath, binary.CopyDependencies)
+}
+
+func binaryCopyAvailable(sourcePath string, targetPath string, copyDependencies bool) (bool, error) {
+	linkInfo, err := os.Lstat(sourcePath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		return false, fmt.Errorf("lstat host file %q: %w", sourcePath, err)
+	}
+	if linkInfo.Mode()&os.ModeSymlink != 0 {
+		resolvedSource, err := filepath.EvalSymlinks(sourcePath)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return false, nil
+			}
+			return false, fmt.Errorf("resolve symlink %q: %w", sourcePath, err)
+		}
+		return binaryCopyAvailable(resolvedSource, translatedSymlinkTarget(targetPath, sourcePath), copyDependencies)
+	}
+
+	requests, missingAssets, err := shebangRequests(sourcePath)
+	if err != nil {
+		return false, err
+	}
+	if len(missingAssets) > 0 {
+		return false, nil
+	}
+	if len(requests) > 0 {
+		for _, request := range requests {
+			available, err := binaryCopyAvailable(request.hostPath, request.targetPath, true)
+			if err != nil {
+				return false, err
+			}
+			if !available {
+				return false, nil
+			}
+		}
+		return true, nil
+	}
+	if !copyDependencies {
+		return true, nil
+	}
+
+	lddReport, err := lddDependencyReport(sourcePath)
+	if err != nil {
+		return false, err
+	}
+	return len(lddReport.missing) == 0, nil
 }
 
 func (g *generator) copyHostBinary(sourcePath string, targetPath string, copyDependencies bool) error {
