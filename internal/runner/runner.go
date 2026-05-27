@@ -30,6 +30,8 @@ const (
 	openClawGatewayAddress = "127.0.0.1:18789"
 	openClawGatewayPort    = "18789"
 	defaultSandboxPath     = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+	defaultSandboxUser     = "mirage"
+	defaultSandboxHome     = "/home/" + defaultSandboxUser
 )
 
 func Execute(cfg spec.Config, stdout, stderr io.Writer) error {
@@ -258,7 +260,10 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	sandboxEnv := buildSandboxEnv(envItems, resolvedRuntimeMode)
+	sandboxEnv, err := buildSandboxEnv(envItems, resolvedRuntimeMode, rootfs)
+	if err != nil {
+		return err
+	}
 
 	if resolvedRuntimeMode == spec.RuntimeModeInit {
 		return runInitCommand(command, policy, rootfs, sandboxEnv)
@@ -529,6 +534,11 @@ func prepareRootfsMountLayout(rootfs string) error {
 	}
 	if err := ensureDir(filepath.Join(rootfs, "run"), 0o755); err != nil {
 		return fmt.Errorf("prepare run mountpoint: %w", err)
+	}
+	if rootfs != "/" {
+		if err := ensureDir(filepath.Join(rootfs, strings.TrimPrefix(defaultSandboxHome, "/")), 0o755); err != nil {
+			return fmt.Errorf("prepare sandbox home directory: %w", err)
+		}
 	}
 
 	if err := mountProc(filepath.Join(rootfs, "proc")); err != nil {
@@ -919,8 +929,17 @@ func hasEnvKey(items []string, key string) bool {
 	return false
 }
 
-func buildSandboxEnv(items []string, runtimeMode spec.RuntimeMode) []string {
-	env := []string{"PATH=" + defaultSandboxPath}
+func buildSandboxEnv(items []string, runtimeMode spec.RuntimeMode, rootfs string) ([]string, error) {
+	home, user, err := defaultSandboxIdentity(rootfs)
+	if err != nil {
+		return nil, err
+	}
+	env := []string{
+		"PATH=" + defaultSandboxPath,
+		"HOME=" + home,
+		"USER=" + user,
+		"LOGNAME=" + user,
+	}
 	for _, item := range items {
 		key, _, ok := strings.Cut(item, "=")
 		if !ok || key == "" {
@@ -931,7 +950,31 @@ func buildSandboxEnv(items []string, runtimeMode spec.RuntimeMode) []string {
 	if runtimeMode == spec.RuntimeModeInit && !hasEnvKey(env, "container") {
 		env = append(env, "container=mirage")
 	}
-	return env
+	return env, nil
+}
+
+func defaultSandboxIdentity(rootfs string) (home string, user string, err error) {
+	if rootfs != "" && rootfs != "/" {
+		return defaultSandboxHome, defaultSandboxUser, nil
+	}
+
+	home, err = os.UserHomeDir()
+	if err != nil {
+		return "", "", fmt.Errorf("resolve host sandbox home: %w", err)
+	}
+	home = strings.TrimSpace(home)
+	if home == "" {
+		return "", "", errors.New("resolve host sandbox home: empty home directory")
+	}
+
+	user = strings.TrimSpace(os.Getenv("USER"))
+	if user == "" {
+		user = filepath.Base(home)
+	}
+	if user == "." || user == string(os.PathSeparator) || strings.TrimSpace(user) == "" {
+		user = defaultSandboxUser
+	}
+	return home, user, nil
 }
 
 func envValue(items []string, key string, fallback string) string {
@@ -1197,6 +1240,9 @@ func isAllowedAddress(address string, policy networkPolicy) bool {
 	if err != nil {
 		return false
 	}
+	if port == 53 && len(policy.AllowPorts) > 0 {
+		return true
+	}
 	for _, allowed := range policy.ResolvedAllowHosts {
 		if allowed.Host == host && allowed.Port == port {
 			return true
@@ -1221,6 +1267,9 @@ func isAllowedAddress(address string, policy networkPolicy) bool {
 func enforceObservedPolicy(attempts []connectAttempt) error {
 	var disallowed []string
 	for _, attempt := range attempts {
+		if attempt.Address == "unknown" || strings.HasSuffix(attempt.Address, ":0") {
+			continue
+		}
 		if !attempt.Allowed {
 			disallowed = append(disallowed, attempt.Address)
 		}
