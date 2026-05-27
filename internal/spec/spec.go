@@ -1,10 +1,8 @@
 package spec
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -25,62 +23,20 @@ const (
 	RuntimeModeInit   RuntimeMode = "init"
 )
 
-var BuiltInPresets = map[string]Preset{
-	"offline": {
-		Name:        "offline",
-		NetworkMode: NetworkNone,
-		Description: "No network access.",
-	},
-	"github": {
-		Name:        "github",
-		NetworkMode: NetworkIsolated,
-		AllowHosts:  []string{"github.com:443"},
-		Description: "Allow GitHub over HTTPS.",
-	},
-	"openai": {
-		Name:        "openai",
-		NetworkMode: NetworkIsolated,
-		AllowHosts:  []string{"api.openai.com:443", "chatgpt.com:443"},
-		Description: "Allow the minimum expected OpenAI endpoints over HTTPS.",
-	},
-	"openclaw-offline": {
-		Name:        "openclaw-offline",
-		NetworkMode: NetworkNone,
-		Rootfs: RootfsExpectations{
-			RecommendedTemplate: "openclaw-developer",
-			RequiredCommands:    []string{"node"},
-			RecommendedCwd:      "/workspace",
-		},
-		Description: "OpenClaw-oriented offline preset for local-only agent work.",
-	},
-	"openclaw-openai": {
-		Name:        "openclaw-openai",
-		NetworkMode: NetworkIsolated,
-		AllowHosts:  []string{"127.0.0.1:18789"},
-		AllowPorts:  []string{"443"},
-		Rootfs: RootfsExpectations{
-			RecommendedTemplate: "openclaw-developer",
-			RequiredCommands:    []string{"node"},
-			RecommendedCwd:      "/workspace",
-		},
-		Description: "OpenClaw-oriented preset for HTTPS-capable agent work with the openclaw-developer rootfs template and the local gateway loopback port.",
-	},
-}
-
 type RootfsExpectations struct {
-	RecommendedTemplate string   `json:"template,omitempty"`
-	RequiredCommands    []string `json:"required_commands,omitempty"`
-	RecommendedCwd      string   `json:"recommended_cwd,omitempty"`
+	RecommendedTemplate string   `json:"template,omitempty" yaml:"template,omitempty"`
+	RequiredCommands    []string `json:"required_commands,omitempty" yaml:"required_commands,omitempty"`
+	RecommendedCwd      string   `json:"recommended_cwd,omitempty" yaml:"recommended_cwd,omitempty"`
 }
 
 type Preset struct {
-	Name        string             `json:"name"`
-	NetworkMode NetworkMode        `json:"network"`
-	AllowHosts  []string           `json:"allow_hosts"`
-	AllowCIDRs  []string           `json:"allow_cidrs"`
-	AllowPorts  []string           `json:"allow_ports"`
-	Rootfs      RootfsExpectations `json:"rootfs,omitempty"`
-	Description string             `json:"description"`
+	Name        string             `json:"name" yaml:"name"`
+	NetworkMode NetworkMode        `json:"network" yaml:"network"`
+	AllowHosts  []string           `json:"allow_hosts" yaml:"allow_hosts"`
+	AllowCIDRs  []string           `json:"allow_cidrs" yaml:"allow_cidrs"`
+	AllowPorts  []string           `json:"allow_ports" yaml:"allow_ports"`
+	Rootfs      RootfsExpectations `json:"rootfs,omitempty" yaml:"rootfs,omitempty"`
+	Description string             `json:"description" yaml:"description"`
 }
 
 type Config struct {
@@ -160,53 +116,6 @@ func AvailablePresets(presetFile string) (map[string]Preset, error) {
 		presets[name] = preset
 	}
 	return presets, nil
-}
-
-type presetFileDocument struct {
-	Presets []Preset `json:"presets"`
-}
-
-func LoadPresetFile(path string) (map[string]Preset, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("read preset file %q: %w", path, err)
-	}
-
-	var doc presetFileDocument
-	if err := json.Unmarshal(data, &doc); err != nil {
-		return nil, fmt.Errorf("parse preset file %q: %w", path, err)
-	}
-	if len(doc.Presets) == 0 {
-		return nil, fmt.Errorf("preset file %q does not define any presets", path)
-	}
-
-	out := make(map[string]Preset, len(doc.Presets))
-	for _, preset := range doc.Presets {
-		if preset.Name == "" {
-			return nil, fmt.Errorf("preset file %q contains a preset without a name", path)
-		}
-		if _, exists := out[preset.Name]; exists {
-			return nil, fmt.Errorf("preset file %q defines duplicate preset %q", path, preset.Name)
-		}
-		switch preset.NetworkMode {
-		case NetworkNone, NetworkIsolated, NetworkHost:
-		default:
-			return nil, fmt.Errorf("preset file %q preset %q has invalid network mode %q", path, preset.Name, preset.NetworkMode)
-		}
-		preset.Rootfs.RecommendedTemplate = strings.TrimSpace(preset.Rootfs.RecommendedTemplate)
-		preset.Rootfs.RecommendedCwd = strings.TrimSpace(preset.Rootfs.RecommendedCwd)
-		if preset.Rootfs.RecommendedCwd != "" && !filepath.IsAbs(preset.Rootfs.RecommendedCwd) {
-			return nil, fmt.Errorf("preset file %q preset %q has invalid recommended rootfs cwd %q", path, preset.Name, preset.Rootfs.RecommendedCwd)
-		}
-		preset.Rootfs.RequiredCommands = normalizeCommands(preset.Rootfs.RequiredCommands)
-		for _, command := range preset.Rootfs.RequiredCommands {
-			if command == "" {
-				return nil, fmt.Errorf("preset file %q preset %q has an empty required rootfs command", path, preset.Name)
-			}
-		}
-		out[preset.Name] = preset
-	}
-	return out, nil
 }
 
 func normalizeCommands(commands []string) []string {

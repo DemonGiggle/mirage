@@ -96,7 +96,7 @@ func runSandboxStart(args []string, stdout, stderr io.Writer) error {
 	fs.Var(stringSliceValue{target: &cfg.Env}, "env", "Environment variable in KEY=VALUE form")
 	fs.StringVar((*string)(&cfg.NetworkMode), "net", string(spec.NetworkHost), "Network mode: none, host")
 	fs.StringVar(&cfg.Preset, "preset", "", "Named preset to apply before inline overrides")
-	fs.StringVar(&cfg.PresetFile, "preset-file", "", "Path to a local preset JSON file")
+	fs.StringVar(&cfg.PresetFile, "preset-file", "", "Path to a local preset YAML file")
 	fs.StringVar(&warnCSV, "warn", "", "Warn modes, currently supports: net")
 	fs.StringVar(&cfg.StdoutLog, "stdout-log", "", "Write guest init stdout to a host-side log file")
 	fs.StringVar(&cfg.StderrLog, "stderr-log", "", "Write guest init stderr to a host-side log file")
