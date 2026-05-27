@@ -147,8 +147,7 @@ Using separate rule types lets Mirage reject directional misuse structurally:
 Selectors use one narrow object shape:
 
 ```yaml
-selector:
-  ip: 203.0.113.10
+ip: 203.0.113.10
 ```
 
 Valid selector keys:
@@ -195,7 +194,7 @@ Valid values:
 - optional
 - list of integer ports
 - each port must be between `1` and `65535`
-- duplicate ports should be rejected or normalized away consistently
+- duplicate ports must be rejected
 - port ranges are out of scope for v1
 
 ## Validation rules
