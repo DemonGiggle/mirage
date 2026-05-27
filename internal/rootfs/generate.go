@@ -282,9 +282,6 @@ func (g *generator) binaryCopyAvailableWithVisited(sourcePath string, targetPath
 			return false, fmt.Errorf("resolve symlink %q: %w", sourcePath, err)
 		}
 		nextTarget := translatedSymlinkTarget(targetPath, sourcePath)
-		if nextTarget == targetPath {
-			return g.binaryCopyAvailableWithVisited(resolvedSource, targetPath, copyDependencies, visited)
-		}
 		return g.binaryCopyAvailableWithVisited(resolvedSource, nextTarget, copyDependencies, visited)
 	}
 
