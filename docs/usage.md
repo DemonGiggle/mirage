@@ -42,6 +42,16 @@ Generate a runnable rootfs from a built-in template:
 ./bin/mirage rootfs init --template basic --output /srv/mirage/basic-rootfs
 ```
 
+Reuse an existing non-empty rootfs output path only when you explicitly want
+Mirage to overwrite generated files:
+
+```bash
+./bin/mirage rootfs init \
+  --template basic \
+  --output /srv/mirage/basic-rootfs \
+  --allow-overwrite
+```
+
 Validate a rootfs before running inside it:
 
 ```bash

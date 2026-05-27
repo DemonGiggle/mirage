@@ -24,6 +24,16 @@ Generate a runnable rootfs from a built-in template:
 ./bin/mirage rootfs init --template basic --output /srv/mirage/basic-rootfs
 ```
 
+If you intentionally want to reuse an existing non-empty output directory,
+opt in explicitly:
+
+```bash
+./bin/mirage rootfs init \
+  --template basic \
+  --output /srv/mirage/basic-rootfs \
+  --allow-overwrite
+```
+
 Validate a command inside that rootfs before launching a full workload:
 
 ```bash
@@ -69,6 +79,10 @@ Every built-in template currently prepares the same baseline runtime layout:
 
 Mirage reports missing **non-optional** host assets as warnings and still writes
 the rest of the rootfs. Optional host assets are skipped silently.
+
+By default, `rootfs init` still rejects a non-empty output directory. Use
+`--allow-overwrite` only when you explicitly want Mirage to reuse an existing
+rootfs path and replace generated files in place.
 
 ### Schema shape
 
