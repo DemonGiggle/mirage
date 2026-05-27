@@ -281,7 +281,8 @@ func (g *generator) binaryCopyAvailableWithVisited(sourcePath string, targetPath
 			}
 			return false, fmt.Errorf("resolve symlink %q: %w", sourcePath, err)
 		}
-		return g.binaryCopyAvailableWithVisited(resolvedSource, translatedSymlinkTarget(targetPath, sourcePath), copyDependencies, visited)
+		nextTarget := translatedSymlinkTarget(targetPath, sourcePath)
+		return g.binaryCopyAvailableWithVisited(resolvedSource, nextTarget, copyDependencies, visited)
 	}
 
 	requests, missingAssets, err := g.cachedShebangRequests(sourcePath)
@@ -334,18 +335,22 @@ func (g *generator) copyHostBinaryWithVisited(sourcePath string, targetPath stri
 		return fmt.Errorf("lstat host file %q: %w", sourcePath, err)
 	}
 	if linkInfo.Mode()&os.ModeSymlink != 0 {
-		if err := g.copyHostSymlink(sourcePath, targetPath); err != nil {
-			return err
-		}
+		nextTarget := translatedSymlinkTarget(targetPath, sourcePath)
 		resolvedSource, err := filepath.EvalSymlinks(sourcePath)
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
-				g.recordMissing(fmt.Sprintf("symlink target of %q", sourcePath), translatedSymlinkTarget(targetPath, sourcePath), "binary")
+				g.recordMissing(fmt.Sprintf("symlink target of %q", sourcePath), nextTarget, "binary")
 				return nil
 			}
 			return fmt.Errorf("resolve symlink %q: %w", sourcePath, err)
 		}
-		return g.copyHostBinaryWithVisited(resolvedSource, translatedSymlinkTarget(targetPath, sourcePath), copyDependencies, visited)
+		if nextTarget == targetPath {
+			return g.copyHostBinaryWithVisited(resolvedSource, targetPath, copyDependencies, visited)
+		}
+		if err := g.copyHostSymlink(sourcePath, targetPath); err != nil {
+			return err
+		}
+		return g.copyHostBinaryWithVisited(resolvedSource, nextTarget, copyDependencies, visited)
 	}
 
 	if err := g.copyHostFile(sourcePath, targetPath, false); err != nil {
