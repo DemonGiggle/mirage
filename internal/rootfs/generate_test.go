@@ -200,6 +200,110 @@ func TestGenerateWithReportSkipsOptionalMissingAssets(t *testing.T) {
 	}
 }
 
+func TestGenerateWithReportSkipsOptionalMissingBinaryLookup(t *testing.T) {
+	outputRoot := filepath.Join(t.TempDir(), "rootfs")
+	report, err := GenerateWithReport(outputRoot, Template{
+		Version:     TemplateVersionV1,
+		Name:        "custom",
+		Description: "Custom template",
+		Binaries: []Binary{
+			{
+				LookupName:       "definitely-missing-binary",
+				TargetPath:       "/usr/bin/demo",
+				CopyDependencies: true,
+				Optional:         true,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("GenerateWithReport returned error: %v", err)
+	}
+	if len(report.MissingAssets) != 0 {
+		t.Fatalf("expected optional missing binary lookup to stay silent, got %v", report.MissingAssets)
+	}
+	if _, err := os.Stat(filepath.Join(outputRoot, "usr", "bin", "demo")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected optional missing binary to be skipped, stat err=%v", err)
+	}
+}
+
+func TestGenerateWithReportSkipsOptionalBinaryWithMissingDependencies(t *testing.T) {
+	hostPath, err := exec.LookPath("host")
+	if err != nil {
+		t.Skip("host PATH does not contain host")
+	}
+	lddReport, err := lddDependencyReport(hostPath)
+	if err != nil {
+		t.Skipf("host binary ldd inspection failed: %v", err)
+	}
+	if len(lddReport.missing) == 0 {
+		t.Skip("host binary does not have missing shared library dependencies")
+	}
+
+	outputRoot := filepath.Join(t.TempDir(), "rootfs")
+	report, err := GenerateWithReport(outputRoot, Template{
+		Version:     TemplateVersionV1,
+		Name:        "custom",
+		Description: "Custom template",
+		Binaries: []Binary{
+			{
+				HostPath:         hostPath,
+				TargetPath:       "/usr/bin/host",
+				CopyDependencies: true,
+				Optional:         true,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("GenerateWithReport returned error: %v", err)
+	}
+	if len(report.MissingAssets) != 0 {
+		t.Fatalf("expected optional binary with missing dependencies to stay silent, got %v", report.MissingAssets)
+	}
+	if _, err := os.Stat(filepath.Join(outputRoot, "usr", "bin", "host")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected optional binary with missing dependencies to be skipped, stat err=%v", err)
+	}
+}
+
+func TestBinaryCopyAvailableSkipsCircularShebangs(t *testing.T) {
+	scriptPath := filepath.Join(t.TempDir(), "loop")
+	if err := os.WriteFile(scriptPath, []byte("#!"+scriptPath+"\n"), 0o755); err != nil {
+		t.Fatalf("write script fixture: %v", err)
+	}
+
+	g := generator{}
+	available, err := g.binaryCopyAvailable(scriptPath, "/usr/bin/loop", true)
+	if err != nil {
+		t.Fatalf("binaryCopyAvailable returned error: %v", err)
+	}
+	if available {
+		t.Fatal("expected circular shebang script to be unavailable")
+	}
+}
+
+func TestCopyHostBinaryRejectsCircularShebangs(t *testing.T) {
+	scriptPath := filepath.Join(t.TempDir(), "loop")
+	if err := os.WriteFile(scriptPath, []byte("#!"+scriptPath+"\n"), 0o755); err != nil {
+		t.Fatalf("write script fixture: %v", err)
+	}
+
+	g := generator{
+		outputRoot:      filepath.Join(t.TempDir(), "rootfs"),
+		copiedTargets:   make(map[string]struct{}),
+		copiedTrees:     make(map[string]struct{}),
+		missingReported: make(map[string]struct{}),
+		shebangCache:    make(map[string]shebangCacheEntry),
+		lddCache:        make(map[string]lddCacheEntry),
+	}
+	if err := os.MkdirAll(g.outputRoot, 0o755); err != nil {
+		t.Fatalf("create output root: %v", err)
+	}
+
+	err := g.copyHostBinary(scriptPath, "/usr/bin/loop", true)
+	if err == nil || !strings.Contains(err.Error(), "circular shebang dependency") {
+		t.Fatalf("expected circular shebang error, got %v", err)
+	}
+}
+
 func TestGenerateCopiesNSSModulesReferencedByNSSwitch(t *testing.T) {
 	required := []string{"files", "dns"}
 	for _, module := range required {
