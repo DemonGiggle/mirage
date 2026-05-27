@@ -277,7 +277,12 @@ func runDirectCommand(command []string, policy networkPolicy, rootfs string, san
 	}
 	if shouldObserveNetwork(policy) {
 		if err := EnsureObservedNetworkToolAvailable(); err == nil {
-			return runObservedCommand(command, policy, sandboxEnv, stdout, stderr)
+			binary, err := resolveCommandBinary(command[0], rootfs, sandboxEnv)
+			if err != nil {
+				return err
+			}
+			execCommand := append([]string{binary}, command[1:]...)
+			return runObservedCommand(execCommand, command, policy, sandboxEnv, stdout, stderr)
 		}
 	}
 
@@ -1064,7 +1069,7 @@ func canReachLoopbackAddress(address string) bool {
 	return true
 }
 
-func runObservedCommand(command []string, policy networkPolicy, sandboxEnv []string, stdout, stderr io.Writer) error {
+func runObservedCommand(execCommand []string, recordCommand []string, policy networkPolicy, sandboxEnv []string, stdout, stderr io.Writer) error {
 	if err := EnsureObservedNetworkToolAvailable(); err != nil {
 		return err
 	}
@@ -1078,7 +1083,7 @@ func runObservedCommand(command []string, policy networkPolicy, sandboxEnv []str
 	defer os.Remove(tracePath)
 
 	straceArgs := []string{"-f", "-e", "trace=connect", "-s", "0", "-o", tracePath, "--"}
-	straceArgs = append(straceArgs, command...)
+	straceArgs = append(straceArgs, execCommand...)
 	cmd := exec.Command("strace", straceArgs...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = stdout
@@ -1092,7 +1097,7 @@ func runObservedCommand(command []string, policy networkPolicy, sandboxEnv []str
 		return parseErr
 	}
 	if policy.WarnNet {
-		if err := persistWarnRecord(policy, command, attempts); err != nil {
+		if err := persistWarnRecord(policy, recordCommand, attempts); err != nil {
 			return err
 		}
 	}

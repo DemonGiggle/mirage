@@ -1,6 +1,8 @@
 package runner
 
 import (
+	"encoding/json"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -369,6 +371,80 @@ func TestResolveCommandBinaryUsesSandboxPath(t *testing.T) {
 	}
 	if resolved != binary {
 		t.Fatalf("expected resolved path %q, got %q", binary, resolved)
+	}
+}
+
+func TestRunDirectCommandObservedNetworkResolvesExecutableAndPreservesWarnRecordCommand(t *testing.T) {
+	hostToolDir := t.TempDir()
+	recordPath := filepath.Join(t.TempDir(), "strace-command.txt")
+	warnStateDir := t.TempDir()
+	stracePath := filepath.Join(hostToolDir, "strace")
+	straceScript := `#!/bin/sh
+trace_path=""
+while [ "$#" -gt 0 ]; do
+	if [ "$1" = "-o" ]; then
+		trace_path="$2"
+		shift 2
+		continue
+	fi
+	if [ "$1" = "--" ]; then
+		shift
+		break
+	fi
+	shift
+done
+: > "$trace_path"
+printf '%s\n' "$1" > "$FAKE_STRACE_RECORD"
+`
+	if err := os.WriteFile(stracePath, []byte(straceScript), 0o755); err != nil {
+		t.Fatalf("write fake strace: %v", err)
+	}
+
+	originalPath := os.Getenv("PATH")
+	t.Setenv("PATH", hostToolDir+string(os.PathListSeparator)+originalPath)
+	t.Setenv("MIRAGE_STATE_DIR", warnStateDir)
+
+	sandboxBinDir := t.TempDir()
+	targetBinary := filepath.Join(sandboxBinDir, "demo")
+	if err := os.WriteFile(targetBinary, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write sandbox executable: %v", err)
+	}
+
+	command := []string{"demo", "arg1"}
+	sandboxEnv := buildSandboxEnv([]string{
+		"PATH=" + sandboxBinDir,
+		"FAKE_STRACE_RECORD=" + recordPath,
+	}, spec.RuntimeModeDirect)
+	if err := runDirectCommand(command, networkPolicy{WarnNet: true}, t.TempDir(), sandboxEnv, io.Discard, io.Discard); err != nil {
+		t.Fatalf("runDirectCommand returned error: %v", err)
+	}
+
+	recordedExecPath, err := os.ReadFile(recordPath)
+	if err != nil {
+		t.Fatalf("read fake strace record: %v", err)
+	}
+	if got := strings.TrimSpace(string(recordedExecPath)); got != targetBinary {
+		t.Fatalf("expected observed exec path %q, got %q", targetBinary, got)
+	}
+
+	entries, err := os.ReadDir(filepath.Join(warnStateDir, "warn"))
+	if err != nil {
+		t.Fatalf("read warn directory: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 warn record, got %d", len(entries))
+	}
+
+	payload, err := os.ReadFile(filepath.Join(warnStateDir, "warn", entries[0].Name()))
+	if err != nil {
+		t.Fatalf("read warn record: %v", err)
+	}
+	var record warnRecord
+	if err := json.Unmarshal(payload, &record); err != nil {
+		t.Fatalf("unmarshal warn record: %v", err)
+	}
+	if got := strings.Join(record.Command, " "); got != "demo arg1" {
+		t.Fatalf("expected warn record command to preserve original argv, got %q", got)
 	}
 }
 
