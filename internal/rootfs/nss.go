@@ -51,6 +51,8 @@ func EnsureNSSRuntimeWithReport(rootfsPath string) (GenerateReport, error) {
 		copiedTargets:   make(map[string]struct{}),
 		copiedTrees:     make(map[string]struct{}),
 		missingReported: make(map[string]struct{}),
+		shebangCache:    make(map[string]shebangCacheEntry),
+		lddCache:        make(map[string]lddCacheEntry),
 	}
 	for _, module := range modules {
 		report, err := resolveNSSModuleSupportPathsReport(module)

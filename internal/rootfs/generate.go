@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -66,6 +67,8 @@ func GenerateWithReport(outputRoot string, template Template) (GenerateReport, e
 		copiedTargets:   make(map[string]struct{}),
 		copiedTrees:     make(map[string]struct{}),
 		missingReported: make(map[string]struct{}),
+		shebangCache:    make(map[string]shebangCacheEntry),
+		lddCache:        make(map[string]lddCacheEntry),
 	}
 	for _, dir := range template.Directories {
 		if err := generator.ensureDirectory(dir); err != nil {
@@ -106,6 +109,8 @@ type generator struct {
 	copiedTargets   map[string]struct{}
 	copiedTrees     map[string]struct{}
 	missingReported map[string]struct{}
+	shebangCache    map[string]shebangCacheEntry
+	lddCache        map[string]lddCacheEntry
 }
 
 func prepareOutputRoot(root string) error {
@@ -193,7 +198,7 @@ func (g *generator) writeGeneratedFile(generatedFile GeneratedFile) error {
 func (g *generator) copyTemplateBinary(binary Binary) error {
 	if binary.HostPath != "" {
 		if binary.Optional {
-			available, err := binaryCopyAvailable(binary.HostPath, binary.TargetPath, binary.CopyDependencies)
+			available, err := g.binaryCopyAvailable(binary.HostPath, binary.TargetPath, binary.CopyDependencies)
 			if err != nil {
 				return err
 			}
@@ -215,7 +220,7 @@ func (g *generator) copyTemplateBinary(binary Binary) error {
 		return fmt.Errorf("resolve binary %q on host PATH: %w", binary.LookupName, err)
 	}
 	if binary.Optional {
-		available, err := binaryCopyAvailable(source, binary.TargetPath, binary.CopyDependencies)
+		available, err := g.binaryCopyAvailable(source, binary.TargetPath, binary.CopyDependencies)
 		if err != nil {
 			return err
 		}
@@ -226,7 +231,17 @@ func (g *generator) copyTemplateBinary(binary Binary) error {
 	return g.copyHostBinary(source, binary.TargetPath, binary.CopyDependencies)
 }
 
-func binaryCopyAvailable(sourcePath string, targetPath string, copyDependencies bool) (bool, error) {
+func (g *generator) binaryCopyAvailable(sourcePath string, targetPath string, copyDependencies bool) (bool, error) {
+	return g.binaryCopyAvailableWithVisited(sourcePath, targetPath, copyDependencies, make(map[string]struct{}))
+}
+
+func (g *generator) binaryCopyAvailableWithVisited(sourcePath string, targetPath string, copyDependencies bool, visited map[string]struct{}) (bool, error) {
+	if _, seen := visited[sourcePath]; seen {
+		return false, nil
+	}
+	visited[sourcePath] = struct{}{}
+	defer delete(visited, sourcePath)
+
 	linkInfo, err := os.Lstat(sourcePath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -242,10 +257,10 @@ func binaryCopyAvailable(sourcePath string, targetPath string, copyDependencies 
 			}
 			return false, fmt.Errorf("resolve symlink %q: %w", sourcePath, err)
 		}
-		return binaryCopyAvailable(resolvedSource, translatedSymlinkTarget(targetPath, sourcePath), copyDependencies)
+		return g.binaryCopyAvailableWithVisited(resolvedSource, translatedSymlinkTarget(targetPath, sourcePath), copyDependencies, visited)
 	}
 
-	requests, missingAssets, err := shebangRequests(sourcePath)
+	requests, missingAssets, err := g.cachedShebangRequests(sourcePath)
 	if err != nil {
 		return false, err
 	}
@@ -254,7 +269,7 @@ func binaryCopyAvailable(sourcePath string, targetPath string, copyDependencies 
 	}
 	if len(requests) > 0 {
 		for _, request := range requests {
-			available, err := binaryCopyAvailable(request.hostPath, request.targetPath, true)
+			available, err := g.binaryCopyAvailableWithVisited(request.hostPath, request.targetPath, true, visited)
 			if err != nil {
 				return false, err
 			}
@@ -268,7 +283,7 @@ func binaryCopyAvailable(sourcePath string, targetPath string, copyDependencies 
 		return true, nil
 	}
 
-	lddReport, err := lddDependencyReport(sourcePath)
+	lddReport, err := g.cachedLDDDependencyReport(sourcePath)
 	if err != nil {
 		return false, err
 	}
@@ -276,6 +291,16 @@ func binaryCopyAvailable(sourcePath string, targetPath string, copyDependencies 
 }
 
 func (g *generator) copyHostBinary(sourcePath string, targetPath string, copyDependencies bool) error {
+	return g.copyHostBinaryWithVisited(sourcePath, targetPath, copyDependencies, make(map[string]struct{}))
+}
+
+func (g *generator) copyHostBinaryWithVisited(sourcePath string, targetPath string, copyDependencies bool, visited map[string]struct{}) error {
+	if _, seen := visited[sourcePath]; seen {
+		return fmt.Errorf("circular shebang dependency involving %q", sourcePath)
+	}
+	visited[sourcePath] = struct{}{}
+	defer delete(visited, sourcePath)
+
 	linkInfo, err := os.Lstat(sourcePath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -296,14 +321,14 @@ func (g *generator) copyHostBinary(sourcePath string, targetPath string, copyDep
 			}
 			return fmt.Errorf("resolve symlink %q: %w", sourcePath, err)
 		}
-		return g.copyHostBinary(resolvedSource, translatedSymlinkTarget(targetPath, sourcePath), copyDependencies)
+		return g.copyHostBinaryWithVisited(resolvedSource, translatedSymlinkTarget(targetPath, sourcePath), copyDependencies, visited)
 	}
 
 	if err := g.copyHostFile(sourcePath, targetPath, false); err != nil {
 		return err
 	}
 
-	requests, missingAssets, err := shebangRequests(sourcePath)
+	requests, missingAssets, err := g.cachedShebangRequests(sourcePath)
 	if err != nil {
 		return err
 	}
@@ -312,7 +337,7 @@ func (g *generator) copyHostBinary(sourcePath string, targetPath string, copyDep
 	}
 	if len(requests) > 0 {
 		for _, request := range requests {
-			if err := g.copyHostBinary(request.hostPath, request.targetPath, true); err != nil {
+			if err := g.copyHostBinaryWithVisited(request.hostPath, request.targetPath, true, visited); err != nil {
 				return err
 			}
 		}
@@ -325,7 +350,7 @@ func (g *generator) copyHostBinary(sourcePath string, targetPath string, copyDep
 		return nil
 	}
 
-	lddReport, err := lddDependencyReport(sourcePath)
+	lddReport, err := g.cachedLDDDependencyReport(sourcePath)
 	if err != nil {
 		return err
 	}
@@ -338,6 +363,45 @@ func (g *generator) copyHostBinary(sourcePath string, targetPath string, copyDep
 		}
 	}
 	return nil
+}
+
+type shebangCacheEntry struct {
+	requests      []copyRequest
+	missingAssets []MissingAsset
+	err           error
+}
+
+func (g *generator) cachedShebangRequests(path string) ([]copyRequest, []MissingAsset, error) {
+	if g.shebangCache == nil {
+		g.shebangCache = make(map[string]shebangCacheEntry)
+	}
+	if entry, ok := g.shebangCache[path]; ok {
+		return slices.Clone(entry.requests), slices.Clone(entry.missingAssets), entry.err
+	}
+	requests, missingAssets, err := shebangRequests(path)
+	g.shebangCache[path] = shebangCacheEntry{
+		requests:      slices.Clone(requests),
+		missingAssets: slices.Clone(missingAssets),
+		err:           err,
+	}
+	return requests, missingAssets, err
+}
+
+type lddCacheEntry struct {
+	report lddReport
+	err    error
+}
+
+func (g *generator) cachedLDDDependencyReport(path string) (lddReport, error) {
+	if g.lddCache == nil {
+		g.lddCache = make(map[string]lddCacheEntry)
+	}
+	if entry, ok := g.lddCache[path]; ok {
+		return entry.report, entry.err
+	}
+	report, err := lddDependencyReport(path)
+	g.lddCache[path] = lddCacheEntry{report: report, err: err}
+	return report, err
 }
 
 func (g *generator) copyHostBinaryIfMissing(sourcePath string, targetPath string, copyDependencies bool) error {
