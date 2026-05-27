@@ -47,7 +47,7 @@ var BuiltInPresets = map[string]Preset{
 		Name:        "openclaw-offline",
 		NetworkMode: NetworkNone,
 		Rootfs: RootfsExpectations{
-			RecommendedTemplate: "openclaw",
+			RecommendedTemplate: "openclaw-developer",
 			RequiredCommands:    []string{"node"},
 			RecommendedCwd:      "/workspace",
 		},
@@ -59,11 +59,11 @@ var BuiltInPresets = map[string]Preset{
 		AllowHosts:  []string{"127.0.0.1:18789"},
 		AllowPorts:  []string{"443"},
 		Rootfs: RootfsExpectations{
-			RecommendedTemplate: "openclaw",
+			RecommendedTemplate: "openclaw-developer",
 			RequiredCommands:    []string{"node"},
 			RecommendedCwd:      "/workspace",
 		},
-		Description: "OpenClaw-oriented preset for HTTPS-capable agent work with the openclaw rootfs template and the local gateway loopback port.",
+		Description: "OpenClaw-oriented preset for HTTPS-capable agent work with the openclaw-developer rootfs template and the local gateway loopback port.",
 	},
 }
 

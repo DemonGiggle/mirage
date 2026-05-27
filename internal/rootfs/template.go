@@ -57,13 +57,11 @@ var BuiltInTemplates = map[string]Template{
 	"basic":              basicTemplate(),
 	"node":               nodeTemplate(),
 	"python":             pythonTemplate(),
-	"openclaw":           openclawTemplate(),
 	"openclaw-chat-only": openclawChatOnlyTemplate(),
 	"openclaw-work":      openclawWorkTemplate(),
 	"openclaw-developer": openclawDeveloperTemplate(),
 	"openclaw-admin":     openclawAdminTemplate(),
 	"openclaw-root":      openclawRootTemplate(),
-	"openclaw-systemd":   openclawSystemdTemplate(),
 }
 
 func TemplateNames() []string {
@@ -235,21 +233,6 @@ func pythonTemplate() Template {
 		optionalRuntimeFile("/etc/ssl/certs/ca-certificates.crt", "/etc/ssl/certs/ca-certificates.crt"),
 		optionalRuntimeFile("/etc/ssl/cert.pem", "/etc/ssl/cert.pem"),
 		optionalRuntimeFile("/etc/pki/tls/certs/ca-bundle.crt", "/etc/pki/tls/certs/ca-bundle.crt"),
-	)
-	return template
-}
-
-func openclawTemplate() Template {
-	template := nodeTemplate()
-	template.Name = "openclaw"
-	template.Description = "OpenClaw-oriented compatibility template with Node.js, Git, Bash, and a writable workspace."
-	template.Directories = appendUniqueDirectories(template.Directories,
-		directory("/workspace", 0o755),
-		directory("/home", 0o755),
-	)
-	template.Binaries = appendUniqueBinaries(template.Binaries,
-		lookupBinary("bash", "/bin/bash"),
-		lookupBinary("git", "/usr/bin/git"),
 	)
 	return template
 }
@@ -444,36 +427,6 @@ func openclawRootTemplate() Template {
 	return template
 }
 
-func openclawSystemdTemplate() Template {
-	template := openclawTemplate()
-	template.Name = "openclaw-systemd"
-	template.Description = "OpenClaw-oriented rootfs template with guest systemd tooling and systemd-ready directories."
-	template.Directories = appendUniqueDirectories(template.Directories,
-		directory("/dev", 0o755),
-		directory("/sys", 0o755),
-		directory("/sys/fs/cgroup", 0o755),
-		directory("/etc/systemd/system", 0o755),
-		directory("/usr/lib/systemd/system", 0o755),
-		directory("/var/lib/systemd", 0o755),
-		directory("/var/log/journal", 0o755),
-	)
-	template.Binaries = appendUniqueBinaries(template.Binaries,
-		lookupBinary("systemd", "/usr/bin/systemd"),
-		lookupBinary("systemctl", "/usr/bin/systemctl"),
-		lookupBinary("journalctl", "/usr/bin/journalctl"),
-		lookupBinary("systemd-tmpfiles", "/usr/bin/systemd-tmpfiles"),
-	)
-	template.RuntimeFiles = appendUniqueRuntimeFiles(template.RuntimeFiles,
-		runtimeFile("/etc/passwd", "/etc/passwd"),
-		runtimeFile("/etc/group", "/etc/group"),
-		optionalRuntimeFile("/etc/os-release", "/etc/os-release"),
-	)
-	template.GeneratedFiles = appendUniqueGeneratedFiles(template.GeneratedFiles,
-		generatedFile("/etc/machine-id", "", 0o644),
-	)
-	return template
-}
-
 var commonRuntimeDirectories = []Directory{
 	directory("/proc", 0o755),
 	directory("/tmp", 0o1777),
@@ -520,13 +473,6 @@ func runtimeFile(hostPath string, targetPath string) RuntimeFile {
 	}
 }
 
-func runtimeTree(hostPath string, targetPath string) RuntimeTree {
-	return RuntimeTree{
-		HostPath:   hostPath,
-		TargetPath: targetPath,
-	}
-}
-
 func optionalRuntimeTree(hostPath string, targetPath string) RuntimeTree {
 	return RuntimeTree{
 		HostPath:   hostPath,
@@ -540,14 +486,6 @@ func optionalRuntimeFile(hostPath string, targetPath string) RuntimeFile {
 		HostPath:   hostPath,
 		TargetPath: targetPath,
 		Optional:   true,
-	}
-}
-
-func generatedFile(targetPath string, content string, mode uint32) GeneratedFile {
-	return GeneratedFile{
-		TargetPath: targetPath,
-		Content:    content,
-		Mode:       mode,
 	}
 }
 
@@ -595,18 +533,6 @@ func appendUniqueRuntimeFiles(existing []RuntimeFile, extra ...RuntimeFile) []Ru
 			continue
 		}
 		existing = append(existing, runtimeFile)
-	}
-	return existing
-}
-
-func appendUniqueGeneratedFiles(existing []GeneratedFile, extra ...GeneratedFile) []GeneratedFile {
-	for _, generatedFile := range extra {
-		if slices.ContainsFunc(existing, func(candidate GeneratedFile) bool {
-			return candidate.TargetPath == generatedFile.TargetPath
-		}) {
-			continue
-		}
-		existing = append(existing, generatedFile)
 	}
 	return existing
 }
