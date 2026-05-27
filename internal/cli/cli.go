@@ -111,9 +111,11 @@ func runRootfsInit(args []string, stdout, stderr io.Writer) error {
 
 	var templateName string
 	var outputRoot string
+	var allowOverwrite bool
 
 	fs.StringVar(&templateName, "template", "", "Built-in rootfs template name")
 	fs.StringVar(&outputRoot, "output", "", "Path to the generated rootfs directory")
+	fs.BoolVar(&allowOverwrite, "allow-overwrite", false, "Allow writing into an existing non-empty output rootfs directory")
 
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -132,7 +134,9 @@ func runRootfsInit(args []string, stdout, stderr io.Writer) error {
 	if !ok {
 		return fmt.Errorf("unknown rootfs template %q", templateName)
 	}
-	report, err := rootfs.GenerateWithReport(outputRoot, template)
+	report, err := rootfs.GenerateWithReportWithOptions(outputRoot, template, rootfs.GenerateOptions{
+		AllowOverwrite: allowOverwrite,
+	})
 	if err != nil {
 		return err
 	}

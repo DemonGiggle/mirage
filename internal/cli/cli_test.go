@@ -316,6 +316,50 @@ func TestRootfsInit(t *testing.T) {
 	}
 }
 
+func TestRootfsInitAllowOverwrite(t *testing.T) {
+	const templateName = "test-allow-overwrite"
+	rootfs.BuiltInTemplates[templateName] = rootfs.Template{
+		Version:     rootfs.TemplateVersionV1,
+		Name:        templateName,
+		Description: "Test template for overwrite behavior",
+		GeneratedFiles: []rootfs.GeneratedFile{
+			{TargetPath: "/etc/demo.conf", Content: "updated=yes\n", Mode: 0o600},
+		},
+	}
+	t.Cleanup(func() {
+		delete(rootfs.BuiltInTemplates, templateName)
+	})
+
+	outputRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(outputRoot, "etc"), 0o755); err != nil {
+		t.Fatalf("create existing etc dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(outputRoot, "etc", "demo.conf"), []byte("old\n"), 0o644); err != nil {
+		t.Fatalf("write existing target file: %v", err)
+	}
+
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+	err := Run([]string{
+		"rootfs",
+		"init",
+		"--template", templateName,
+		"--output", outputRoot,
+		"--allow-overwrite",
+	}, &out, &errBuf)
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(outputRoot, "etc", "demo.conf"))
+	if err != nil {
+		t.Fatalf("read overwritten file: %v", err)
+	}
+	if string(data) != "updated=yes\n" {
+		t.Fatalf("expected overwritten file content, got %q", string(data))
+	}
+}
+
 func TestRootfsInitReportsMissingAssets(t *testing.T) {
 	const templateName = "test-missing-assets"
 	rootfs.BuiltInTemplates[templateName] = rootfs.Template{

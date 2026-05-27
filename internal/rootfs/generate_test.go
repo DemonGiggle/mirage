@@ -402,6 +402,86 @@ func TestGenerateRejectsNonEmptyOutputRoot(t *testing.T) {
 	}
 }
 
+func TestGenerateWithAllowOverwriteReusesNonEmptyOutputRoot(t *testing.T) {
+	outputRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(outputRoot, "etc"), 0o755); err != nil {
+		t.Fatalf("create existing etc dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(outputRoot, "etc", "demo.conf"), []byte("old\n"), 0o644); err != nil {
+		t.Fatalf("write existing target file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(outputRoot, "keep.txt"), []byte("keep\n"), 0o644); err != nil {
+		t.Fatalf("write unrelated file: %v", err)
+	}
+
+	err := GenerateWithOptions(outputRoot, Template{
+		Version:     TemplateVersionV1,
+		Name:        "custom",
+		Description: "Custom template",
+		GeneratedFiles: []GeneratedFile{
+			{TargetPath: "/etc/demo.conf", Content: "new=yes\n", Mode: 0o600},
+		},
+	}, GenerateOptions{AllowOverwrite: true})
+	if err != nil {
+		t.Fatalf("GenerateWithOptions returned error: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(outputRoot, "etc", "demo.conf"))
+	if err != nil {
+		t.Fatalf("read overwritten file: %v", err)
+	}
+	if string(data) != "new=yes\n" {
+		t.Fatalf("expected overwritten file content, got %q", string(data))
+	}
+	if _, err := os.Stat(filepath.Join(outputRoot, "keep.txt")); err != nil {
+		t.Fatalf("expected unrelated file to remain: %v", err)
+	}
+}
+
+func TestGenerateWithAllowOverwriteReplacesFileWithDirectory(t *testing.T) {
+	outputRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outputRoot, "workspace"), []byte("old\n"), 0o644); err != nil {
+		t.Fatalf("write existing conflicting file: %v", err)
+	}
+
+	err := GenerateWithOptions(outputRoot, Template{
+		Version:     TemplateVersionV1,
+		Name:        "custom",
+		Description: "Custom template",
+		Directories: []Directory{{Path: "/workspace", Mode: 0o755}},
+	}, GenerateOptions{AllowOverwrite: true})
+	if err != nil {
+		t.Fatalf("GenerateWithOptions returned error: %v", err)
+	}
+
+	info, err := os.Stat(filepath.Join(outputRoot, "workspace"))
+	if err != nil {
+		t.Fatalf("stat workspace directory: %v", err)
+	}
+	if !info.IsDir() {
+		t.Fatalf("expected workspace to be a directory, got mode %v", info.Mode())
+	}
+}
+
+func TestGenerateWithAllowOverwriteRejectsDirectoryAtFileTarget(t *testing.T) {
+	outputRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(outputRoot, "etc", "demo.conf"), 0o755); err != nil {
+		t.Fatalf("create existing conflicting directory: %v", err)
+	}
+
+	err := GenerateWithOptions(outputRoot, Template{
+		Version:     TemplateVersionV1,
+		Name:        "custom",
+		Description: "Custom template",
+		GeneratedFiles: []GeneratedFile{
+			{TargetPath: "/etc/demo.conf", Content: "new=yes\n", Mode: 0o600},
+		},
+	}, GenerateOptions{AllowOverwrite: true})
+	if err == nil || !strings.Contains(err.Error(), `target path "/etc/demo.conf" already exists and is a directory`) {
+		t.Fatalf("expected existing directory rejection, got %v", err)
+	}
+}
+
 func TestGenerateWritesGeneratedFiles(t *testing.T) {
 	outputRoot := filepath.Join(t.TempDir(), "rootfs")
 	err := Generate(outputRoot, Template{

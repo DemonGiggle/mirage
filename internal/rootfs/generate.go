@@ -36,6 +36,10 @@ type GenerateReport struct {
 	MissingAssets []MissingAsset
 }
 
+type GenerateOptions struct {
+	AllowOverwrite bool
+}
+
 func (report *GenerateReport) addMissing(asset MissingAsset) {
 	report.MissingAssets = append(report.MissingAssets, asset)
 }
@@ -45,11 +49,20 @@ func (report *GenerateReport) merge(other GenerateReport) {
 }
 
 func Generate(outputRoot string, template Template) error {
-	_, err := GenerateWithReport(outputRoot, template)
+	_, err := GenerateWithReportWithOptions(outputRoot, template, GenerateOptions{})
 	return err
 }
 
 func GenerateWithReport(outputRoot string, template Template) (GenerateReport, error) {
+	return GenerateWithReportWithOptions(outputRoot, template, GenerateOptions{})
+}
+
+func GenerateWithOptions(outputRoot string, template Template, options GenerateOptions) error {
+	_, err := GenerateWithReportWithOptions(outputRoot, template, options)
+	return err
+}
+
+func GenerateWithReportWithOptions(outputRoot string, template Template, options GenerateOptions) (GenerateReport, error) {
 	if err := ValidateTemplate(template); err != nil {
 		return GenerateReport{}, err
 	}
@@ -58,12 +71,13 @@ func GenerateWithReport(outputRoot string, template Template) (GenerateReport, e
 	if err != nil {
 		return GenerateReport{}, fmt.Errorf("resolve output rootfs %q: %w", outputRoot, err)
 	}
-	if err := prepareOutputRoot(root); err != nil {
+	if err := prepareOutputRoot(root, options.AllowOverwrite); err != nil {
 		return GenerateReport{}, err
 	}
 
 	generator := generator{
 		outputRoot:      root,
+		allowOverwrite:  options.AllowOverwrite,
 		copiedTargets:   make(map[string]struct{}),
 		copiedTrees:     make(map[string]struct{}),
 		missingReported: make(map[string]struct{}),
@@ -105,6 +119,7 @@ func GenerateWithReport(outputRoot string, template Template) (GenerateReport, e
 
 type generator struct {
 	outputRoot      string
+	allowOverwrite  bool
 	report          GenerateReport
 	copiedTargets   map[string]struct{}
 	copiedTrees     map[string]struct{}
@@ -113,12 +128,15 @@ type generator struct {
 	lddCache        map[string]lddCacheEntry
 }
 
-func prepareOutputRoot(root string) error {
+func prepareOutputRoot(root string, allowOverwrite bool) error {
 	info, err := os.Stat(root)
 	switch {
 	case err == nil:
 		if !info.IsDir() {
 			return fmt.Errorf("output rootfs %q is not a directory", root)
+		}
+		if allowOverwrite {
+			return nil
 		}
 		entries, err := os.ReadDir(root)
 		if err != nil {
@@ -143,6 +161,9 @@ func (g *generator) ensureDirectory(dir Directory) error {
 	mode := os.FileMode(dir.Mode)
 	if mode == 0 {
 		mode = 0o755
+	}
+	if err := g.prepareTargetPath(dir.Path, true); err != nil {
+		return err
 	}
 	if err := os.MkdirAll(target, mode); err != nil {
 		return fmt.Errorf("create directory %q: %w", dir.Path, err)
@@ -184,6 +205,9 @@ func (g *generator) writeGeneratedFile(generatedFile GeneratedFile) error {
 	target := g.rootPath(generatedFile.TargetPath)
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return fmt.Errorf("create parent directory for generated file %q: %w", generatedFile.TargetPath, err)
+	}
+	if err := g.prepareTargetPath(generatedFile.TargetPath, false); err != nil {
+		return fmt.Errorf("write generated file %q: %w", generatedFile.TargetPath, err)
 	}
 	mode := os.FileMode(generatedFile.Mode)
 	if mode == 0 {
@@ -408,11 +432,13 @@ func (g *generator) copyHostBinaryIfMissing(sourcePath string, targetPath string
 	if _, exists := g.copiedTargets[targetPath]; exists {
 		return nil
 	}
-	if _, err := os.Lstat(g.rootPath(targetPath)); err == nil {
-		g.copiedTargets[targetPath] = struct{}{}
-		return nil
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("stat target path %q: %w", targetPath, err)
+	if !g.allowOverwrite {
+		if _, err := os.Lstat(g.rootPath(targetPath)); err == nil {
+			g.copiedTargets[targetPath] = struct{}{}
+			return nil
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("stat target path %q: %w", targetPath, err)
+		}
 	}
 	return g.copyHostBinary(sourcePath, targetPath, copyDependencies)
 }
@@ -593,7 +619,14 @@ func (g *generator) copyHostSymlink(sourcePath string, targetPath string) error 
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return fmt.Errorf("create parent directory for %q: %w", targetPath, err)
 	}
+	if err := g.prepareTargetPath(targetPath, false); err != nil {
+		return err
+	}
 	if err := os.Symlink(linkTarget, target); err != nil {
+		if !g.allowOverwrite && errors.Is(err, os.ErrExist) {
+			g.copiedTargets[targetPath] = struct{}{}
+			return nil
+		}
 		return fmt.Errorf("create target symlink %q: %w", targetPath, err)
 	}
 
@@ -689,6 +722,9 @@ func (g *generator) copyHostTree(sourceRoot string, targetRoot string) error {
 			return err
 		}
 		if d.IsDir() {
+			if err := g.prepareTargetPath(targetGuestPath, true); err != nil {
+				return err
+			}
 			if err := os.MkdirAll(targetPath, info.Mode().Perm()); err != nil {
 				return err
 			}
@@ -702,7 +738,14 @@ func (g *generator) copyHostTree(sourceRoot string, targetRoot string) error {
 			if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
 				return err
 			}
-			if err := os.Symlink(linkTarget, targetPath); err != nil && !errors.Is(err, os.ErrExist) {
+			if err := g.prepareTargetPath(targetGuestPath, false); err != nil {
+				return err
+			}
+			if err := os.Symlink(linkTarget, targetPath); err != nil {
+				if !g.allowOverwrite && errors.Is(err, os.ErrExist) {
+					g.copiedTargets[targetGuestPath] = struct{}{}
+					return nil
+				}
 				return err
 			}
 			g.copiedTargets[targetGuestPath] = struct{}{}
@@ -740,6 +783,9 @@ func (g *generator) copyHostFile(sourcePath string, targetPath string, optional 
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return fmt.Errorf("create parent directory for %q: %w", targetPath, err)
 	}
+	if err := g.prepareTargetPath(targetPath, false); err != nil {
+		return err
+	}
 
 	sourceFile, err := os.Open(sourcePath)
 	if err != nil {
@@ -764,6 +810,39 @@ func (g *generator) copyHostFile(sourcePath string, targetPath string, optional 
 	}
 
 	g.copiedTargets[targetPath] = struct{}{}
+	return nil
+}
+
+func (g *generator) prepareTargetPath(targetPath string, wantDir bool) error {
+	target := g.rootPath(targetPath)
+	info, err := os.Lstat(target)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("lstat target path %q: %w", targetPath, err)
+	}
+	if wantDir {
+		if info.IsDir() {
+			return nil
+		}
+		if !g.allowOverwrite {
+			return fmt.Errorf("target path %q already exists and is not a directory", targetPath)
+		}
+		if err := os.Remove(target); err != nil {
+			return fmt.Errorf("remove existing target path %q: %w", targetPath, err)
+		}
+		return nil
+	}
+	if info.IsDir() {
+		return fmt.Errorf("target path %q already exists and is a directory", targetPath)
+	}
+	if !g.allowOverwrite {
+		return nil
+	}
+	if err := os.Remove(target); err != nil {
+		return fmt.Errorf("remove existing target path %q: %w", targetPath, err)
+	}
 	return nil
 }
 
