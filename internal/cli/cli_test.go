@@ -12,6 +12,20 @@ import (
 	"github.com/DemonGiggle/mirage/internal/spec"
 )
 
+func installBuiltInTemplate(t *testing.T, template rootfs.Template) {
+	t.Helper()
+
+	previous, existed := rootfs.BuiltInTemplates[template.Name]
+	rootfs.BuiltInTemplates[template.Name] = template
+	t.Cleanup(func() {
+		if existed {
+			rootfs.BuiltInTemplates[template.Name] = previous
+			return
+		}
+		delete(rootfs.BuiltInTemplates, template.Name)
+	})
+}
+
 func TestPresetList(t *testing.T) {
 	var out bytes.Buffer
 	var errBuf bytes.Buffer
@@ -362,7 +376,7 @@ func TestRootfsInitAllowOverwrite(t *testing.T) {
 
 func TestRootfsInitReportsMissingAssets(t *testing.T) {
 	const templateName = "test-missing-assets"
-	rootfs.BuiltInTemplates[templateName] = rootfs.Template{
+	installBuiltInTemplate(t, rootfs.Template{
 		Version:     rootfs.TemplateVersionV1,
 		Name:        templateName,
 		Description: "Test template for missing host assets",
@@ -373,9 +387,6 @@ func TestRootfsInitReportsMissingAssets(t *testing.T) {
 				TargetPath: "/etc/hosts",
 			},
 		},
-	}
-	t.Cleanup(func() {
-		delete(rootfs.BuiltInTemplates, templateName)
 	})
 
 	var out bytes.Buffer
@@ -426,7 +437,7 @@ func TestEnsurePresetRootfsAutoGeneratesRecommendedTemplate(t *testing.T) {
 
 func TestEnsurePresetRootfsReportsMissingAssets(t *testing.T) {
 	const templateName = "test-preset-missing-assets"
-	rootfs.BuiltInTemplates[templateName] = rootfs.Template{
+	installBuiltInTemplate(t, rootfs.Template{
 		Version:     rootfs.TemplateVersionV1,
 		Name:        templateName,
 		Description: "Test template for preset-generated missing assets",
@@ -437,9 +448,6 @@ func TestEnsurePresetRootfsReportsMissingAssets(t *testing.T) {
 				TargetPath: "/etc/hosts",
 			},
 		},
-	}
-	t.Cleanup(func() {
-		delete(rootfs.BuiltInTemplates, templateName)
 	})
 
 	presetFile := filepath.Join(t.TempDir(), "presets.json")

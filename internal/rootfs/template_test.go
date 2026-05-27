@@ -10,10 +10,12 @@ func TestTemplateNames(t *testing.T) {
 	want := []string{
 		"basic",
 		"node",
+		"openclaw",
 		"openclaw-admin",
 		"openclaw-chat-only",
 		"openclaw-developer",
 		"openclaw-root",
+		"openclaw-systemd",
 		"openclaw-work",
 		"python",
 	}
