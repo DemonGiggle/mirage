@@ -1,0 +1,45 @@
+version: v1
+name: basic
+description: Small runnable base rootfs with shell and core inspection tools.
+directories:
+    - path: /proc
+      mode: 493
+    - path: /tmp
+      mode: 1023
+    - path: /run
+      mode: 493
+binaries:
+    - target_path: /bin/sh
+      lookup_name: sh
+      copy_dependencies: true
+    - target_path: /bin/ls
+      lookup_name: ls
+      copy_dependencies: true
+    - target_path: /bin/cat
+      lookup_name: cat
+      copy_dependencies: true
+    - target_path: /bin/mkdir
+      lookup_name: mkdir
+      copy_dependencies: true
+    - target_path: /bin/pwd
+      lookup_name: pwd
+      copy_dependencies: true
+    - target_path: /bin/rm
+      lookup_name: rm
+      copy_dependencies: true
+    - target_path: /bin/true
+      lookup_name: "true"
+      copy_dependencies: true
+    - target_path: /bin/false
+      lookup_name: "false"
+      copy_dependencies: true
+    - target_path: /usr/bin/env
+      lookup_name: env
+      copy_dependencies: true
+runtime_files:
+    - host_path: /etc/hosts
+      target_path: /etc/hosts
+    - host_path: /etc/resolv.conf
+      target_path: /etc/resolv.conf
+    - host_path: /etc/nsswitch.conf
+      target_path: /etc/nsswitch.conf

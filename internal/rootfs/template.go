@@ -12,59 +12,48 @@ import (
 const TemplateVersionV1 = "v1"
 
 type Template struct {
-	Version        string          `json:"version"`
-	Name           string          `json:"name"`
-	Description    string          `json:"description"`
-	Directories    []Directory     `json:"directories,omitempty"`
-	Binaries       []Binary        `json:"binaries,omitempty"`
-	RuntimeTrees   []RuntimeTree   `json:"runtime_trees,omitempty"`
-	RuntimeFiles   []RuntimeFile   `json:"runtime_files,omitempty"`
-	GeneratedFiles []GeneratedFile `json:"generated_files,omitempty"`
+	Version        string          `json:"version" yaml:"version"`
+	Name           string          `json:"name" yaml:"name"`
+	Description    string          `json:"description" yaml:"description"`
+	Directories    []Directory     `json:"directories,omitempty" yaml:"directories,omitempty"`
+	Binaries       []Binary        `json:"binaries,omitempty" yaml:"binaries,omitempty"`
+	RuntimeTrees   []RuntimeTree   `json:"runtime_trees,omitempty" yaml:"runtime_trees,omitempty"`
+	RuntimeFiles   []RuntimeFile   `json:"runtime_files,omitempty" yaml:"runtime_files,omitempty"`
+	GeneratedFiles []GeneratedFile `json:"generated_files,omitempty" yaml:"generated_files,omitempty"`
 }
 
 type Directory struct {
-	Path string `json:"path"`
-	Mode uint32 `json:"mode,omitempty"`
+	Path string `json:"path" yaml:"path"`
+	Mode uint32 `json:"mode,omitempty" yaml:"mode,omitempty"`
 }
 
 type Binary struct {
-	TargetPath       string `json:"target_path"`
-	HostPath         string `json:"host_path,omitempty"`
-	LookupName       string `json:"lookup_name,omitempty"`
-	CopyDependencies bool   `json:"copy_dependencies,omitempty"`
-	Optional         bool   `json:"optional,omitempty"`
+	TargetPath       string `json:"target_path" yaml:"target_path"`
+	HostPath         string `json:"host_path,omitempty" yaml:"host_path,omitempty"`
+	LookupName       string `json:"lookup_name,omitempty" yaml:"lookup_name,omitempty"`
+	CopyDependencies bool   `json:"copy_dependencies,omitempty" yaml:"copy_dependencies,omitempty"`
+	Optional         bool   `json:"optional,omitempty" yaml:"optional,omitempty"`
 }
 
 type RuntimeTree struct {
-	HostPath   string `json:"host_path"`
-	TargetPath string `json:"target_path"`
-	Optional   bool   `json:"optional,omitempty"`
+	HostPath   string `json:"host_path" yaml:"host_path"`
+	TargetPath string `json:"target_path" yaml:"target_path"`
+	Optional   bool   `json:"optional,omitempty" yaml:"optional,omitempty"`
 }
 
 type RuntimeFile struct {
-	HostPath   string `json:"host_path"`
-	TargetPath string `json:"target_path"`
-	Optional   bool   `json:"optional,omitempty"`
+	HostPath   string `json:"host_path" yaml:"host_path"`
+	TargetPath string `json:"target_path" yaml:"target_path"`
+	Optional   bool   `json:"optional,omitempty" yaml:"optional,omitempty"`
 }
 
 type GeneratedFile struct {
-	TargetPath string `json:"target_path"`
-	Content    string `json:"content,omitempty"`
-	Mode       uint32 `json:"mode,omitempty"`
+	TargetPath string `json:"target_path" yaml:"target_path"`
+	Content    string `json:"content,omitempty" yaml:"content,omitempty"`
+	Mode       uint32 `json:"mode,omitempty" yaml:"mode,omitempty"`
 }
 
-var BuiltInTemplates = map[string]Template{
-	"basic":              basicTemplate(),
-	"node":               nodeTemplate(),
-	"python":             pythonTemplate(),
-	"openclaw":           openclawTemplate(),
-	"openclaw-chat-only": openclawChatOnlyTemplate(),
-	"openclaw-work":      openclawWorkTemplate(),
-	"openclaw-developer": openclawDeveloperTemplate(),
-	"openclaw-admin":     openclawAdminTemplate(),
-	"openclaw-root":      openclawRootTemplate(),
-	"openclaw-systemd":   openclawSystemdTemplate(),
-}
+var BuiltInTemplates = mustLoadBuiltInTemplates()
 
 func TemplateNames() []string {
 	names := make([]string, 0, len(BuiltInTemplates))
@@ -177,315 +166,6 @@ func ValidateTemplate(template Template) error {
 	return errors.Join(problems...)
 }
 
-func basicTemplate() Template {
-	return Template{
-		Version:     TemplateVersionV1,
-		Name:        "basic",
-		Description: "Small runnable base rootfs with shell and core inspection tools.",
-		Directories: append([]Directory{}, commonRuntimeDirectories...),
-		Binaries: []Binary{
-			lookupBinary("sh", "/bin/sh"),
-			lookupBinary("ls", "/bin/ls"),
-			lookupBinary("cat", "/bin/cat"),
-			lookupBinary("mkdir", "/bin/mkdir"),
-			lookupBinary("pwd", "/bin/pwd"),
-			lookupBinary("rm", "/bin/rm"),
-			lookupBinary("true", "/bin/true"),
-			lookupBinary("false", "/bin/false"),
-			lookupBinary("env", "/usr/bin/env"),
-		},
-		RuntimeFiles: append([]RuntimeFile{}, commonRuntimeFiles...),
-	}
-}
-
-func nodeTemplate() Template {
-	template := basicTemplate()
-	template.Name = "node"
-	template.Description = "Node.js-oriented rootfs template with npm and HTTPS trust material."
-	template.Directories = appendUniqueDirectories(template.Directories,
-		directory("/workspace", 0o755),
-		directory("/etc/ssl/certs", 0o755),
-	)
-	template.Binaries = append(template.Binaries,
-		lookupBinary("node", "/usr/bin/node"),
-		lookupBinary("npm", "/usr/bin/npm"),
-		lookupBinary("npx", "/usr/bin/npx"),
-	)
-	template.RuntimeFiles = appendUniqueRuntimeFiles(template.RuntimeFiles,
-		optionalRuntimeFile("/etc/ssl/certs/ca-certificates.crt", "/etc/ssl/certs/ca-certificates.crt"),
-		optionalRuntimeFile("/etc/ssl/cert.pem", "/etc/ssl/cert.pem"),
-		optionalRuntimeFile("/etc/pki/tls/certs/ca-bundle.crt", "/etc/pki/tls/certs/ca-bundle.crt"),
-	)
-	return template
-}
-
-func pythonTemplate() Template {
-	template := basicTemplate()
-	template.Name = "python"
-	template.Description = "Python-oriented rootfs template with pip and common HTTPS trust material."
-	template.Directories = appendUniqueDirectories(template.Directories,
-		directory("/workspace", 0o755),
-		directory("/etc/ssl/certs", 0o755),
-	)
-	template.Binaries = append(template.Binaries,
-		lookupBinary("python3", "/usr/bin/python3"),
-		lookupBinary("pip3", "/usr/bin/pip3"),
-	)
-	template.RuntimeFiles = appendUniqueRuntimeFiles(template.RuntimeFiles,
-		optionalRuntimeFile("/etc/ssl/certs/ca-certificates.crt", "/etc/ssl/certs/ca-certificates.crt"),
-		optionalRuntimeFile("/etc/ssl/cert.pem", "/etc/ssl/cert.pem"),
-		optionalRuntimeFile("/etc/pki/tls/certs/ca-bundle.crt", "/etc/pki/tls/certs/ca-bundle.crt"),
-	)
-	return template
-}
-
-func openclawTemplate() Template {
-	template := nodeTemplate()
-	template.Name = "openclaw"
-	template.Description = "OpenClaw-oriented compatibility template with Node.js, Git, Bash, and a writable workspace."
-	template.Directories = appendUniqueDirectories(template.Directories,
-		directory("/workspace", 0o755),
-		directory("/home", 0o755),
-	)
-	template.Binaries = appendUniqueBinaries(template.Binaries,
-		lookupBinary("bash", "/bin/bash"),
-		lookupBinary("git", "/usr/bin/git"),
-	)
-	return template
-}
-
-func openclawChatOnlyTemplate() Template {
-	template := nodeTemplate()
-	template.Name = "openclaw-chat-only"
-	template.Description = "OpenClaw chat-only rootfs level with Node.js, TLS material, locales, tzdata, and OpenSSL."
-	template.RuntimeTrees = appendUniqueRuntimeTrees(template.RuntimeTrees,
-		optionalRuntimeTree("/usr/share/zoneinfo", "/usr/share/zoneinfo"),
-		optionalRuntimeTree("/usr/lib/locale", "/usr/lib/locale"),
-		optionalRuntimeTree("/usr/share/locale", "/usr/share/locale"),
-	)
-	template.RuntimeFiles = appendUniqueRuntimeFiles(template.RuntimeFiles,
-		optionalRuntimeFile("/etc/localtime", "/etc/localtime"),
-		optionalRuntimeFile("/etc/timezone", "/etc/timezone"),
-		optionalRuntimeFile("/etc/ssl/openssl.cnf", "/etc/ssl/openssl.cnf"),
-	)
-	template.Binaries = appendUniqueBinaries(template.Binaries,
-		lookupBinary("openssl", "/usr/bin/openssl"),
-	)
-	return template
-}
-
-func openclawWorkTemplate() Template {
-	template := openclawChatOnlyTemplate()
-	template.Name = "openclaw-work"
-	template.Description = "OpenClaw work rootfs level with shell, archive, patching, JSON, and search tooling."
-	template.Directories = appendUniqueDirectories(template.Directories,
-		directory("/home", 0o755),
-	)
-	template.RuntimeTrees = appendUniqueRuntimeTrees(template.RuntimeTrees,
-		optionalRuntimeTree("/lib/terminfo", "/lib/terminfo"),
-		optionalRuntimeTree("/usr/share/terminfo", "/usr/share/terminfo"),
-	)
-	template.RuntimeFiles = appendUniqueRuntimeFiles(template.RuntimeFiles,
-		optionalRuntimeFile("/usr/share/misc/magic.mgc", "/usr/share/misc/magic.mgc"),
-	)
-	template.Binaries = appendUniqueBinaries(template.Binaries,
-		lookupBinary("bash", "/bin/bash"),
-		lookupBinary("cp", "/bin/cp"),
-		lookupBinary("mv", "/bin/mv"),
-		lookupBinary("ln", "/bin/ln"),
-		lookupBinary("chmod", "/bin/chmod"),
-		lookupBinary("chown", "/bin/chown"),
-		lookupBinary("touch", "/bin/touch"),
-		lookupBinary("sleep", "/bin/sleep"),
-		lookupBinary("stat", "/usr/bin/stat"),
-		lookupBinary("tee", "/usr/bin/tee"),
-		lookupBinary("head", "/usr/bin/head"),
-		lookupBinary("tail", "/usr/bin/tail"),
-		lookupBinary("sort", "/usr/bin/sort"),
-		lookupBinary("uniq", "/usr/bin/uniq"),
-		lookupBinary("cut", "/usr/bin/cut"),
-		lookupBinary("wc", "/usr/bin/wc"),
-		lookupBinary("du", "/usr/bin/du"),
-		lookupBinary("df", "/usr/bin/df"),
-		lookupBinary("basename", "/usr/bin/basename"),
-		lookupBinary("dirname", "/usr/bin/dirname"),
-		lookupBinary("readlink", "/usr/bin/readlink"),
-		lookupBinary("printf", "/usr/bin/printf"),
-		lookupBinary("id", "/usr/bin/id"),
-		lookupBinary("whoami", "/usr/bin/whoami"),
-		lookupBinary("uname", "/usr/bin/uname"),
-		lookupBinary("seq", "/usr/bin/seq"),
-		lookupBinary("tr", "/usr/bin/tr"),
-		lookupBinary("find", "/usr/bin/find"),
-		lookupBinary("xargs", "/usr/bin/xargs"),
-		lookupBinary("grep", "/usr/bin/grep"),
-		lookupBinary("sed", "/usr/bin/sed"),
-		lookupBinary("awk", "/usr/bin/awk"),
-		lookupBinary("diff", "/usr/bin/diff"),
-		lookupBinary("patch", "/usr/bin/patch"),
-		lookupBinary("less", "/usr/bin/less"),
-		lookupBinary("file", "/usr/bin/file"),
-		lookupBinary("tar", "/usr/bin/tar"),
-		lookupBinary("gzip", "/usr/bin/gzip"),
-		lookupBinary("bzip2", "/usr/bin/bzip2"),
-		lookupBinary("xz", "/usr/bin/xz"),
-		lookupBinary("zip", "/usr/bin/zip"),
-		lookupBinary("unzip", "/usr/bin/unzip"),
-		lookupBinary("jq", "/usr/bin/jq"),
-		lookupBinary("rg", "/usr/bin/rg"),
-	)
-	return template
-}
-
-func openclawDeveloperTemplate() Template {
-	template := openclawWorkTemplate()
-	template.Name = "openclaw-developer"
-	template.Description = "OpenClaw developer rootfs level with VCS, editors, interpreters, databases, and common build toolchains."
-	template.Binaries = appendUniqueBinaries(template.Binaries,
-		lookupBinary("git", "/usr/bin/git"),
-		lookupBinary("make", "/usr/bin/make"),
-		lookupBinary("ps", "/usr/bin/ps"),
-		lookupBinary("pgrep", "/usr/bin/pgrep"),
-		lookupBinary("pkill", "/usr/bin/pkill"),
-		lookupBinary("curl", "/usr/bin/curl"),
-		lookupBinary("wget", "/usr/bin/wget"),
-		lookupBinary("fdfind", "/usr/bin/fdfind"),
-		lookupBinary("xxd", "/usr/bin/xxd"),
-		lookupBinary("vim", "/usr/bin/vim"),
-		lookupBinary("python3", "/usr/bin/python3"),
-		lookupBinary("pip3", "/usr/bin/pip3"),
-		lookupBinary("sqlite3", "/usr/bin/sqlite3"),
-		lookupBinary("gcc", "/usr/bin/gcc"),
-		lookupBinary("g++", "/usr/bin/g++"),
-		lookupBinary("cc", "/usr/bin/cc"),
-		lookupBinary("ld", "/usr/bin/ld"),
-		lookupBinary("ar", "/usr/bin/ar"),
-		lookupBinary("as", "/usr/bin/as"),
-		lookupBinary("strip", "/usr/bin/strip"),
-		lookupBinary("go", "/usr/bin/go"),
-		lookupBinary("rustc", "/usr/bin/rustc"),
-		lookupBinary("cargo", "/usr/bin/cargo"),
-	)
-	template.RuntimeTrees = appendUniqueRuntimeTrees(template.RuntimeTrees,
-		optionalRuntimeTree("/usr/lib/python3", "/usr/lib/python3"),
-		optionalRuntimeTree("/usr/lib/python3.10", "/usr/lib/python3.10"),
-		optionalRuntimeTree("/usr/lib/python3.11", "/usr/lib/python3.11"),
-		optionalRuntimeTree("/usr/lib/python3.12", "/usr/lib/python3.12"),
-		optionalRuntimeTree("/usr/lib/python3.13", "/usr/lib/python3.13"),
-		optionalRuntimeTree("/usr/lib/python3/dist-packages", "/usr/lib/python3/dist-packages"),
-		optionalRuntimeTree("/usr/local/lib/python3.10", "/usr/local/lib/python3.10"),
-		optionalRuntimeTree("/usr/local/lib/python3.11", "/usr/local/lib/python3.11"),
-		optionalRuntimeTree("/usr/local/lib/python3.12", "/usr/local/lib/python3.12"),
-		optionalRuntimeTree("/usr/local/lib/python3.13", "/usr/local/lib/python3.13"),
-		optionalRuntimeTree("/usr/local/go", "/usr/local/go"),
-		optionalRuntimeTree("/usr/lib/go", "/usr/lib/go"),
-		optionalRuntimeTree("/usr/lib/rustlib", "/usr/lib/rustlib"),
-		optionalRuntimeTree("/usr/lib/cargo", "/usr/lib/cargo"),
-	)
-	return template
-}
-
-func openclawAdminTemplate() Template {
-	template := openclawDeveloperTemplate()
-	template.Name = "openclaw-admin"
-	template.Description = "OpenClaw admin rootfs level with networking, process, capability, and sync utilities."
-	template.Binaries = appendUniqueBinaries(template.Binaries,
-		lookupBinary("ip", "/usr/sbin/ip"),
-		lookupBinary("ss", "/usr/bin/ss"),
-		lookupBinary("ping", "/bin/ping"),
-		lookupBinary("dig", "/usr/bin/dig"),
-		optionalLookupBinary("host", "/usr/bin/host"),
-		lookupBinary("nslookup", "/usr/bin/nslookup"),
-		lookupBinary("lsof", "/usr/bin/lsof"),
-		lookupBinary("killall", "/usr/bin/killall"),
-		lookupBinary("fuser", "/usr/bin/fuser"),
-		lookupBinary("mount", "/usr/bin/mount"),
-		lookupBinary("umount", "/usr/bin/umount"),
-		lookupBinary("lsblk", "/usr/bin/lsblk"),
-		lookupBinary("blkid", "/usr/sbin/blkid"),
-		lookupBinary("flock", "/usr/bin/flock"),
-		lookupBinary("capsh", "/usr/sbin/capsh"),
-		lookupBinary("getcap", "/usr/sbin/getcap"),
-		lookupBinary("setcap", "/usr/sbin/setcap"),
-		lookupBinary("iptables", "/usr/sbin/iptables"),
-		optionalLookupBinary("nft", "/usr/sbin/nft"),
-		lookupBinary("nc", "/usr/bin/nc"),
-		lookupBinary("rsync", "/usr/bin/rsync"),
-		lookupBinary("ssh", "/usr/bin/ssh"),
-	)
-	return template
-}
-
-func openclawRootTemplate() Template {
-	template := openclawAdminTemplate()
-	template.Name = "openclaw-root"
-	template.Description = "OpenClaw root rootfs level with package management, tracing, debugging, namespace, and filesystem tooling."
-	template.Binaries = appendUniqueBinaries(template.Binaries,
-		lookupBinary("sudo", "/usr/bin/sudo"),
-		lookupBinary("apt", "/usr/bin/apt"),
-		lookupBinary("apt-cache", "/usr/bin/apt-cache"),
-		lookupBinary("apt-get", "/usr/bin/apt-get"),
-		lookupBinary("gpg", "/usr/bin/gpg"),
-		lookupBinary("strace", "/usr/bin/strace"),
-		lookupBinary("gdb", "/usr/bin/gdb"),
-		lookupBinary("nsenter", "/usr/bin/nsenter"),
-		lookupBinary("socat", "/usr/bin/socat"),
-		lookupBinary("parted", "/usr/sbin/parted"),
-		lookupBinary("mkfs.ext4", "/usr/sbin/mkfs.ext4"),
-		lookupBinary("e2fsck", "/usr/sbin/e2fsck"),
-		lookupBinary("resize2fs", "/usr/sbin/resize2fs"),
-		lookupBinary("tune2fs", "/usr/sbin/tune2fs"),
-		lookupBinary("mkfs.xfs", "/usr/sbin/mkfs.xfs"),
-		lookupBinary("xfs_repair", "/usr/sbin/xfs_repair"),
-	)
-	template.RuntimeFiles = appendUniqueRuntimeFiles(template.RuntimeFiles,
-		optionalRuntimeFile("/usr/share/keyrings/debian-archive-keyring.gpg", "/usr/share/keyrings/debian-archive-keyring.gpg"),
-	)
-	return template
-}
-
-func openclawSystemdTemplate() Template {
-	template := openclawTemplate()
-	template.Name = "openclaw-systemd"
-	template.Description = "OpenClaw-oriented rootfs template with guest systemd tooling and systemd-ready directories."
-	template.Directories = appendUniqueDirectories(template.Directories,
-		directory("/dev", 0o755),
-		directory("/sys", 0o755),
-		directory("/sys/fs/cgroup", 0o755),
-		directory("/etc/systemd/system", 0o755),
-		directory("/usr/lib/systemd/system", 0o755),
-		directory("/var/lib/systemd", 0o755),
-		directory("/var/log/journal", 0o755),
-	)
-	template.Binaries = appendUniqueBinaries(template.Binaries,
-		lookupBinary("systemd", "/usr/bin/systemd"),
-		lookupBinary("systemctl", "/usr/bin/systemctl"),
-		lookupBinary("journalctl", "/usr/bin/journalctl"),
-		lookupBinary("systemd-tmpfiles", "/usr/bin/systemd-tmpfiles"),
-	)
-	template.RuntimeFiles = appendUniqueRuntimeFiles(template.RuntimeFiles,
-		runtimeFile("/etc/passwd", "/etc/passwd"),
-		runtimeFile("/etc/group", "/etc/group"),
-		optionalRuntimeFile("/etc/os-release", "/etc/os-release"),
-	)
-	template.GeneratedFiles = appendUniqueGeneratedFiles(template.GeneratedFiles,
-		generatedFile("/etc/machine-id", "", 0o644),
-	)
-	return template
-}
-
-var commonRuntimeDirectories = []Directory{
-	directory("/proc", 0o755),
-	directory("/tmp", 0o1777),
-	directory("/run", 0o755),
-}
-
-var commonRuntimeFiles = []RuntimeFile{
-	runtimeFile("/etc/hosts", "/etc/hosts"),
-	runtimeFile("/etc/resolv.conf", "/etc/resolv.conf"),
-	runtimeFile("/etc/nsswitch.conf", "/etc/nsswitch.conf"),
-}
-
 func cloneTemplate(template Template) Template {
 	template.Directories = slices.Clone(template.Directories)
 	template.Binaries = slices.Clone(template.Binaries)
@@ -493,62 +173,6 @@ func cloneTemplate(template Template) Template {
 	template.RuntimeFiles = slices.Clone(template.RuntimeFiles)
 	template.GeneratedFiles = slices.Clone(template.GeneratedFiles)
 	return template
-}
-
-func directory(path string, mode uint32) Directory {
-	return Directory{Path: path, Mode: mode}
-}
-
-func lookupBinary(name string, targetPath string) Binary {
-	return Binary{
-		TargetPath:       targetPath,
-		LookupName:       name,
-		CopyDependencies: true,
-	}
-}
-
-func optionalLookupBinary(name string, targetPath string) Binary {
-	binary := lookupBinary(name, targetPath)
-	binary.Optional = true
-	return binary
-}
-
-func runtimeFile(hostPath string, targetPath string) RuntimeFile {
-	return RuntimeFile{
-		HostPath:   hostPath,
-		TargetPath: targetPath,
-	}
-}
-
-func runtimeTree(hostPath string, targetPath string) RuntimeTree {
-	return RuntimeTree{
-		HostPath:   hostPath,
-		TargetPath: targetPath,
-	}
-}
-
-func optionalRuntimeTree(hostPath string, targetPath string) RuntimeTree {
-	return RuntimeTree{
-		HostPath:   hostPath,
-		TargetPath: targetPath,
-		Optional:   true,
-	}
-}
-
-func optionalRuntimeFile(hostPath string, targetPath string) RuntimeFile {
-	return RuntimeFile{
-		HostPath:   hostPath,
-		TargetPath: targetPath,
-		Optional:   true,
-	}
-}
-
-func generatedFile(targetPath string, content string, mode uint32) GeneratedFile {
-	return GeneratedFile{
-		TargetPath: targetPath,
-		Content:    content,
-		Mode:       mode,
-	}
 }
 
 func appendUniqueDirectories(existing []Directory, extra ...Directory) []Directory {
