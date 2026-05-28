@@ -147,8 +147,8 @@ Notes:
   `/workspace` layout because those flows commonly mount or use project trees there.
 - the leveled `openclaw-*` templates compose strictly from the previous level
   plus the current level's additions.
-- the built-in OpenClaw presets currently recommend `openclaw-developer` and
-  expect `node` to be present.
+- the built-in OpenClaw preset hints currently recommend `openclaw-developer`
+  and expect `node` to be present.
 
 ## OpenClaw-Oriented Rootfs Flows
 

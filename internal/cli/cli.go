@@ -185,9 +185,9 @@ func runDoctor(args []string, stdout, stderr io.Writer) error {
 	_, _ = fmt.Fprintln(stdout, "mirage doctor")
 	_, _ = fmt.Fprintln(stdout, "- namespace backend: available (linux, initial)")
 	_, _ = fmt.Fprintln(stdout, "- rootfs isolation: available via mounted runtime layout plus chroot handoff")
-	_, _ = fmt.Fprintln(stdout, "- stable network modes: host, none")
+	_, _ = fmt.Fprintln(stdout, "- current coarse network modes: host, none")
 	_, _ = fmt.Fprintln(stdout, "- cgroup v2 resource controls: available via delegated systemd user scopes when systemd-run is present")
-	_, _ = fmt.Fprintln(stdout, "- network presets: available")
+	_, _ = fmt.Fprintln(stdout, "- transitional preset loading: available")
 	_, _ = fmt.Fprintln(stdout, "- host log export: available")
 
 	if rootfsPath == "" && command == "" && cwd == "" && preset == "" && presetFile == "" && serviceUnit == "" {

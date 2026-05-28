@@ -31,7 +31,8 @@ defense against a determined kernel-level adversary.
   for assets such as an empty machine-id or future service-unit scaffolding
 - `bind mount`: an explicit mapping from a host path into the sandbox, either
   read-only or read-write
-- `network preset`: a named policy bundle that sets the default network stance
+- `preset`: a named bundle of current default options; this is a transitional
+  CLI convenience layer rather than the long-term network-policy shape
 - `runtime mode`: whether Mirage launches a direct workload entrypoint or an
   init-oriented entrypoint that must become sandbox PID 1
 
@@ -54,7 +55,7 @@ primitives, not a custom container platform.
 The CLI is responsible for:
 
 - parsing command-line flags
-- loading built-in and file-backed presets
+- loading the current built-in and file-backed presets
 - resolving built-in rootfs templates where rootfs-oriented commands need them
 - merging inline overrides
 - validating incompatible or incomplete settings
@@ -124,7 +125,7 @@ The current init-mode contract is intentionally narrow:
 
 - it preserves a true guest PID 1 handoff
 - it does not yet add a Mirage supervisor above that init process
-- it shares the same stable `host` / `none` network contract as direct mode
+- it shares the same current coarse `host` / `none` network surface as direct mode
 - it assumes a unified cgroup v2 host and always enters a delegated
   `systemd-run --user --scope` leaf before guest init starts
 - it currently requires a dedicated rootfs, because host-root mode keeps the
@@ -172,15 +173,17 @@ The current network modes are intentionally small:
 - `host`: no network namespace isolation
 - `none`: separate network namespace with no network access
 
-Anything richer than that is intentionally deferred. Future firewall,
-diagnostics, and preset redesign work should be rebuilt on top of a new network
-model rather than inherited from the removed observed-policy surface.
+Anything richer than that is intentionally deferred. The current `--net` and
+`preset` surface should be treated as transitional compatibility while the
+rule-based network model is designed. Future firewall, diagnostics, and policy
+composition work should be rebuilt on top of that new model rather than
+inherited from the removed observed-policy surface.
 
 ## Rootfs Direction
 
 The longer-term rootfs direction remains:
 
-- define reusable rootfs templates that stay separate from network presets
+- define reusable rootfs templates that stay separate from network-policy design
 - prepare a dedicated rootfs
 - mount required runtime paths explicitly
 - apply bind mounts
@@ -207,7 +210,7 @@ resource-management layer.
 ```mermaid
 flowchart TD
     A["mirage run ... -- command"] --> B[Parse CLI flags]
-    B --> C[Load presets]
+    B --> C[Load current presets]
     C --> D[Merge inline overrides]
     D --> E{Config valid?}
     E -- no --> F[Exit with validation error]

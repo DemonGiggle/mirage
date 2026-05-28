@@ -15,9 +15,9 @@ There are three sources of behavior to keep separate:
 
 Most confusion comes from mixing those together.
 
-## Stable Network Contract
+## Transitional Network Surface
 
-Mirage now presents only two stable network modes:
+Mirage currently exposes only two coarse network selections:
 
 | Mode | Network behavior |
 | --- | --- |
@@ -27,8 +27,9 @@ Mirage now presents only two stable network modes:
 The built-in `offline` and `openclaw-offline` presets both resolve to
 `network: none`.
 
-Anything more granular than `host` / `none` is intentionally deferred to future
-design work.
+That should be read as a temporary CLI surface, not as the final policy model.
+Anything more granular than `host` / `none` is intentionally deferred to the
+rule-model redesign work.
 
 ## What Mirage Isolates Today
 
@@ -56,7 +57,7 @@ This is the most important current caveat:
 - `--rootfs /` does not remount proc, so tools such as `ps` can still inspect
   the host procfs mount
 
-That is why `mirage run --rootfs / --preset offline -- ps aux` can still show
+That is why `mirage run --rootfs / --net none -- ps aux` can still show
 the host process list.
 
 ## Current Guarantees
@@ -65,7 +66,7 @@ Today you can rely on:
 
 - namespace-backed process-tree execution on Linux
 - explicit bind-mount application
-- stable `host` / `none` network mode selection through presets or inline flags
+- the current `host` / `none` network selection through presets or inline flags
 - delegated cgroup v2 memory and PID limits
 - delegated unified cgroup v2 exposure for `--runtime-mode init`
 - init-mode-only managed runtime mounts for `/dev`, `/sys`, and `/run`
@@ -80,13 +81,15 @@ Today you should assume:
 - rootfs handoff still ends with `chroot`, not `pivot_root`
 - guest init cgroup support is limited to unified cgroup v2 with a delegated
   host systemd scope and a dedicated rootfs
-- future firewall, diagnostics, and preset redesign work is not implemented yet
+- the current network and preset surface is expected to be replaced by a more
+  explicit rule-based model; that redesign is not implemented yet
 
 ## Practical Guidance
 
 - use `--rootfs /` only for quick local checks and simple host-root-based runs
 - use a dedicated rootfs when filesystem separation or proc visibility matters
-- treat presets as convenience defaults, not full sandbox profiles
+- prefer explicit `--net` usage in new operator flows; treat presets as
+  convenience defaults, not full sandbox profiles
 - choose the runtime mode deliberately:
   - `direct` for one-shot commands where Mirage owns the foreground workload
   - `init` for guest-init-style sandboxes that need a dedicated rootfs, a

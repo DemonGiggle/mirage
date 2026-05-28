@@ -57,7 +57,7 @@ Validate a rootfs before running inside it:
 ./bin/mirage doctor --rootfs /srv/mirage/basic-rootfs --command /bin/ls
 ```
 
-List presets:
+Inspect the current transitional preset set:
 
 ```bash
 ./bin/mirage preset list
@@ -66,7 +66,7 @@ List presets:
 Preview a run without executing it:
 
 ```bash
-./bin/mirage run --dry-run --rootfs / --preset offline -- /bin/echo hello
+./bin/mirage run --dry-run --rootfs / --net none -- /bin/echo hello
 ```
 
 Preview an init-oriented run where the guest entrypoint must become PID 1:
@@ -109,8 +109,8 @@ mirage run [sandbox options...] -- command [args...]
 Common options include:
 
 - `--rootfs`: root filesystem for the sandbox
-- `--preset`: built-in or file-backed preset name
-- `--net`: raw network mode override
+- `--preset`: transitional built-in or file-backed preset name
+- `--net`: current coarse network override
 - `--runtime-mode`: `direct` (default) or `init`
 - `--ro-bind`: read-only `host:guest` bind mount
 - `--rw-bind`: read-write `host:guest` bind mount
@@ -122,8 +122,8 @@ Common options include:
 `--runtime-mode direct` keeps the current one-command model: the requested
 workload becomes sandbox PID 1. `--runtime-mode init` is for guest init systems
 such as `systemd`; the requested init binary becomes sandbox PID 1 directly
-instead of being wrapped by Mirage. The stable network choices for both runtime
-modes are `--net host` and `--net none`.
+instead of being wrapped by Mirage. The current network choices for both runtime
+modes are currently `--net host` and `--net none`.
 
 Init mode currently defines a narrow guest cgroup contract:
 
@@ -249,7 +249,7 @@ Example:
 
 `mirage` supports:
 
-- built-in presets such as `offline` and `openclaw-offline`
+- built-in transitional presets such as `offline` and `openclaw-offline`
 - local YAML preset files merged with the built-ins
 
 Example preset file:
@@ -273,6 +273,10 @@ Use it with:
 ./bin/mirage run --rootfs /srv/rootfs --preset-file ./presets.yaml --preset team-offline -- app
 ```
 
+This preset layer is a convenience surface, not the long-term network-policy
+design. Prefer explicit `--net` usage in new examples unless the preset's
+rootfs hints or working-directory defaults are the point of the example.
+
 For the exact isolation behavior of each built-in preset, see
 [isolation.md](isolation.md).
 
@@ -284,11 +288,12 @@ path. A preset can recommend a rootfs template or required commands, while
 
 The current network philosophy is intentionally narrow:
 
-- use `offline`, `openclaw-offline`, or `--net none` when the workload should
-  not reach the network
+- use `--net none` when the workload should not reach the network
 - use `--net host` when the workload truly needs outbound access
-- treat richer policy, diagnostics, and preset design as future work rather than
-  an implied current feature
+- treat presets as transitional convenience wrappers rather than the network
+  model itself
+- treat richer policy, diagnostics, and policy composition as future work rather
+  than an implied current feature
 
 Example:
 
