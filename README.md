@@ -101,6 +101,8 @@ commands, use the docs linked below.
   and known caveats
 - [docs/network-rule-model.md](docs/network-rule-model.md): canonical draft
   design for the future rule-first network policy model
+- [docs/network-transition.md](docs/network-transition.md): migration inventory
+  and transition plan from the current mode-first surface
 - [docs/architecture.md](docs/architecture.md): control-plane and backend
   design, namespace setup, and run flow
 - [docs/development.md](docs/development.md): build, test, formatting, and repo
