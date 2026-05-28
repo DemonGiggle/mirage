@@ -17,6 +17,7 @@ This document now covers four design slices:
 - **Matching and loopback semantics:** issue #67
 - **Domain enforcement semantics:** issue #68
 - **Canonical design-doc wiring:** issue #69
+- **Transition planning and migration inventory:** issue #70
 
 ## Motivation
 
@@ -467,7 +468,8 @@ the broader network work. The main follow-up areas are:
 
 - implementation/backend design for actual enforcement
 - exact DNS/domain enforcement behavior beyond schema reservation
-- transition planning from mode-first to rule-first framing (`#70`)
+- transition planning from mode-first to rule-first framing (`#70`), documented
+  in [network-transition.md](network-transition.md)
 - future CLI and preset layering on top of this model
 - diagnostics and explainability for blocked traffic
 

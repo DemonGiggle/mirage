@@ -52,6 +52,8 @@ gofmt -w $(find . -name '*.go' -print)
 - `docs/rootfs.md`: rootfs choice, template catalog, and generation details
 - `docs/usage.md`: user-facing command guide
 - `docs/isolation.md`: current isolation matrix and caveats
+- `docs/network-rule-model.md`: draft future rule-first network model
+- `docs/network-transition.md`: transition plan from current mode-first surfaces
 - `docs/architecture.md`: internal design and run flow
 - `docs/roadmap.md`: staged implementation plan
 

@@ -3,7 +3,8 @@
 This document tracks planned work only. For the current implementation shape,
 see [architecture.md](architecture.md). For the current user-visible behavior,
 see [isolation.md](isolation.md). For the draft future network policy model,
-see [network-rule-model.md](network-rule-model.md).
+see [network-rule-model.md](network-rule-model.md). For the migration inventory,
+see [network-transition.md](network-transition.md).
 
 ## Phase 0
 
