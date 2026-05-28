@@ -199,6 +199,8 @@ Exactly one of those keys must be present.
 - allowed only in egress selectors
 - no wildcard syntax in v1
 - no scheme, path, or port syntax
+- Mirage must validate and normalize domain syntax before any resolver or
+  backend consumption rather than treating the field as an opaque string
 
 ## Protocol and port structure
 
@@ -412,6 +414,9 @@ contract should be conservative and explicit:
 - both A and AAAA answers are included
 - CNAME chains are followed to their terminal A/AAAA answers
 - no answer means no match, not implicit allow
+- domain input must be syntactically validated and normalized before resolver or
+  backend use; Mirage must reject malformed names and must not pass raw user
+  strings through to shell commands, resolver CLIs, or firewall tooling
 - explicit IP/CIDR deny rules must remain able to override domain-derived
   allows by rule order
 
