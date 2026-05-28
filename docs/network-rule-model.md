@@ -3,10 +3,12 @@
 This document defines the draft Mirage network rule model that should become the
 lower-level design baseline for future network work.
 
-This document now covers two design slices:
+This document now covers four design slices:
 
 - schema shape and validation boundaries
 - matching semantics, precedence, and loopback treatment
+- domain and DNS semantics
+- v1 scope, non-goals, and follow-up work
 
 ## Status
 
@@ -14,6 +16,23 @@ This document now covers two design slices:
 - **Schema and validation scope:** issue #66
 - **Matching and loopback semantics:** issue #67
 - **Domain enforcement semantics:** issue #68
+- **Canonical design-doc wiring:** issue #69
+
+## Motivation
+
+Mirage should stop treating named network modes as the main design unit.
+
+The lower-level contract should instead be a reviewable rule model with:
+
+- directional policy
+- explicit defaults
+- explicit precedence
+- narrow selector syntax
+- clearly documented deferred behavior
+
+Modes such as `host`, `none`, or future middle-ground behaviors should be
+understood as derived UX surfaces layered on top of this model rather than the
+foundation of the design itself.
 
 ## Design goals
 
@@ -104,7 +123,7 @@ type.
 ```yaml
 - name: allow-admin-ssh
   action: allow
-  from:
+  source:
     cidr: 198.51.100.0/24
   protocol: tcp
   ports: [22]
@@ -114,7 +133,7 @@ Fields:
 
 - `name`: optional human-readable label
 - `action`: required, `allow` or `deny`
-- `from`: required ingress selector
+- `source`: required ingress selector
 - `protocol`: required, `tcp`, `udp`, `icmp`, or `any`
 - `ports`: optional list of integer ports; when omitted, the rule matches any
   port for the selected protocol
@@ -124,7 +143,7 @@ Fields:
 ```yaml
 - name: allow-openai
   action: allow
-  to:
+  destination:
     domain: api.openai.com
   protocol: tcp
   ports: [443]
@@ -134,15 +153,15 @@ Fields:
 
 - `name`: optional human-readable label
 - `action`: required, `allow` or `deny`
-- `to`: required egress selector
+- `destination`: required egress selector
 - `protocol`: required, `tcp`, `udp`, `icmp`, or `any`
 - `ports`: optional list of integer ports; when omitted, the rule matches any
   port for the selected protocol
 
 Using separate rule types lets Mirage reject directional misuse structurally:
 
-- ingress rules use `from`
-- egress rules use `to`
+- ingress rules use `source`
+- egress rules use `destination`
 - ingress rules cannot carry `domain`
 
 ## Selector structure
@@ -180,6 +199,8 @@ Exactly one of those keys must be present.
 - allowed only in egress selectors
 - no wildcard syntax in v1
 - no scheme, path, or port syntax
+- Mirage must validate and normalize domain syntax before any resolver or
+  backend consumption rather than treating the field as an opaque string
 
 ## Protocol and port structure
 
@@ -218,10 +239,10 @@ The parser and validator should reject the following explicitly:
 
 - missing `action`
 - any `action` other than `allow` or `deny`
-- ingress rule missing `from`
-- egress rule missing `to`
-- ingress rule containing `to`
-- egress rule containing `from`
+- ingress rule missing `source`
+- egress rule missing `destination`
+- ingress rule containing `destination`
+- egress rule containing `source`
 - empty `name`
 - duplicate rule names within the same direction when `name` is provided
 
@@ -342,6 +363,114 @@ This means loopback is explicit, separate, and intentionally narrow:
 - `loopback.default: deny` denies loopback traffic regardless of
   `ingress.default` or `egress.default`
 
+## Domain and DNS semantics
+
+`domain` is intentionally treated as a separate design problem rather than just
+another selector spelling.
+
+### Why it is separate
+
+Even a narrow-looking field such as:
+
+```yaml
+destination:
+  domain: api.openai.com
+```
+
+quietly carries questions about:
+
+- when DNS resolution happens
+- whether answers are refreshed
+- how A and AAAA records are handled
+- how CNAME chains are interpreted
+- what failure means
+- whether the real enforcement unit is the domain name or an IP snapshot
+
+Mirage should not pretend those semantics are trivial.
+
+### V1 stance
+
+The v1 design keeps `domain` in the schema and in the design document, but does
+**not** make domain-based enforcement part of the v1 implementation contract.
+
+That means:
+
+- `domain` remains valid syntax for egress destination selection
+- ingress may not use `domain`
+- the document defines the intended future contract shape
+- the first enforcement implementation is still allowed to reject or defer
+  domain-backed rules explicitly instead of pretending support exists
+
+This is deliberate. Mirage should first make `ip` / `cidr`, rule ordering,
+defaults, and loopback behavior solid before it promises DNS-backed policy.
+
+### Minimum future contract if domain enforcement is added later
+
+If Mirage later enables domain-based enforcement, the minimum acceptable
+contract should be conservative and explicit:
+
+- resolution happens at sandbox start time
+- the result is a fixed IP snapshot rather than a continuously refreshed view
+- both A and AAAA answers are included
+- CNAME chains are followed to their terminal A/AAAA answers
+- no answer means no match, not implicit allow
+- domain input must be syntactically validated and normalized before resolver or
+  backend use; Mirage must reject malformed names and must not pass raw user
+  strings through to shell commands, resolver CLIs, or firewall tooling
+- explicit IP/CIDR deny rules must remain able to override domain-derived
+  allows by rule order
+
+This section defines the expected direction, but it is still **deferred
+design**, not a v1 enforcement promise.
+
+## V1 scope
+
+This document is intended to be specific enough for parser, validation, and
+future backend design work to proceed without guessing. That does **not** mean
+every documented field becomes a v1 runtime guarantee.
+
+### In scope for the v1 design baseline
+
+- the top-level `networkPolicy` structure
+- explicit `loopback`, `ingress`, and `egress` sections
+- separate ingress and egress rule shapes
+- selector validation rules
+- protocol and port validation rules
+- first-match rule evaluation
+- explicit default-action semantics
+- loopback as a separate policy zone
+
+### Out of scope for the first implementation contract
+
+- domain-backed enforcement
+- wildcard domains
+- stateful connection-tracking semantics
+- private-range or LAN classification shortcuts
+- service names, identities, or process-aware policy
+- final CLI UX layered on top of the rule model
+- final preset UX layered on top of the rule model
+
+## Non-goals
+
+This document is not trying to:
+
+- finalize firewall backend implementation
+- define packet-hook placement in detail
+- preserve old `allow-host` semantics
+- freeze the final user-facing policy authoring UX
+- define every future derived mode or preset
+
+## Follow-up work
+
+This document should become the canonical design reference, but it does not end
+the broader network work. The main follow-up areas are:
+
+- implementation/backend design for actual enforcement
+- exact DNS/domain enforcement behavior beyond schema reservation
+- transition planning from mode-first to rule-first framing (`#70`)
+- future CLI and preset layering on top of this model
+- diagnostics and explainability for blocked traffic
+
 ## Canonical semantic examples
 
 ### Example: earlier deny beats later allow
@@ -359,12 +488,12 @@ networkPolicy:
     rules:
       - name: deny-private-v4
         action: deny
-        to:
+        destination:
           cidr: 10.0.0.0/8
         protocol: any
       - name: allow-one-host
         action: allow
-        to:
+        destination:
           ip: 10.0.0.5
         protocol: tcp
         ports: [443]
@@ -390,12 +519,12 @@ networkPolicy:
     rules:
       - name: allow-private-v4
         action: allow
-        to:
+        destination:
           cidr: 192.168.0.0/16
         protocol: any
       - name: deny-one-host
         action: deny
-        to:
+        destination:
           ip: 192.168.1.10
         protocol: tcp
         ports: [443]
@@ -420,7 +549,7 @@ networkPolicy:
     rules:
       - name: deny-admin-range
         action: deny
-        from:
+        source:
           cidr: 198.51.100.0/24
         protocol: any
   egress:
@@ -505,7 +634,7 @@ networkPolicy:
     rules:
       - name: allow-openai
         action: allow
-        to:
+        destination:
           domain: api.openai.com
         protocol: tcp
         ports: [443]
@@ -526,7 +655,7 @@ networkPolicy:
     rules:
       - name: allow-private-v4
         action: allow
-        to:
+        destination:
           cidr: 192.168.0.0/16
         protocol: any
 ```
@@ -546,7 +675,7 @@ networkPolicy:
     rules:
       - name: allow-github-https
         action: allow
-        to:
+        destination:
           domain: github.com
         protocol: tcp
         ports: [443]
@@ -565,7 +694,7 @@ networkPolicy:
     default: deny
     rules:
       - action: allow
-        from:
+        source:
           ip: 203.0.113.10
           cidr: 203.0.113.0/24
         protocol: tcp
@@ -590,7 +719,7 @@ networkPolicy:
     default: deny
     rules:
       - action: allow
-        from:
+        source:
           domain: admin.example.com
         protocol: tcp
         ports: [22]
@@ -617,7 +746,7 @@ networkPolicy:
     default: deny
     rules:
       - action: allow
-        to:
+        destination:
           cidr: 203.0.113.0/24
         protocol: any
         ports: [443]
@@ -641,7 +770,7 @@ networkPolicy:
     default: deny
     rules:
       - action: allow
-        to:
+        destination:
           ip: 203.0.113.10
         protocol: tcp
         ports: ["8000-8010"]

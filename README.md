@@ -99,6 +99,8 @@ commands, use the docs linked below.
   current command surface, transitional presets, and common run examples
 - [docs/isolation.md](docs/isolation.md): current isolation matrix, guarantees,
   and known caveats
+- [docs/network-rule-model.md](docs/network-rule-model.md): canonical draft
+  design for the future rule-first network policy model
 - [docs/architecture.md](docs/architecture.md): control-plane and backend
   design, namespace setup, and run flow
 - [docs/development.md](docs/development.md): build, test, formatting, and repo

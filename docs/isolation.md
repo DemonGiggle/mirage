@@ -3,7 +3,8 @@
 This document explains what `mirage` isolates today and where the current
 boundary is weaker than the long-term design. For usage examples, see
 [usage.md](usage.md). For implementation details, see
-[architecture.md](architecture.md).
+[architecture.md](architecture.md). For the future rule-first network design,
+see [network-rule-model.md](network-rule-model.md).
 
 ## Isolation Dimensions
 
