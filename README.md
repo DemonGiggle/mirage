@@ -9,7 +9,7 @@ The project target is pragmatic:
 - CLI first
 - namespace-based isolation
 - explicit rootfs and bind-mount control
-- small stable network contract
+- small explicit network surface
 - enough guardrails for daily agent and developer workflows
 
 `mirage` is not trying to become another Docker or Kubernetes clone.
@@ -22,7 +22,7 @@ Tools such as OpenClaw often need a middle ground:
 - less setup than a VM or full container platform
 - network controls that default to deny
 - explicit writable paths
-- a path from ad hoc runs to reusable presets
+- a path from ad hoc runs to explicit, reviewable launch config
 
 ## Current Scope
 
@@ -33,8 +33,8 @@ Today the project includes:
 - chroot-based rootfs handoff when using a non-`/` rootfs
 - a shared V1 rootfs template schema with curated built-in templates
 - read-only and read-write bind mounts
-- built-in `offline` presets and local preset files
-- stable `host` and `none` network modes
+- transitional built-in presets and local preset-file loading
+- current coarse `host` / `none` network selection pending rule-model redesign
 - stdout and stderr export to host-visible log files
 - delegated cgroup v2 memory and PID limits
 - tracked sandbox lifecycle commands for init-mode runs (`sandbox start/status/stop/logs`)
@@ -79,14 +79,15 @@ Validate that rootfs before trying to run inside it:
 ./bin/mirage doctor --rootfs /srv/mirage/basic-rootfs --command /bin/ls
 ```
 
-Run a simple command with the built-in offline preset:
+Run a simple local-only command:
 
 ```bash
-./bin/mirage run --rootfs / --preset offline -- /bin/echo hello
+./bin/mirage run --rootfs / --net none -- /bin/echo hello
 ```
 
 For the full template catalog, dedicated-rootfs guidance, guest-init workflows,
-bind mounts, presets, and tracked sandbox commands, use the docs linked below.
+bind mounts, the current transitional preset surface, and tracked sandbox
+commands, use the docs linked below.
 
 ## Documentation Map
 
@@ -95,7 +96,7 @@ bind mounts, presets, and tracked sandbox commands, use the docs linked below.
 - [docs/rootfs.md](docs/rootfs.md): rootfs choice, template catalog, schema, and
   guest-init rootfs validation guidance
 - [docs/usage.md](docs/usage.md): installation assumptions, command patterns,
-  presets, and common run examples
+  current command surface, transitional presets, and common run examples
 - [docs/isolation.md](docs/isolation.md): current isolation matrix, guarantees,
   and known caveats
 - [docs/architecture.md](docs/architecture.md): control-plane and backend
@@ -109,8 +110,9 @@ bind mounts, presets, and tracked sandbox commands, use the docs linked below.
 The current backend is useful, but still transitional:
 
 - rootfs handoff still ends with `chroot`, not `pivot_root`
-- future firewall and richer preset design are intentionally deferred beyond the
-  current `host` / `none` network contract
+- the CLI still exposes `preset` loading and coarse `host` / `none` networking,
+  but that surface should be treated as transitional compatibility rather than
+  the long-term network model
 - proc and mount hardening around `--rootfs /` is intentionally documented as a
   current limitation rather than a solved property
 

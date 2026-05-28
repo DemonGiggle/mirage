@@ -35,9 +35,9 @@ Pick the template level you want, then generate a dedicated rootfs:
 If you want a different tool surface, replace `openclaw-developer` with one of
 the other OpenClaw templates listed above.
 
-The built-in `openclaw-offline` preset is a good starting point for local-only
-OpenClaw execution because it recommends the `openclaw-developer` rootfs level
-and defaults the working directory to `/workspace`.
+The built-in `openclaw-offline` preset can still be useful as a transitional
+convenience because it recommends the `openclaw-developer` rootfs level and
+defaults the working directory to `/workspace`.
 
 Install the package inside the generated rootfs:
 
@@ -73,8 +73,9 @@ Start the local OpenClaw gateway on port `18789`:
 
 - If you want a smaller or stricter installation environment, choose a narrower
   rootfs level such as `openclaw-chat-only` or `openclaw-work`.
-- Use `--net none` or the `openclaw-offline` preset for local-only work, and
-  switch to `--net host` explicitly when the workflow truly needs outbound
-  network access.
+- Prefer `--net none` for local-only work, and switch to `--net host`
+  explicitly when the workflow truly needs outbound network access.
+- Treat `openclaw-offline` as a convenience wrapper for current defaults rather
+  than the long-term network-policy model.
 - For the exact built-in template contents, see
   [rootfs.md#built-in-templates](rootfs.md#built-in-templates).

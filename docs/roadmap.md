@@ -32,8 +32,9 @@ see [isolation.md](isolation.md).
 
 - add network namespace modes
 - implement `none` and `host`
-- reduce the public network contract to the stable `host` / `none` core
-- defer future firewall, diagnostics, and preset redesign into follow-up design work
+- reduce the public network surface to the coarse `host` / `none` transition
+- defer rule-based policy, diagnostics, and preset redesign into follow-up
+  design work
 
 ## Phase 4
 
@@ -46,4 +47,5 @@ see [isolation.md](isolation.md).
 ## Phase 5
 
 - support reusable local preset files
+- keep preset support explicitly transitional until the new rule model lands
 - revisit future network policy and diagnostics only after a new core model is defined

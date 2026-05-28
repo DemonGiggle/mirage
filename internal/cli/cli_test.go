@@ -469,7 +469,7 @@ func TestEnsurePresetRootfsReportsMissingAssets(t *testing.T) {
 	}
 }
 
-func TestDoctorReportsStableNetworkModes(t *testing.T) {
+func TestDoctorReportsCurrentCoarseNetworkModes(t *testing.T) {
 	var out bytes.Buffer
 	var errBuf bytes.Buffer
 
@@ -478,8 +478,8 @@ func TestDoctorReportsStableNetworkModes(t *testing.T) {
 	}
 
 	got := out.String()
-	if !strings.Contains(got, "stable network modes: host, none") {
-		t.Fatalf("expected doctor output to report stable network modes, got %q", got)
+	if !strings.Contains(got, "current coarse network modes: host, none") {
+		t.Fatalf("expected doctor output to report current coarse network modes, got %q", got)
 	}
 }
 
