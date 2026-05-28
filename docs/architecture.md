@@ -2,7 +2,8 @@
 
 This document describes how `mirage` is structured internally. For operator
 usage, see [usage.md](usage.md). For the exact user-visible isolation behavior,
-see [isolation.md](isolation.md).
+see [isolation.md](isolation.md). For the canonical draft network policy model,
+see [network-rule-model.md](network-rule-model.md).
 
 ## Design Goals
 
@@ -226,4 +227,6 @@ flowchart TD
 - [usage.md](usage.md) explains how to invoke the CLI
 - [isolation.md](isolation.md) explains what isolation properties users should
   expect today
+- [network-rule-model.md](network-rule-model.md) defines the draft future
+  rule-first network policy model
 - [roadmap.md](roadmap.md) tracks the remaining implementation work
