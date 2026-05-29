@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/netip"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"unicode"
@@ -297,6 +299,40 @@ func LoadNetworkPolicyYAML(data []byte) (NetworkPolicy, error) {
 		return NetworkPolicy{}, errors.New("networkPolicy is required")
 	}
 	return NormalizeNetworkPolicy(*doc.NetworkPolicy)
+}
+
+func LoadNetworkPolicyFile(path string) (NetworkPolicy, error) {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".yaml", ".yml":
+	default:
+		return NetworkPolicy{}, fmt.Errorf("network policy file %q must use a .yaml or .yml extension", path)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return NetworkPolicy{}, fmt.Errorf("read network policy file %q: %w", path, err)
+	}
+	policy, err := LoadNetworkPolicyYAML(data)
+	if err != nil {
+		return NetworkPolicy{}, fmt.Errorf("load network policy file %q: %w", path, err)
+	}
+	return policy, nil
+}
+
+func AllowAllNetworkPolicy() NetworkPolicy {
+	return NetworkPolicy{
+		Version: 1,
+		Loopback: LoopbackPolicy{
+			Default: PolicyAllow,
+		},
+		Ingress: IngressPolicy{
+			Default: PolicyAllow,
+			Rules:   []IngressRule{},
+		},
+		Egress: EgressPolicy{
+			Default: PolicyAllow,
+			Rules:   []EgressRule{},
+		},
+	}
 }
 
 func ValidateNetworkPolicy(policy *NetworkPolicy) error {

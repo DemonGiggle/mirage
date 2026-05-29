@@ -69,7 +69,7 @@ This layer decides what should happen. It does not enforce the sandbox itself.
 The runner is responsible for:
 
 - creating user, PID, mount, UTS, and IPC namespaces
-- creating a network namespace when requested
+- selecting the concrete network backend implied by the resolved policy
 - preparing runtime mounts such as `/proc`, `/tmp`, and `/run`
 - applying bind mounts
 - performing rootfs handoff
@@ -126,7 +126,7 @@ The current init-mode contract is intentionally narrow:
 
 - it preserves a true guest PID 1 handoff
 - it does not yet add a Mirage supervisor above that init process
-- it shares the same current coarse `host` / `none` network surface as direct mode
+- it shares the same policy-first network surface as direct mode
 - it assumes a unified cgroup v2 host and always enters a delegated
   `systemd-run --user --scope` leaf before guest init starts
 - it currently requires a dedicated rootfs, because host-root mode keeps the
@@ -169,16 +169,17 @@ Important consequences:
 
 ## Network Model
 
-The current network modes are intentionally small:
+The current network backend intentionally supports only a narrow subset of the
+full policy model:
 
-- `host`: no network namespace isolation
-- `none`: separate network namespace with no network access
+- allow-all policy: host namespace passthrough
+- isolated deny-only policy: separate network namespace with loopback controlled
+  by policy
+- richer allow rules, ingress allow defaults, and domain-backed selectors:
+  explicit unsupported errors
 
-Anything richer than that is intentionally deferred. The current `--net` and
-`preset` surface should be treated as transitional compatibility while the
-rule-based network model is designed. Future firewall, diagnostics, and policy
-composition work should be rebuilt on top of that new model rather than
-inherited from the removed observed-policy surface.
+This keeps the public surface policy-first while still failing closed when the
+current backend cannot enforce a requested rule shape.
 
 ## Rootfs Direction
 

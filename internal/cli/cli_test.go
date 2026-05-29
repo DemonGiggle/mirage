@@ -35,7 +35,7 @@ func TestPresetList(t *testing.T) {
 	}
 
 	got := out.String()
-	for _, name := range []string{"offline", "openclaw-offline"} {
+	for _, name := range []string{"allow-all", "offline", "openclaw-offline"} {
 		if !strings.Contains(got, name) {
 			t.Fatalf("expected preset list to contain %q, got %q", name, got)
 		}
@@ -49,7 +49,16 @@ func TestPresetListWithPresetFile(t *testing.T) {
 	presetFile := filepath.Join(t.TempDir(), "presets.yaml")
 	if err := os.WriteFile(presetFile, []byte(`presets:
   - name: team-offline
-    network: none
+    networkPolicy:
+      version: 1
+      loopback:
+        default: allow
+      ingress:
+        default: deny
+        rules: []
+      egress:
+        default: deny
+        rules: []
     description: Team preset
 `), 0o644); err != nil {
 		t.Fatalf("write preset file: %v", err)
@@ -138,7 +147,16 @@ func TestRunDryRunWithPresetFile(t *testing.T) {
 	presetFile := filepath.Join(t.TempDir(), "presets.yaml")
 	if err := os.WriteFile(presetFile, []byte(`presets:
   - name: team-offline
-    network: none
+    networkPolicy:
+      version: 1
+      loopback:
+        default: allow
+      ingress:
+        default: deny
+        rules: []
+      egress:
+        default: deny
+        rules: []
     description: Team preset
 `), 0o644); err != nil {
 		t.Fatalf("write preset file: %v", err)
@@ -161,8 +179,8 @@ func TestRunDryRunWithPresetFile(t *testing.T) {
 	if !strings.Contains(got, "preset-file: "+presetFile) {
 		t.Fatalf("expected dry run output to mention preset file, got %q", got)
 	}
-	if !strings.Contains(got, "preset: team-offline") || !strings.Contains(got, "net: none") {
-		t.Fatalf("expected dry run output to mention simplified preset networking, got %q", got)
+	if !strings.Contains(got, "preset: team-offline") || !strings.Contains(got, "network-policy-egress: default=deny rules=0") {
+		t.Fatalf("expected dry run output to mention preset policy, got %q", got)
 	}
 }
 
@@ -211,7 +229,7 @@ func TestRunDryRunWithPolicyPresetFile(t *testing.T) {
 		"network-policy: v1",
 		"network-policy-loopback-default: allow",
 		"network-policy-egress: default=deny rules=1",
-		"note: network backend: rule-first policy unsupported by current backend",
+		"note: network backend: networkPolicy unsupported by current backend",
 	} {
 		if !strings.Contains(got, needle) {
 			t.Fatalf("expected dry run output to contain %q, got %q", needle, got)
@@ -241,7 +259,7 @@ func TestRunDryRunWithOfflinePolicyFixture(t *testing.T) {
 	for _, needle := range []string{
 		"network-policy: v1",
 		"network-policy-egress: default=deny rules=0",
-		"note: network backend: rule-first isolated namespace (allow loopback)",
+		"note: network backend: isolated policy namespace (allow loopback)",
 		"execution: skipped (--dry-run)",
 	} {
 		if !strings.Contains(got, needle) {
@@ -250,7 +268,35 @@ func TestRunDryRunWithOfflinePolicyFixture(t *testing.T) {
 	}
 }
 
-func TestRunRejectsPolicyPresetCombinedWithNetFlag(t *testing.T) {
+func TestRunDryRunWithNetworkPolicyFile(t *testing.T) {
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+
+	err := Run([]string{
+		"run",
+		"--rootfs", "/srv/rootfs",
+		"--network-policy-file", filepath.Join("..", "..", "testdata", "network-policies", "allow-all.yaml"),
+		"--dry-run",
+		"--",
+		"echo", "hello",
+	}, &out, &errBuf)
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	got := out.String()
+	for _, needle := range []string{
+		"network-policy-file: ../../testdata/network-policies/allow-all.yaml",
+		"network-policy-egress: default=allow rules=0",
+		"note: network backend: allow-all policy via host namespace passthrough",
+	} {
+		if !strings.Contains(got, needle) {
+			t.Fatalf("expected dry run output to contain %q, got %q", needle, got)
+		}
+	}
+}
+
+func TestRunRejectsPolicyPresetCombinedWithPolicyFile(t *testing.T) {
 	var out bytes.Buffer
 	var errBuf bytes.Buffer
 
@@ -276,13 +322,13 @@ func TestRunRejectsPolicyPresetCombinedWithNetFlag(t *testing.T) {
 		"--rootfs", "/srv/rootfs",
 		"--preset-file", presetFile,
 		"--preset", "team-policy",
-		"--net", "none",
+		"--network-policy-file", filepath.Join("..", "..", "testdata", "network-policies", "offline.yaml"),
 		"--dry-run",
 		"--",
 		"echo", "hello",
 	}, &out, &errBuf)
-	if err == nil || !strings.Contains(err.Error(), "--net cannot be combined") {
-		t.Fatalf("expected policy/net ambiguity error, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "--network-policy-file cannot be combined") {
+		t.Fatalf("expected policy ambiguity error, got %v", err)
 	}
 }
 
@@ -321,7 +367,7 @@ func indentYAML(text string, prefix string) string {
 	return b.String()
 }
 
-func TestRunRejectsUnsupportedNetworkMode(t *testing.T) {
+func TestRunRejectsLegacyNetFlag(t *testing.T) {
 	var out bytes.Buffer
 	var errBuf bytes.Buffer
 
@@ -335,7 +381,7 @@ func TestRunRejectsUnsupportedNetworkMode(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected validation error, got nil")
 	}
-	if !strings.Contains(err.Error(), `invalid network mode "isolated"`) {
+	if !strings.Contains(err.Error(), "flag provided but not defined: -net") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -347,7 +393,7 @@ func TestRunRejectsInitModeWithHostRootfs(t *testing.T) {
 	err := Run([]string{
 		"run",
 		"--rootfs", "/",
-		"--net", "host",
+		"--preset", "allow-all",
 		"--runtime-mode", "init",
 		"--",
 		"/usr/lib/systemd/systemd",
@@ -360,26 +406,6 @@ func TestRunRejectsInitModeWithHostRootfs(t *testing.T) {
 	}
 }
 
-func TestRunRejectsInitModeWithUnsupportedNetworkMode(t *testing.T) {
-	var out bytes.Buffer
-	var errBuf bytes.Buffer
-
-	err := Run([]string{
-		"run",
-		"--rootfs", "/srv/rootfs",
-		"--net", "isolated",
-		"--runtime-mode", "init",
-		"--",
-		"/usr/lib/systemd/systemd",
-	}, &out, &errBuf)
-	if err == nil {
-		t.Fatal("expected validation error, got nil")
-	}
-	if !strings.Contains(err.Error(), `invalid network mode "isolated"`) {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
 func TestRunRejectsBindMountOverGuestCgroupTreeInInitMode(t *testing.T) {
 	var out bytes.Buffer
 	var errBuf bytes.Buffer
@@ -387,7 +413,7 @@ func TestRunRejectsBindMountOverGuestCgroupTreeInInitMode(t *testing.T) {
 	err := Run([]string{
 		"run",
 		"--rootfs", "/srv/rootfs",
-		"--net", "host",
+		"--preset", "allow-all",
 		"--runtime-mode", "init",
 		"--rw-bind", "/host/path:/sys/fs/cgroup",
 		"--",
@@ -408,7 +434,7 @@ func TestRunRejectsManagedRuntimeMountTargetInInitMode(t *testing.T) {
 	err := Run([]string{
 		"run",
 		"--rootfs", "/srv/rootfs",
-		"--net", "host",
+		"--preset", "allow-all",
 		"--runtime-mode", "init",
 		"--ro-bind", "/host/path:/dev/null",
 		"--",
@@ -429,7 +455,7 @@ func TestRunDryRunWithInitMode(t *testing.T) {
 	err := Run([]string{
 		"run",
 		"--rootfs", "/srv/rootfs",
-		"--net", "host",
+		"--preset", "allow-all",
 		"--runtime-mode", "init",
 		"--dry-run",
 		"--",
@@ -460,7 +486,7 @@ func TestRunDryRunShowsLogExport(t *testing.T) {
 	err := Run([]string{
 		"run",
 		"--rootfs", "/srv/rootfs",
-		"--net", "host",
+		"--preset", "allow-all",
 		"--stdout-log", stdoutLog,
 		"--dry-run",
 		"--",
@@ -628,7 +654,16 @@ func TestEnsurePresetRootfsReportsMissingAssets(t *testing.T) {
 	presetFile := filepath.Join(t.TempDir(), "presets.yaml")
 	if err := os.WriteFile(presetFile, []byte(`presets:
   - name: team-missing
-    network: none
+    networkPolicy:
+      version: 1
+      loopback:
+        default: allow
+      ingress:
+        default: deny
+        rules: []
+      egress:
+        default: deny
+        rules: []
     rootfs:
       template: `+templateName+`
 `), 0o644); err != nil {
@@ -656,7 +691,7 @@ func TestEnsurePresetRootfsReportsMissingAssets(t *testing.T) {
 	}
 }
 
-func TestDoctorReportsCurrentCoarseNetworkModes(t *testing.T) {
+func TestDoctorReportsPolicyFirstNetworking(t *testing.T) {
 	var out bytes.Buffer
 	var errBuf bytes.Buffer
 
@@ -665,8 +700,8 @@ func TestDoctorReportsCurrentCoarseNetworkModes(t *testing.T) {
 	}
 
 	got := out.String()
-	if !strings.Contains(got, "current coarse network modes: host, none") {
-		t.Fatalf("expected doctor output to report current coarse network modes, got %q", got)
+	if !strings.Contains(got, "rule-first network policy config: available via presets and --network-policy-file") {
+		t.Fatalf("expected doctor output to report policy-first networking, got %q", got)
 	}
 }
 
@@ -732,7 +767,16 @@ func TestDoctorPrintsDeduplicatedPresetCommands(t *testing.T) {
 	presetFile := filepath.Join(t.TempDir(), "presets.yaml")
 	if err := os.WriteFile(presetFile, []byte(`presets:
   - name: team-basic
-    network: none
+    networkPolicy:
+      version: 1
+      loopback:
+        default: allow
+      ingress:
+        default: deny
+        rules: []
+      egress:
+        default: deny
+        rules: []
     rootfs:
       required_commands:
         - " /bin/ls "

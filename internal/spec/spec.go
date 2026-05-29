@@ -8,13 +8,6 @@ import (
 	"strings"
 )
 
-type NetworkMode string
-
-const (
-	NetworkNone NetworkMode = "none"
-	NetworkHost NetworkMode = "host"
-)
-
 type RuntimeMode string
 
 const (
@@ -30,31 +23,30 @@ type RootfsExpectations struct {
 
 type Preset struct {
 	Name          string             `json:"name" yaml:"name"`
-	NetworkMode   NetworkMode        `json:"network,omitempty" yaml:"network,omitempty"`
 	NetworkPolicy *NetworkPolicy     `json:"networkPolicy,omitempty" yaml:"networkPolicy,omitempty"`
 	Rootfs        RootfsExpectations `json:"rootfs,omitempty" yaml:"rootfs,omitempty"`
 	Description   string             `json:"description" yaml:"description"`
 }
 
 type Config struct {
-	RootFS        string
-	NetworkMode   NetworkMode
-	NetworkPolicy *NetworkPolicy
-	RuntimeMode   RuntimeMode
-	ScopeName     string
-	Preset        string
-	PresetFile    string
-	ROBind        []string
-	RWBind        []string
-	Env           []string
-	StdoutLog     string
-	StderrLog     string
-	Cwd           string
-	Hostname      string
-	Memory        string
-	Pids          int
-	DryRun        bool
-	Command       []string
+	RootFS            string
+	NetworkPolicyFile string
+	NetworkPolicy     *NetworkPolicy
+	RuntimeMode       RuntimeMode
+	ScopeName         string
+	Preset            string
+	PresetFile        string
+	ROBind            []string
+	RWBind            []string
+	Env               []string
+	StdoutLog         string
+	StderrLog         string
+	Cwd               string
+	Hostname          string
+	Memory            string
+	Pids              int
+	DryRun            bool
+	Command           []string
 }
 
 func PresetNames() []string {
@@ -78,23 +70,11 @@ func ApplyPreset(cfg Config) (Config, error) {
 	if !ok {
 		return cfg, fmt.Errorf("unknown preset %q", cfg.Preset)
 	}
-	if cfg.NetworkMode != "" && cfg.NetworkPolicy != nil {
-		return cfg, errors.New("network and networkPolicy cannot both be set")
-	}
-	if cfg.NetworkMode == "" && cfg.NetworkPolicy == nil {
-		cfg.NetworkMode = preset.NetworkMode
-		if preset.NetworkPolicy != nil {
-			cfg.NetworkPolicy = preset.NetworkPolicy
-		}
+	if cfg.NetworkPolicy == nil {
+		cfg.NetworkPolicy = preset.NetworkPolicy
 		return cfg, nil
 	}
-	if cfg.NetworkMode != "" && preset.NetworkPolicy != nil {
-		return cfg, fmt.Errorf("preset %q defines networkPolicy; --net cannot be combined with that preset", cfg.Preset)
-	}
-	if cfg.NetworkPolicy != nil && preset.NetworkMode != "" {
-		return cfg, fmt.Errorf("preset %q defines network %q; inline networkPolicy cannot be combined with that preset", cfg.Preset, preset.NetworkMode)
-	}
-	return cfg, nil
+	return cfg, fmt.Errorf("preset %q defines networkPolicy; --network-policy-file cannot be combined with that preset", cfg.Preset)
 }
 
 func AvailablePresets(presetFile string) (map[string]Preset, error) {
@@ -147,21 +127,10 @@ func Validate(cfg Config) error {
 	default:
 		problems = append(problems, fmt.Errorf("invalid runtime mode %q", cfg.RuntimeMode))
 	}
-	if cfg.NetworkMode != "" && cfg.NetworkPolicy != nil {
-		problems = append(problems, errors.New("network and networkPolicy cannot both be set"))
-	}
-	if cfg.NetworkPolicy != nil {
-		if err := ValidateNetworkPolicy(cfg.NetworkPolicy); err != nil {
-			problems = append(problems, err)
-		}
-	} else {
-		switch cfg.NetworkMode {
-		case NetworkNone, NetworkHost:
-		case "":
-			problems = append(problems, errors.New("network mode or networkPolicy is required"))
-		default:
-			problems = append(problems, fmt.Errorf("invalid network mode %q", cfg.NetworkMode))
-		}
+	if cfg.NetworkPolicy == nil {
+		problems = append(problems, errors.New("networkPolicy is required"))
+	} else if err := ValidateNetworkPolicy(cfg.NetworkPolicy); err != nil {
+		problems = append(problems, err)
 	}
 	if len(cfg.Command) == 0 {
 		problems = append(problems, errors.New("command is required after --"))
@@ -204,8 +173,9 @@ func Summary(cfg Config) string {
 		fmt.Fprintf(&b, "network-policy-loopback-default: %s\n", cfg.NetworkPolicy.Loopback.Default)
 		fmt.Fprintf(&b, "network-policy-ingress: default=%s rules=%d\n", cfg.NetworkPolicy.Ingress.Default, len(cfg.NetworkPolicy.Ingress.Rules))
 		fmt.Fprintf(&b, "network-policy-egress: default=%s rules=%d\n", cfg.NetworkPolicy.Egress.Default, len(cfg.NetworkPolicy.Egress.Rules))
-	} else {
-		fmt.Fprintf(&b, "net: %s\n", cfg.NetworkMode)
+	}
+	if cfg.NetworkPolicyFile != "" {
+		fmt.Fprintf(&b, "network-policy-file: %s\n", cfg.NetworkPolicyFile)
 	}
 	fmt.Fprintf(&b, "runtime-mode: %s\n", NormalizeRuntimeMode(cfg.RuntimeMode))
 	if cfg.Preset != "" {

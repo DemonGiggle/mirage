@@ -11,7 +11,16 @@ func TestLoadPresetsFromFS(t *testing.T) {
 		"presets/custom.yaml": {
 			Data: []byte(`presets:
   - name: custom
-    network: host
+    networkPolicy:
+      version: 1
+      loopback:
+        default: allow
+      ingress:
+        default: allow
+        rules: []
+      egress:
+        default: allow
+        rules: []
     description: Custom preset
 `),
 		},
@@ -24,7 +33,7 @@ func TestLoadPresetsFromFS(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected custom preset to be loaded, got %v", presets)
 	}
-	if preset.NetworkMode != NetworkHost {
+	if preset.NetworkPolicy == nil || preset.NetworkPolicy.Egress.Default != PolicyAllow {
 		t.Fatalf("unexpected preset content: %#v", preset)
 	}
 }
@@ -34,7 +43,16 @@ func TestLoadPresetsFromFSRejectsUnknownFields(t *testing.T) {
 		"presets/custom.yaml": {
 			Data: []byte(`presets:
   - name: custom
-    network: host
+    networkPolicy:
+      version: 1
+      loopback:
+        default: allow
+      ingress:
+        default: allow
+        rules: []
+      egress:
+        default: allow
+        rules: []
     unknown_field: true
 `),
 		},
@@ -55,7 +73,7 @@ func TestLoadBuiltInPresetsFromEmbed(t *testing.T) {
 	if len(presets) != len(BuiltInPresets) {
 		t.Fatalf("unexpected built-in preset count: got %d want %d", len(presets), len(BuiltInPresets))
 	}
-	for _, name := range []string{"offline", "openclaw-offline"} {
+	for _, name := range []string{"allow-all", "offline", "openclaw-offline"} {
 		if _, ok := presets[name]; !ok {
 			t.Fatalf("expected built-in embedded preset %q, got %v", name, PresetNames())
 		}

@@ -57,7 +57,7 @@ Validate a rootfs before running inside it:
 ./bin/mirage doctor --rootfs /srv/mirage/basic-rootfs --command /bin/ls
 ```
 
-Inspect the current transitional preset set:
+Inspect the current built-in preset set:
 
 ```bash
 ./bin/mirage preset list
@@ -66,7 +66,7 @@ Inspect the current transitional preset set:
 Preview a run without executing it:
 
 ```bash
-./bin/mirage run --dry-run --rootfs / --net none -- /bin/echo hello
+./bin/mirage run --dry-run --rootfs / --preset offline -- /bin/echo hello
 ```
 
 Preview an init-oriented run where the guest entrypoint must become PID 1:
@@ -74,7 +74,7 @@ Preview an init-oriented run where the guest entrypoint must become PID 1:
 ```bash
 ./bin/mirage run \
   --rootfs /srv/mirage/systemd-rootfs \
-  --net host \
+  --preset allow-all \
   --runtime-mode init \
   -- /usr/lib/systemd/systemd
 ```
@@ -109,8 +109,8 @@ mirage run [sandbox options...] -- command [args...]
 Common options include:
 
 - `--rootfs`: root filesystem for the sandbox
-- `--preset`: transitional built-in or file-backed preset name
-- `--net`: current coarse network override
+- `--preset`: built-in or file-backed preset name
+- `--network-policy-file`: standalone `networkPolicy` YAML file
 - `--runtime-mode`: `direct` (default) or `init`
 - `--ro-bind`: read-only `host:guest` bind mount
 - `--rw-bind`: read-write `host:guest` bind mount
@@ -122,8 +122,15 @@ Common options include:
 `--runtime-mode direct` keeps the current one-command model: the requested
 workload becomes sandbox PID 1. `--runtime-mode init` is for guest init systems
 such as `systemd`; the requested init binary becomes sandbox PID 1 directly
-instead of being wrapped by Mirage. The current network choices for both runtime
-modes are currently `--net host` and `--net none`.
+instead of being wrapped by Mirage. Network behavior is resolved from either a
+preset or `--network-policy-file`. The current backend supports two concrete
+policy shapes:
+
+- allow-all policy -> host namespace passthrough
+- isolated deny-only policy -> dedicated network namespace
+
+Richer allow rules or deferred selectors such as domain-based egress fail
+explicitly instead of silently degrading.
 
 Init mode currently defines a narrow guest cgroup contract:
 
@@ -249,7 +256,7 @@ Example:
 
 `mirage` supports:
 
-- built-in transitional presets such as `offline` and `openclaw-offline`
+- built-in presets such as `allow-all`, `offline`, and `openclaw-offline`
 - local YAML preset files merged with the built-ins
 
 Example preset file:
@@ -257,7 +264,16 @@ Example preset file:
 ```yaml
 presets:
   - name: team-offline
-    network: none
+    networkPolicy:
+      version: 1
+      loopback:
+        default: allow
+      ingress:
+        default: deny
+        rules: []
+      egress:
+        default: deny
+        rules: []
     rootfs:
       template: openclaw-developer
       required_commands:
@@ -273,9 +289,10 @@ Use it with:
 ./bin/mirage run --rootfs /srv/rootfs --preset-file ./presets.yaml --preset team-offline -- app
 ```
 
-This preset layer is a convenience surface, not the long-term network-policy
-design. Prefer explicit `--net` usage in new examples unless the preset's
-rootfs hints or working-directory defaults are the point of the example.
+Presets are a convenience surface on top of the same `networkPolicy` object
+model. Prefer `--network-policy-file` when you want the policy document itself
+to be the reviewable artifact; prefer presets when you also want rootfs hints or
+working-directory defaults.
 
 For the exact isolation behavior of each built-in preset, see
 [isolation.md](isolation.md).
@@ -286,21 +303,20 @@ path. A preset can recommend a rootfs template or required commands, while
 
 ## Network Usage
 
-The current network philosophy is intentionally narrow:
+The current network philosophy is intentionally narrow and policy-first:
 
-- use `--net none` when the workload should not reach the network
-- use `--net host` when the workload truly needs outbound access
-- treat presets as transitional convenience wrappers rather than the network
-  model itself
-- treat richer policy, diagnostics, and policy composition as future work rather
-  than an implied current feature
+- use `--preset offline` when the workload should not reach non-loopback network
+- use `--preset allow-all` when the workload truly needs the host network stack
+- use `--network-policy-file` for a reviewable standalone policy document
+- expect richer allow rules, ingress allow defaults, and domain-backed egress to
+  fail explicitly until a stronger enforcement backend exists
 
 Example:
 
 ```bash
 ./bin/mirage run \
   --rootfs /srv/mirage/rootfs \
-  --net host \
+  --preset allow-all \
   -- app
 ```
 
@@ -312,7 +328,7 @@ output:
 ```bash
 ./bin/mirage run \
   --rootfs / \
-  --net host \
+  --preset allow-all \
   --stdout-log /tmp/app.out \
   --stderr-log /tmp/app.err \
   -- /bin/sh -c "printf 'out'; printf 'err' >&2"

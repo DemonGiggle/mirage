@@ -9,7 +9,10 @@ import (
 	"github.com/DemonGiggle/mirage/internal/spec"
 )
 
-const backendNetworkPolicyIsolated = "policy-isolated"
+const (
+	backendNetworkPolicyHost     = "host"
+	backendNetworkPolicyIsolated = "isolated"
+)
 
 var policyNetworkCommand = exec.Command
 
@@ -27,6 +30,13 @@ func planNetworkPolicyBackend(cfg spec.Config) (networkPolicyBackendPlan, error)
 	if err != nil {
 		return networkPolicyBackendPlan{}, err
 	}
+	if policyIsHostPassthrough(policy) {
+		return networkPolicyBackendPlan{
+			Policy:         policy,
+			BackendMode:    backendNetworkPolicyHost,
+			LoopbackAction: policy.Loopback,
+		}, nil
+	}
 	if err := validateIsolatedPolicyBackendSupport(policy); err != nil {
 		return networkPolicyBackendPlan{}, err
 	}
@@ -35,6 +45,14 @@ func planNetworkPolicyBackend(cfg spec.Config) (networkPolicyBackendPlan, error)
 		BackendMode:    backendNetworkPolicyIsolated,
 		LoopbackAction: policy.Loopback,
 	}, nil
+}
+
+func policyIsHostPassthrough(policy netpolicy.Policy) bool {
+	return policy.Loopback == netpolicy.ActionAllow &&
+		policy.Ingress.Default == netpolicy.ActionAllow &&
+		policy.Egress.Default == netpolicy.ActionAllow &&
+		len(policy.Ingress.Rules) == 0 &&
+		len(policy.Egress.Rules) == 0
 }
 
 func validateIsolatedPolicyBackendSupport(policy netpolicy.Policy) error {

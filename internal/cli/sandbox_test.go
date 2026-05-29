@@ -76,6 +76,7 @@ func TestSandboxStartWritesStateAndLaunchesNamedScope(t *testing.T) {
 		"run --rootfs " + rootfsPath,
 		"--runtime-mode init",
 		"--scope-name mirage-sandbox-demo.scope",
+		"--preset allow-all",
 		"--stdout-log " + filepath.Join(stateDir, "demo", "stdout.log"),
 		"--stderr-log " + filepath.Join(stateDir, "demo", "stderr.log"),
 		"-- /usr/lib/systemd/systemd",
@@ -88,6 +89,59 @@ func TestSandboxStartWritesStateAndLaunchesNamedScope(t *testing.T) {
 	output := out.String()
 	if !strings.Contains(output, "service-unit: openclaw.service") || !strings.Contains(output, "status: starting") {
 		t.Fatalf("expected sandbox start output, got %q", output)
+	}
+}
+
+func TestSandboxStartForwardsNetworkPolicyFile(t *testing.T) {
+	stateDir := t.TempDir()
+	rootfsPath := filepath.Join(t.TempDir(), "rootfs")
+	if err := os.MkdirAll(rootfsPath, 0o755); err != nil {
+		t.Fatalf("MkdirAll returned error: %v", err)
+	}
+
+	origValidate := sandboxValidateInitRootfs
+	origLaunch := sandboxLaunchProcess
+	origStateRoot := sandboxStateRootDir
+	t.Cleanup(func() {
+		sandboxValidateInitRootfs = origValidate
+		sandboxLaunchProcess = origLaunch
+		sandboxStateRootDir = origStateRoot
+	})
+
+	sandboxStateRootDir = func(override string) (string, error) {
+		return defaultSandboxStateRootDir(stateDir)
+	}
+	sandboxValidateInitRootfs = func(rootfsPath string, command string, serviceUnit string) (rootfs.InitValidationReport, error) {
+		return rootfs.InitValidationReport{
+			Rootfs:       rootfsPath,
+			ResolvedInit: "/usr/lib/systemd/systemd",
+		}, nil
+	}
+
+	var launched sandboxLaunchRequest
+	sandboxLaunchProcess = func(req sandboxLaunchRequest) error {
+		launched = req
+		return nil
+	}
+
+	policyFile := filepath.Join("..", "..", "testdata", "network-policies", "offline.yaml")
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+	err := Run([]string{
+		"sandbox",
+		"start",
+		"--name", "demo-policy",
+		"--state-dir", stateDir,
+		"--rootfs", rootfsPath,
+		"--network-policy-file", policyFile,
+	}, &out, &errBuf)
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	got := strings.Join(launched.RunArgs, " ")
+	if !strings.Contains(got, "--network-policy-file "+policyFile) {
+		t.Fatalf("expected launched args to forward network policy file, got %q", got)
 	}
 }
 

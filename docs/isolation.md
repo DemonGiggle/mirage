@@ -10,27 +10,25 @@ see [network-rule-model.md](network-rule-model.md).
 
 There are three sources of behavior to keep separate:
 
-- network mode or preset choice
+- network policy or preset choice
 - runner behavior: namespaces, mounts, and cgroups
 - rootfs choice: how strong the filesystem and `/proc` view are
 
 Most confusion comes from mixing those together.
 
-## Transitional Network Surface
+## Current Network Surface
 
-Mirage currently exposes only two coarse network selections:
+Mirage now exposes only policy-first network inputs:
 
-| Mode | Network behavior |
+| Surface | Network behavior |
 | --- | --- |
-| `host` | No network namespace isolation; the workload uses the host network stack |
-| `none` | Dedicated network namespace with no network access |
+| `--preset allow-all` or allow-all `networkPolicy` | No network namespace isolation; the workload uses the host network stack |
+| `--preset offline` / `openclaw-offline` or isolated deny-only `networkPolicy` | Dedicated network namespace with no non-loopback network access |
+| richer allow rules or deferred selectors | Explicit unsupported error |
 
-The built-in `offline` and `openclaw-offline` presets both resolve to
-`network: none`.
-
-That should be read as a temporary CLI surface, not as the final policy model.
-Anything more granular than `host` / `none` is intentionally deferred to the
-rule-model redesign work.
+That should still be read as a narrow implementation slice, not as the complete
+rule-engine target. Anything more granular than those currently-supported policy
+shapes remains intentionally deferred.
 
 ## What Mirage Isolates Today
 
@@ -58,7 +56,7 @@ This is the most important current caveat:
 - `--rootfs /` does not remount proc, so tools such as `ps` can still inspect
   the host procfs mount
 
-That is why `mirage run --rootfs / --net none -- ps aux` can still show
+That is why `mirage run --rootfs / --preset offline -- ps aux` can still show
 the host process list.
 
 ## Current Guarantees
@@ -67,7 +65,7 @@ Today you can rely on:
 
 - namespace-backed process-tree execution on Linux
 - explicit bind-mount application
-- the current `host` / `none` network selection through presets or inline flags
+- policy-first network selection through presets or standalone policy files
 - delegated cgroup v2 memory and PID limits
 - delegated unified cgroup v2 exposure for `--runtime-mode init`
 - init-mode-only managed runtime mounts for `/dev`, `/sys`, and `/run`
@@ -82,15 +80,15 @@ Today you should assume:
 - rootfs handoff still ends with `chroot`, not `pivot_root`
 - guest init cgroup support is limited to unified cgroup v2 with a delegated
   host systemd scope and a dedicated rootfs
-- the current network and preset surface is expected to be replaced by a more
-  explicit rule-based model; that redesign is not implemented yet
+- the current network backend only supports allow-all host passthrough and
+  isolated deny-only policies; richer policy enforcement is not implemented yet
 
 ## Practical Guidance
 
 - use `--rootfs /` only for quick local checks and simple host-root-based runs
 - use a dedicated rootfs when filesystem separation or proc visibility matters
-- prefer explicit `--net` usage in new operator flows; treat presets as
-  convenience defaults, not full sandbox profiles
+- prefer explicit `--network-policy-file` or named presets in operator flows so
+  network behavior stays reviewable
 - choose the runtime mode deliberately:
   - `direct` for one-shot commands where Mirage owns the foreground workload
   - `init` for guest-init-style sandboxes that need a dedicated rootfs, a
