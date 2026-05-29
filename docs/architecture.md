@@ -68,7 +68,8 @@ The runner is responsible for:
 
 - creating user, PID, mount, UTS, and IPC namespaces
 - selecting the concrete network backend implied by the resolved policy
-- preparing runtime mounts such as `/proc`, `/tmp`, and `/run`
+- preparing runtime mounts such as `/proc`, `/tmp`, `/run`, and a managed `/dev`
+  layout for dedicated rootfs runs
 - applying bind mounts
 - performing rootfs handoff
 - entering delegated cgroup v2 limits when configured
@@ -88,7 +89,8 @@ The backend currently builds the sandbox in this order:
 
 1. create namespaces with `unshare`
 2. prepare mount propagation when a separate mount layout is needed
-3. mount `proc`, `tmpfs`, and `run` under a non-`/` rootfs
+3. mount `proc`, `tmpfs`, `run`, and a managed `/dev` layout under a non-`/`
+   rootfs
 4. apply read-only and read-write bind mounts
 5. hand off into the rootfs with `chroot`
 6. execute the workload directly

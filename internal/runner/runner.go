@@ -495,6 +495,57 @@ func prepareRootfsMountLayout(rootfs string) error {
 	if err := mountTmpfs(filepath.Join(rootfs, "run"), "mode=0755"); err != nil {
 		return err
 	}
+	if err := prepareSandboxDevLayout(rootfs); err != nil {
+		return err
+	}
+	return nil
+}
+
+func prepareSandboxDevLayout(rootfs string) error {
+	devRoot := bindMountTargetPath(rootfs, "/dev")
+	if err := ensureMountpointDir(devRoot, 0o755); err != nil {
+		return fmt.Errorf("prepare sandbox /dev mountpoint: %w", err)
+	}
+	if err := mountTmpfs(devRoot, "mode=0755"); err != nil {
+		return fmt.Errorf("mount sandbox /dev tmpfs: %w", err)
+	}
+
+	shmRoot := bindMountTargetPath(rootfs, "/dev/shm")
+	if err := ensureMountpointDir(shmRoot, 0o1777); err != nil {
+		return fmt.Errorf("prepare sandbox /dev/shm mountpoint: %w", err)
+	}
+	if err := mountTmpfs(shmRoot, "mode=1777"); err != nil {
+		return fmt.Errorf("mount sandbox /dev/shm tmpfs: %w", err)
+	}
+
+	ptsRoot := bindMountTargetPath(rootfs, "/dev/pts")
+	if err := ensureMountpointDir(ptsRoot, 0o755); err != nil {
+		return fmt.Errorf("prepare sandbox /dev/pts mountpoint: %w", err)
+	}
+	if err := mountDevPTS(ptsRoot, "newinstance,ptmxmode=0666,mode=0620"); err != nil {
+		return err
+	}
+
+	for _, path := range []string{"/dev/null", "/dev/zero", "/dev/full", "/dev/random", "/dev/urandom", "/dev/tty"} {
+		if err := applyBindMount(rootfs, bindMount{Source: path, Target: path}); err != nil {
+			return fmt.Errorf("prepare sandbox device node %q: %w", path, err)
+		}
+	}
+	if err := bindOptionalMount(rootfs, "/dev/console", "/dev/console", false); err != nil {
+		return err
+	}
+
+	for target, link := range map[string]string{
+		"/dev/fd":     "/proc/self/fd",
+		"/dev/stdin":  "/proc/self/fd/0",
+		"/dev/stdout": "/proc/self/fd/1",
+		"/dev/stderr": "/proc/self/fd/2",
+		"/dev/ptmx":   "pts/ptmx",
+	} {
+		if err := ensureSandboxSymlink(bindMountTargetPath(rootfs, target), link); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -687,6 +738,52 @@ func mountProc(target string) error {
 func mountTmpfs(target string, data string) error {
 	if err := syscall.Mount("tmpfs", target, "tmpfs", 0, data); err != nil {
 		return fmt.Errorf("mount tmpfs at %q: %w", target, err)
+	}
+	return nil
+}
+
+func mountDevPTS(target string, data string) error {
+	if err := syscall.Mount("devpts", target, "devpts", 0, data); err != nil {
+		return fmt.Errorf("mount devpts at %q: %w", target, err)
+	}
+	return nil
+}
+
+func bindOptionalMount(rootfs string, source string, target string, readOnly bool) error {
+	if _, err := os.Stat(source); errors.Is(err, os.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("stat optional bind source %q: %w", source, err)
+	}
+	if err := applyBindMount(rootfs, bindMount{Source: source, Target: target, ReadOnly: readOnly}); err != nil {
+		return err
+	}
+	return nil
+}
+
+func ensureSandboxSymlink(path string, target string) error {
+	info, err := os.Lstat(path)
+	if err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			resolved, err := os.Readlink(path)
+			if err != nil {
+				return fmt.Errorf("read sandbox symlink %q: %w", path, err)
+			}
+			if resolved == target {
+				return nil
+			}
+		}
+		if info.IsDir() {
+			return fmt.Errorf("prepare sandbox symlink %q: path is a directory", path)
+		}
+		if err := os.Remove(path); err != nil {
+			return fmt.Errorf("replace sandbox path %q with symlink: %w", path, err)
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("stat sandbox symlink path %q: %w", path, err)
+	}
+	if err := os.Symlink(target, path); err != nil {
+		return fmt.Errorf("create sandbox symlink %q -> %q: %w", path, target, err)
 	}
 	return nil
 }
