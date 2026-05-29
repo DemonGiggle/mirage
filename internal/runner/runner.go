@@ -37,9 +37,15 @@ func Execute(cfg spec.Config, stdout, stderr io.Writer) error {
 		return errors.New("sandbox backend currently supports Linux only")
 	}
 
-	policyPlan, hasPolicyPlan, err := planNetworkPolicyBackend(cfg)
-	if err != nil {
-		return err
+	var policyPlan networkPolicyBackendPlan
+	var hasPolicyPlan bool
+	if cfg.NetworkPolicy != nil {
+		var err error
+		policyPlan, err = planNetworkPolicyBackend(cfg)
+		if err != nil {
+			return err
+		}
+		hasPolicyPlan = true
 	}
 	unshareArgs, err := buildUnshareArgs(cfg)
 	if err != nil {
@@ -479,9 +485,10 @@ func buildUnshareArgs(cfg spec.Config) ([]string, error) {
 		args = append(args, "--cgroup")
 	}
 
-	if _, ok, err := planNetworkPolicyBackend(cfg); err != nil {
-		return nil, err
-	} else if ok {
+	if cfg.NetworkPolicy != nil {
+		if _, err := planNetworkPolicyBackend(cfg); err != nil {
+			return nil, err
+		}
 		args = append(args, "--net")
 		return args, nil
 	}
@@ -1065,7 +1072,7 @@ func PlanNotes(cfg spec.Config) []string {
 		notes = append(notes, "network backend: dedicated net namespace without host network")
 	}
 	if cfg.NetworkPolicy != nil {
-		if plan, _, err := planNetworkPolicyBackend(cfg); err == nil {
+		if plan, err := planNetworkPolicyBackend(cfg); err == nil {
 			notes = append(notes, fmt.Sprintf("network backend: rule-first isolated namespace (%s loopback)", plan.LoopbackAction))
 		} else {
 			notes = append(notes, fmt.Sprintf("network backend: rule-first policy unsupported by current backend (%v)", err))

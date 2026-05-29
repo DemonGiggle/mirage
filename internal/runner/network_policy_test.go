@@ -10,7 +10,7 @@ import (
 )
 
 func TestPlanNetworkPolicyBackendOfflinePolicy(t *testing.T) {
-	plan, ok, err := planNetworkPolicyBackend(spec.Config{
+	plan, err := planNetworkPolicyBackend(spec.Config{
 		NetworkPolicy: &spec.NetworkPolicy{
 			Version:  1,
 			Loopback: spec.LoopbackPolicy{Default: spec.PolicyAllow},
@@ -21,16 +21,13 @@ func TestPlanNetworkPolicyBackendOfflinePolicy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("planNetworkPolicyBackend returned error: %v", err)
 	}
-	if !ok {
-		t.Fatal("expected policy backend plan")
-	}
 	if plan.BackendMode != backendNetworkPolicyIsolated || plan.LoopbackAction != netpolicy.ActionAllow {
 		t.Fatalf("unexpected backend plan: %#v", plan)
 	}
 }
 
 func TestPlanNetworkPolicyBackendRejectsAllowDefault(t *testing.T) {
-	_, _, err := planNetworkPolicyBackend(spec.Config{
+	_, err := planNetworkPolicyBackend(spec.Config{
 		NetworkPolicy: &spec.NetworkPolicy{
 			Version:  1,
 			Loopback: spec.LoopbackPolicy{Default: spec.PolicyAllow},
@@ -40,6 +37,22 @@ func TestPlanNetworkPolicyBackendRejectsAllowDefault(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "egress.default=allow") {
 		t.Fatalf("expected unsupported egress default error, got %v", err)
+	}
+}
+
+func TestValidateIsolatedPolicyBackendSupportUnnamedRuleUsesOrder(t *testing.T) {
+	err := validateIsolatedPolicyBackendSupport(netpolicy.Policy{
+		Ingress: netpolicy.DirectionPolicy{
+			Default: netpolicy.ActionDeny,
+			Rules: []netpolicy.Rule{{
+				Order:  2,
+				Action: netpolicy.ActionAllow,
+			}},
+		},
+		Egress: netpolicy.DirectionPolicy{Default: netpolicy.ActionDeny},
+	})
+	if err == nil || !strings.Contains(err.Error(), "ingress allow rule index 2") {
+		t.Fatalf("expected unnamed rule order in error, got %v", err)
 	}
 }
 

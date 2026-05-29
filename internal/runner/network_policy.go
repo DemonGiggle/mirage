@@ -19,22 +19,22 @@ type networkPolicyBackendPlan struct {
 	LoopbackAction netpolicy.Action
 }
 
-func planNetworkPolicyBackend(cfg spec.Config) (networkPolicyBackendPlan, bool, error) {
+func planNetworkPolicyBackend(cfg spec.Config) (networkPolicyBackendPlan, error) {
 	if cfg.NetworkPolicy == nil {
-		return networkPolicyBackendPlan{}, false, nil
+		return networkPolicyBackendPlan{}, errors.New("network policy configuration is missing")
 	}
 	policy, err := netpolicy.Compile(*cfg.NetworkPolicy)
 	if err != nil {
-		return networkPolicyBackendPlan{}, true, err
+		return networkPolicyBackendPlan{}, err
 	}
 	if err := validateIsolatedPolicyBackendSupport(policy); err != nil {
-		return networkPolicyBackendPlan{}, true, err
+		return networkPolicyBackendPlan{}, err
 	}
 	return networkPolicyBackendPlan{
 		Policy:         policy,
 		BackendMode:    backendNetworkPolicyIsolated,
 		LoopbackAction: policy.Loopback,
-	}, true, nil
+	}, nil
 }
 
 func validateIsolatedPolicyBackendSupport(policy netpolicy.Policy) error {
@@ -47,18 +47,25 @@ func validateIsolatedPolicyBackendSupport(policy netpolicy.Policy) error {
 	}
 	for _, rule := range policy.Ingress.Rules {
 		if rule.Action == netpolicy.ActionAllow {
-			unsupported = append(unsupported, fmt.Sprintf("ingress allow rule %q", rule.Name))
+			unsupported = append(unsupported, fmt.Sprintf("ingress allow rule %s", ruleIdentifier(rule)))
 		}
 	}
 	for _, rule := range policy.Egress.Rules {
 		if rule.Action == netpolicy.ActionAllow {
-			unsupported = append(unsupported, fmt.Sprintf("egress allow rule %q", rule.Name))
+			unsupported = append(unsupported, fmt.Sprintf("egress allow rule %s", ruleIdentifier(rule)))
 		}
 	}
 	if len(unsupported) > 0 {
 		return fmt.Errorf("networkPolicy requires allow semantics this backend cannot enforce yet: %v", unsupported)
 	}
 	return nil
+}
+
+func ruleIdentifier(rule netpolicy.Rule) string {
+	if rule.Name == "" {
+		return fmt.Sprintf("index %d", rule.Order)
+	}
+	return fmt.Sprintf("%q", rule.Name)
 }
 
 func configurePolicyNetworkBackend(loopbackAction string) error {
