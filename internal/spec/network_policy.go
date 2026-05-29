@@ -296,11 +296,7 @@ func LoadNetworkPolicyYAML(data []byte) (NetworkPolicy, error) {
 	if doc.NetworkPolicy == nil {
 		return NetworkPolicy{}, errors.New("networkPolicy is required")
 	}
-	policy := *doc.NetworkPolicy
-	if err := ValidateNetworkPolicy(&policy); err != nil {
-		return NetworkPolicy{}, err
-	}
-	return policy, nil
+	return NormalizeNetworkPolicy(*doc.NetworkPolicy)
 }
 
 func ValidateNetworkPolicy(policy *NetworkPolicy) error {
@@ -324,6 +320,33 @@ func ValidateNetworkPolicy(policy *NetworkPolicy) error {
 	return nil
 }
 
+func NormalizeNetworkPolicy(policy NetworkPolicy) (NetworkPolicy, error) {
+	if err := ValidateNetworkPolicy(&policy); err != nil {
+		return NetworkPolicy{}, err
+	}
+
+	out := policy
+	out.Ingress.Rules = append([]IngressRule(nil), policy.Ingress.Rules...)
+	for i := range out.Ingress.Rules {
+		selector, err := normalizeSelector(out.Ingress.Rules[i].Source, false)
+		if err != nil {
+			return NetworkPolicy{}, fmt.Errorf("networkPolicy.ingress.rules[%d].source: %w", i, err)
+		}
+		out.Ingress.Rules[i].Source = selector
+		out.Ingress.Rules[i].Ports = append([]int(nil), policy.Ingress.Rules[i].Ports...)
+	}
+	out.Egress.Rules = append([]EgressRule(nil), policy.Egress.Rules...)
+	for i := range out.Egress.Rules {
+		selector, err := normalizeSelector(out.Egress.Rules[i].Destination, true)
+		if err != nil {
+			return NetworkPolicy{}, fmt.Errorf("networkPolicy.egress.rules[%d].destination: %w", i, err)
+		}
+		out.Egress.Rules[i].Destination = selector
+		out.Egress.Rules[i].Ports = append([]int(nil), policy.Egress.Rules[i].Ports...)
+	}
+	return out, nil
+}
+
 func validateDefaultAction(field string, action PolicyAction, problems *[]error) {
 	if action != PolicyAllow && action != PolicyDeny {
 		*problems = append(*problems, fmt.Errorf("%s must be allow or deny", field))
@@ -333,11 +356,11 @@ func validateDefaultAction(field string, action PolicyAction, problems *[]error)
 func validateIngressRules(rules []IngressRule, problems *[]error) {
 	seenNames := map[string]struct{}{}
 	for i := range rules {
-		rule := &rules[i]
+		rule := rules[i]
 		prefix := "networkPolicy.ingress.rules[" + strconv.Itoa(i) + "]"
 		validateRuleName(prefix, rule.Name, seenNames, problems)
 		validateRuleAction(prefix, rule.Action, problems)
-		validateSelector(prefix+".source", &rule.Source, false, problems)
+		validateSelector(prefix+".source", rule.Source, false, problems)
 		validateProtocolAndPorts(prefix, rule.Protocol, rule.Ports, problems)
 	}
 }
@@ -345,11 +368,11 @@ func validateIngressRules(rules []IngressRule, problems *[]error) {
 func validateEgressRules(rules []EgressRule, problems *[]error) {
 	seenNames := map[string]struct{}{}
 	for i := range rules {
-		rule := &rules[i]
+		rule := rules[i]
 		prefix := "networkPolicy.egress.rules[" + strconv.Itoa(i) + "]"
 		validateRuleName(prefix, rule.Name, seenNames, problems)
 		validateRuleAction(prefix, rule.Action, problems)
-		validateSelector(prefix+".destination", &rule.Destination, true, problems)
+		validateSelector(prefix+".destination", rule.Destination, true, problems)
 		validateProtocolAndPorts(prefix, rule.Protocol, rule.Ports, problems)
 	}
 }
@@ -406,11 +429,14 @@ func validateProtocolAndPorts(prefix string, protocol NetworkProtocol, ports []i
 	}
 }
 
-func validateSelector(prefix string, selector *NetworkSelector, allowDomain bool, problems *[]error) {
-	if selector == nil {
-		*problems = append(*problems, fmt.Errorf("%s is required", prefix))
-		return
+func validateSelector(prefix string, selector NetworkSelector, allowDomain bool, problems *[]error) {
+	_, err := normalizeSelector(selector, allowDomain)
+	if err != nil {
+		*problems = append(*problems, fmt.Errorf("%s %v", prefix, err))
 	}
+}
+
+func normalizeSelector(selector NetworkSelector, allowDomain bool) (NetworkSelector, error) {
 	var fields []string
 	if selector.IP != "" {
 		fields = append(fields, "ip")
@@ -422,46 +448,40 @@ func validateSelector(prefix string, selector *NetworkSelector, allowDomain bool
 		fields = append(fields, "domain")
 	}
 	if len(fields) != 1 {
-		*problems = append(*problems, fmt.Errorf("%s must define exactly one of ip, cidr, or domain", prefix))
-		return
+		return NetworkSelector{}, errors.New("must define exactly one of ip, cidr, or domain")
 	}
 
 	switch fields[0] {
 	case "ip":
 		addr, err := netip.ParseAddr(strings.TrimSpace(selector.IP))
 		if err != nil {
-			*problems = append(*problems, fmt.Errorf("%s.ip is invalid: %w", prefix, err))
-			return
+			return NetworkSelector{}, fmt.Errorf("ip is invalid: %w", err)
 		}
 		if addr.IsLoopback() {
-			*problems = append(*problems, fmt.Errorf("%s.ip must not be loopback", prefix))
-			return
+			return NetworkSelector{}, errors.New("ip must not be loopback")
 		}
-		selector.IP = addr.String()
+		return NetworkSelector{IP: addr.String()}, nil
 	case "cidr":
 		prefixValue, err := netip.ParsePrefix(strings.TrimSpace(selector.CIDR))
 		if err != nil {
-			*problems = append(*problems, fmt.Errorf("%s.cidr is invalid: %w", prefix, err))
-			return
+			return NetworkSelector{}, fmt.Errorf("cidr is invalid: %w", err)
 		}
 		prefixValue = prefixValue.Masked()
 		if prefixValue.Addr().IsLoopback() {
-			*problems = append(*problems, fmt.Errorf("%s.cidr must not be loopback", prefix))
-			return
+			return NetworkSelector{}, errors.New("cidr must not be loopback")
 		}
-		selector.CIDR = prefixValue.String()
+		return NetworkSelector{CIDR: prefixValue.String()}, nil
 	case "domain":
 		if !allowDomain {
-			*problems = append(*problems, fmt.Errorf("%s.domain is only valid for egress destinations", prefix))
-			return
+			return NetworkSelector{}, errors.New("domain is only valid for egress destinations")
 		}
 		normalized, err := normalizeDomain(selector.Domain)
 		if err != nil {
-			*problems = append(*problems, fmt.Errorf("%s.domain is invalid: %w", prefix, err))
-			return
+			return NetworkSelector{}, fmt.Errorf("domain is invalid: %w", err)
 		}
-		selector.Domain = normalized
+		return NetworkSelector{Domain: normalized}, nil
 	}
+	return NetworkSelector{}, errors.New("selector is invalid")
 }
 
 func normalizeDomain(value string) (string, error) {

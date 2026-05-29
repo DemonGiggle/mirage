@@ -73,6 +73,55 @@ func TestLoadNetworkPolicyYAMLNormalizesSelectors(t *testing.T) {
 	}
 }
 
+func TestValidateNetworkPolicyDoesNotNormalizeInPlace(t *testing.T) {
+	policy := NetworkPolicy{
+		Version:  1,
+		Loopback: LoopbackPolicy{Default: PolicyAllow},
+		Ingress: IngressPolicy{
+			Default: PolicyDeny,
+			Rules: []IngressRule{
+				{
+					Action:   PolicyAllow,
+					Source:   NetworkSelector{IP: "2001:0db8::1"},
+					Protocol: ProtocolTCP,
+					Ports:    []int{22},
+				},
+			},
+		},
+		Egress: EgressPolicy{
+			Default: PolicyDeny,
+			Rules: []EgressRule{
+				{
+					Action:      PolicyAllow,
+					Destination: NetworkSelector{CIDR: "192.168.1.10/16"},
+					Protocol:    ProtocolAny,
+				},
+			},
+		},
+	}
+
+	if err := ValidateNetworkPolicy(&policy); err != nil {
+		t.Fatalf("ValidateNetworkPolicy returned error: %v", err)
+	}
+	if got := policy.Ingress.Rules[0].Source.IP; got != "2001:0db8::1" {
+		t.Fatalf("ValidateNetworkPolicy mutated IP to %q", got)
+	}
+	if got := policy.Egress.Rules[0].Destination.CIDR; got != "192.168.1.10/16" {
+		t.Fatalf("ValidateNetworkPolicy mutated CIDR to %q", got)
+	}
+
+	normalized, err := NormalizeNetworkPolicy(policy)
+	if err != nil {
+		t.Fatalf("NormalizeNetworkPolicy returned error: %v", err)
+	}
+	if got := normalized.Ingress.Rules[0].Source.IP; got != "2001:db8::1" {
+		t.Fatalf("expected normalized IP, got %q", got)
+	}
+	if got := normalized.Egress.Rules[0].Destination.CIDR; got != "192.168.0.0/16" {
+		t.Fatalf("expected normalized CIDR, got %q", got)
+	}
+}
+
 func TestLoadNetworkPolicyYAMLRejectsMissingTopLevelPolicy(t *testing.T) {
 	_, err := LoadNetworkPolicyYAML([]byte(`{}`))
 	requirePolicyError(t, err, "networkPolicy is required")
