@@ -448,6 +448,9 @@ func resolveCommandBinary(commandName string, rootfs string, sandboxEnv []string
 }
 
 func buildUnshareArgs(cfg spec.Config) ([]string, error) {
+	if cfg.NetworkPolicy != nil {
+		return nil, errors.New("networkPolicy enforcement is not implemented yet")
+	}
 	args := []string{
 		"--user",
 		"--map-root-user",
@@ -1038,6 +1041,9 @@ func PlanNotes(cfg spec.Config) []string {
 		notes = append(notes, "network backend: host namespace")
 	case spec.NetworkNone:
 		notes = append(notes, "network backend: dedicated net namespace without host network")
+	}
+	if cfg.NetworkPolicy != nil {
+		notes = append(notes, "network backend: rule-first policy config present; enforcement pending backend implementation")
 	}
 	if cfg.StdoutLog != "" || cfg.StderrLog != "" {
 		var exports []string

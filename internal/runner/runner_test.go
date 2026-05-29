@@ -158,6 +158,36 @@ func TestPlanNotesNoneNetwork(t *testing.T) {
 	}
 }
 
+func TestPlanNotesNetworkPolicy(t *testing.T) {
+	notes := PlanNotes(spec.Config{
+		RootFS: "/",
+		NetworkPolicy: &spec.NetworkPolicy{
+			Version:  1,
+			Loopback: spec.LoopbackPolicy{Default: spec.PolicyAllow},
+			Ingress:  spec.IngressPolicy{Default: spec.PolicyDeny, Rules: []spec.IngressRule{}},
+			Egress:   spec.EgressPolicy{Default: spec.PolicyDeny, Rules: []spec.EgressRule{}},
+		},
+	})
+	got := strings.Join(notes, "\n")
+	if !strings.Contains(got, "network backend: rule-first policy config present") {
+		t.Fatalf("expected policy network note, got %q", got)
+	}
+}
+
+func TestBuildUnshareArgsRejectsNetworkPolicyUntilBackendExists(t *testing.T) {
+	_, err := buildUnshareArgs(spec.Config{
+		NetworkPolicy: &spec.NetworkPolicy{
+			Version:  1,
+			Loopback: spec.LoopbackPolicy{Default: spec.PolicyAllow},
+			Ingress:  spec.IngressPolicy{Default: spec.PolicyDeny, Rules: []spec.IngressRule{}},
+			Egress:   spec.EgressPolicy{Default: spec.PolicyDeny, Rules: []spec.EgressRule{}},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "networkPolicy enforcement is not implemented yet") {
+		t.Fatalf("expected policy backend error, got %v", err)
+	}
+}
+
 func TestDelegatedScopeArgs(t *testing.T) {
 	args := delegatedScopeArgs("mirage-sandbox-demo.scope", "mirage", "__cgroup-exec", "--memory", "128M", "--pids", "7", "--", "unshare", "--fork", "cmd")
 	got := strings.Join(args, " ")

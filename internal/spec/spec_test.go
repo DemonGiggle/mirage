@@ -45,6 +45,72 @@ func TestLoadPresetFile(t *testing.T) {
 	}
 }
 
+func TestLoadPresetFileWithNetworkPolicy(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "presets.yaml")
+	if err := os.WriteFile(path, []byte(`presets:
+  - name: team-policy
+    networkPolicy:
+      version: 1
+      loopback:
+        default: allow
+      ingress:
+        default: deny
+        rules: []
+      egress:
+        default: deny
+        rules:
+          - name: allow-lan
+            action: allow
+            destination:
+              cidr: 192.168.1.10/16
+            protocol: any
+    description: Team policy preset
+`), 0o644); err != nil {
+		t.Fatalf("write preset file: %v", err)
+	}
+
+	presets, err := LoadPresetFile(path)
+	if err != nil {
+		t.Fatalf("LoadPresetFile returned error: %v", err)
+	}
+
+	got := presets["team-policy"]
+	if got.NetworkMode != "" {
+		t.Fatalf("expected policy preset without coarse network mode, got %q", got.NetworkMode)
+	}
+	if got.NetworkPolicy == nil {
+		t.Fatal("expected network policy to be loaded")
+	}
+	if got.NetworkPolicy.Egress.Rules[0].Destination.CIDR != "192.168.0.0/16" {
+		t.Fatalf("expected normalized policy selector, got %#v", got.NetworkPolicy.Egress.Rules[0].Destination)
+	}
+}
+
+func TestLoadPresetFileRejectsNetworkAndNetworkPolicyTogether(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "presets.yaml")
+	if err := os.WriteFile(path, []byte(`presets:
+  - name: ambiguous
+    network: none
+    networkPolicy:
+      version: 1
+      loopback:
+        default: allow
+      ingress:
+        default: deny
+        rules: []
+      egress:
+        default: deny
+        rules: []
+`), 0o644); err != nil {
+		t.Fatalf("write preset file: %v", err)
+	}
+
+	_, err := LoadPresetFile(path)
+	if err == nil || !strings.Contains(err.Error(), "cannot define both network and networkPolicy") {
+		t.Fatalf("expected network ambiguity error, got %v", err)
+	}
+}
+
 func TestLoadPresetFileRejectsDuplicatePresetNames(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "presets.yaml")
 	if err := os.WriteFile(path, []byte(`presets:
@@ -140,6 +206,41 @@ func TestValidateRejectsUnsupportedNetworkMode(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), `invalid network mode "isolated"`) {
 		t.Fatalf("expected invalid network mode error, got %v", err)
+	}
+}
+
+func TestValidateAllowsNetworkPolicyInsteadOfNetworkMode(t *testing.T) {
+	err := Validate(Config{
+		RootFS: "/srv/rootfs",
+		NetworkPolicy: &NetworkPolicy{
+			Version:  1,
+			Loopback: LoopbackPolicy{Default: PolicyAllow},
+			Ingress:  IngressPolicy{Default: PolicyDeny, Rules: []IngressRule{}},
+			Egress:   EgressPolicy{Default: PolicyDeny, Rules: []EgressRule{}},
+		},
+		RuntimeMode: RuntimeModeInit,
+		Command:     []string{"/sbin/init"},
+	})
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+}
+
+func TestValidateRejectsNetworkModeWithNetworkPolicy(t *testing.T) {
+	err := Validate(Config{
+		RootFS:      "/srv/rootfs",
+		NetworkMode: NetworkNone,
+		NetworkPolicy: &NetworkPolicy{
+			Version:  1,
+			Loopback: LoopbackPolicy{Default: PolicyAllow},
+			Ingress:  IngressPolicy{Default: PolicyDeny, Rules: []IngressRule{}},
+			Egress:   EgressPolicy{Default: PolicyDeny, Rules: []EgressRule{}},
+		},
+		RuntimeMode: RuntimeModeInit,
+		Command:     []string{"/sbin/init"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "network and networkPolicy cannot both be set") {
+		t.Fatalf("expected network ambiguity error, got %v", err)
 	}
 }
 
