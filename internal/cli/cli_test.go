@@ -300,14 +300,23 @@ func writePolicyPresetFile(t *testing.T, presetName string, fixtureName string) 
 	return path
 }
 
+func TestIndentYAMLAddsTrailingNewlinePerLine(t *testing.T) {
+	got := indentYAML("a: 1\nb: 2", "    ")
+	want := "    a: 1\n    b: 2\n"
+	if got != want {
+		t.Fatalf("indentYAML returned %q, want %q", got, want)
+	}
+}
+
 func indentYAML(text string, prefix string) string {
+	if text == "" {
+		return ""
+	}
 	var b strings.Builder
-	for _, line := range strings.SplitAfter(text, "\n") {
-		if line == "" {
-			continue
-		}
+	for _, line := range strings.Split(strings.TrimSuffix(text, "\n"), "\n") {
 		b.WriteString(prefix)
 		b.WriteString(line)
+		b.WriteString("\n")
 	}
 	return b.String()
 }

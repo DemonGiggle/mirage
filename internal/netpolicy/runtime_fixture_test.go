@@ -12,19 +12,20 @@ import (
 func TestRuntimePolicyFixtureDecisions(t *testing.T) {
 	cases := []struct {
 		name    string
+		desc    string
 		traffic Traffic
 		want    Action
 	}{
-		{name: "offline.yaml", traffic: tcp("203.0.113.10", 443), want: ActionDeny},
-		{name: "offline.yaml", traffic: tcp("127.0.0.1", 5432), want: ActionAllow},
-		{name: "first-match-deny.yaml", traffic: tcp("10.0.0.5", 443), want: ActionDeny},
-		{name: "first-match-allow.yaml", traffic: tcp("192.168.1.10", 443), want: ActionAllow},
-		{name: "loopback-deny-egress-allow.yaml", traffic: tcp("::1", 8080), want: ActionDeny},
-		{name: "loopback-deny-egress-allow.yaml", traffic: tcp("203.0.113.10", 8080), want: ActionAllow},
+		{name: "offline.yaml", desc: "deny_external", traffic: tcp("203.0.113.10", 443), want: ActionDeny},
+		{name: "offline.yaml", desc: "allow_loopback", traffic: tcp("127.0.0.1", 5432), want: ActionAllow},
+		{name: "first-match-deny.yaml", desc: "deny_matched", traffic: tcp("10.0.0.5", 443), want: ActionDeny},
+		{name: "first-match-allow.yaml", desc: "allow_matched", traffic: tcp("192.168.1.10", 443), want: ActionAllow},
+		{name: "loopback-deny-egress-allow.yaml", desc: "deny_loopback", traffic: tcp("::1", 8080), want: ActionDeny},
+		{name: "loopback-deny-egress-allow.yaml", desc: "allow_egress", traffic: tcp("203.0.113.10", 8080), want: ActionAllow},
 	}
 
 	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
+		t.Run(tc.name+"/"+tc.desc, func(t *testing.T) {
 			runtimePolicy := mustCompilePolicyFixture(t, tc.name)
 			if got := runtimePolicy.DecideEgress(tc.traffic); got != tc.want {
 				t.Fatalf("DecideEgress returned %q, want %q", got, tc.want)
