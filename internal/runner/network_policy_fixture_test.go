@@ -24,7 +24,7 @@ func TestNetworkPolicyBackendFixtureSupportMatrix(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			policy := loadRunnerPolicyFixture(t, tc.name)
-			_, _, err := planNetworkPolicyBackend(spec.Config{NetworkPolicy: &policy})
+			_, err := planNetworkPolicyBackend(spec.Config{NetworkPolicy: &policy})
 			if tc.wantErrPart == "" {
 				if err != nil {
 					t.Fatalf("planNetworkPolicyBackend returned error: %v", err)
