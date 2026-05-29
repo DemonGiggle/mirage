@@ -37,12 +37,10 @@ Today the project includes:
 - current backend coverage for allow-all host passthrough and isolated deny-only policies
 - stdout and stderr export to host-visible log files
 - delegated cgroup v2 memory and PID limits
-- tracked sandbox lifecycle commands for guest-systemd sandboxes (`sandbox start/status/stop/logs`)
 
-Mirage now has two operator-facing shapes:
+Mirage now exposes a single operator-facing execution shape:
 
 - **direct exec**: `mirage run` launches one foreground workload as sandbox PID 1
-- **tracked sandbox lifecycle**: `mirage sandbox start` launches a guest-init-style sandbox behind a named host-side lifecycle entry
 
 Important caveat:
 
@@ -84,16 +82,15 @@ Run a simple local-only command:
 ./bin/mirage run --rootfs / --preset-file ./examples/presets/openclaw-offline.yaml -- /bin/echo hello
 ```
 
-For the full template catalog, dedicated-rootfs guidance, guest-systemd
-workflows, bind mounts, preset-file workflows, and tracked sandbox commands, use the docs
-linked below.
+For the full template catalog, dedicated-rootfs guidance, bind mounts, and
+preset-file workflows, use the docs linked below.
 
 ## Documentation Map
 
 - [docs/applications.md](docs/applications.md): application-oriented setup flows
   such as installing and launching OpenClaw inside Mirage
 - [docs/rootfs.md](docs/rootfs.md): rootfs choice, template catalog, schema, and
-  guest-init rootfs validation guidance
+  validation guidance
 - [docs/usage.md](docs/usage.md): installation assumptions, command patterns,
   current command surface, preset-file workflows, and common run examples
 - [docs/isolation.md](docs/isolation.md): current isolation matrix, guarantees,

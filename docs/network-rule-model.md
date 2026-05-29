@@ -410,7 +410,7 @@ defaults, and loopback behavior solid before it promises DNS-backed policy.
 If Mirage later enables domain-based enforcement, the minimum acceptable
 contract should be conservative and explicit:
 
-- resolution happens at sandbox start time
+- resolution happens at launch time
 - the result is a fixed IP snapshot rather than a continuously refreshed view
 - both A and AAAA answers are included
 - CNAME chains are followed to their terminal A/AAAA answers

@@ -3,7 +3,7 @@
 This document describes how to run `mirage`. For implementation details, see
 [architecture.md](architecture.md). For current guarantees and caveats, see
 [isolation.md](isolation.md). For rootfs choice, built-in templates, and
-guest-init rootfs validation, see [rootfs.md](rootfs.md).
+validation guidance, see [rootfs.md](rootfs.md).
 
 ## Host Prerequisites
 
@@ -63,31 +63,12 @@ Preview a run without executing it:
 ./bin/mirage run --dry-run --preset-file ./examples/presets/openclaw-offline.yaml -- /bin/echo hello
 ```
 
-Start a tracked guest-systemd sandbox with host-visible logs:
-
-```bash
-./bin/mirage sandbox start \
-  --name openclaw \
-  --rootfs /srv/mirage/systemd-rootfs \
-  --network-policy-file ./examples/network-policies/allow-all.yaml \
-  --service-unit openclaw.service
-```
-
-Inspect, stop, or read logs from a tracked sandbox:
-
-```bash
-./bin/mirage sandbox status --name openclaw
-./bin/mirage sandbox logs --name openclaw --lines 100
-./bin/mirage sandbox stop --name openclaw
-```
-
 ## Command Pattern
 
 The general form is:
 
 ```bash
 mirage rootfs init --template <name> --output <path>
-mirage sandbox <start|status|stop|logs> [flags]
 mirage run [sandbox options...] -- command [args...]
 ```
 
@@ -135,54 +116,8 @@ When bind mounts target `--rootfs /`, `mirage` expects the guest path to
 already exist on the host root. It will not create new host-side mountpoints in
 that mode.
 
-For the built-in template catalog, the rootfs schema, `rootfs init` behavior,
-and guest-systemd rootfs validation flows, see [rootfs.md](rootfs.md).
-
-## Tracked Sandbox Lifecycle For Guest `systemd`
-
-For guest-systemd flows, Mirage exposes a small tracked-sandbox model alongside
-the direct `run` command:
-
-- `mirage sandbox start` launches a guest-systemd sandbox in the background
-- `mirage sandbox status` reports the host-side user-systemd scope state
-- `mirage sandbox logs` reads the tracked stdout/stderr launch logs
-- `mirage sandbox stop` requests a clean stop through the tracked user-systemd
-  scope and escalates only if the scope does not stop in time
-
-This model is intentionally narrow:
-
-- it is for guest-init-style sandboxes only
-- it tracks one named sandbox per state entry under the user's local Mirage
-  state directory
-- it does **not** add a long-lived Mirage daemon or a multi-sandbox scheduler
-- it does **not** yet provide live `systemctl exec`-style namespace entry into
-  a running guest
-
-Operationally, the lifecycle is:
-
-1. prepare a dedicated rootfs with guest `systemd` and a service unit
-2. run `mirage sandbox start --name ... --service-unit ...`
-3. use `mirage sandbox status` to confirm the tracked scope is active
-4. use `mirage sandbox logs` to inspect init stdout/stderr or launch failures
-5. use `mirage sandbox stop` to terminate the sandbox cleanly from the host
-
-The tracked sandbox commands default guest init stdout/stderr into files under
-the sandbox's local state directory so logs remain available after stop or boot
-failure. `sandbox status` also reports the launch log path, which is where
-Mirage's own launch-time failures are recorded when the background start does
-not reach a stable running scope.
-
-For guest-systemd-oriented rootfs validation, a minimal operator flow is:
-
-```bash
-./bin/mirage doctor \
-  --rootfs /srv/mirage/systemd-rootfs \
-  --command /usr/bin/systemd \
-  --service-unit openclaw.service
-```
-
-That preflight verifies the init entrypoint, required init runtime paths,
-`/etc/machine-id`, and the presence of the requested unit file before launch.
+For the built-in template catalog, the rootfs schema, and `rootfs init`
+behavior, see [rootfs.md](rootfs.md).
 
 ## Bind Mounts
 

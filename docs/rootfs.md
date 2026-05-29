@@ -10,8 +10,8 @@ tradeoffs, see [isolation.md](isolation.md).
 Mirage supports two broad rootfs shapes:
 
 - `--rootfs /`: convenient for quick local checks and host-root-backed runs
-- a dedicated non-`/` rootfs: the preferred mode when filesystem separation,
-  proc visibility, or guest-init workflows matter
+- a dedicated non-`/` rootfs: the preferred mode when filesystem separation or
+  proc visibility matter
 
 `--rootfs /` is intentionally weaker. It does not provide the same filesystem
 or `/proc` behavior as a dedicated generated or custom rootfs.
@@ -39,20 +39,6 @@ Validate a command inside that rootfs before launching a full workload:
 ```bash
 ./bin/mirage doctor --rootfs /srv/mirage/basic-rootfs --command /bin/ls
 ```
-
-For guest-init-oriented rootfs validation, point `doctor` at a dedicated rootfs
-that already contains the init binary and the service unit you expect to launch:
-
-```bash
-./bin/mirage doctor \
-  --rootfs /srv/mirage/systemd-rootfs \
-  --command /usr/bin/systemd \
-  --service-unit openclaw.service
-```
-
-That checks the init entrypoint, required runtime paths, `/etc/machine-id`, and
-whether the requested unit is present at
-`/etc/systemd/system/<name>` or `/usr/lib/systemd/system/<name>`.
 
 ## Rootfs Template Model
 

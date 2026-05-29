@@ -33,14 +33,10 @@ const (
 )
 
 func Execute(cfg spec.Config, stdout, stderr io.Writer) error {
-	return execute(cfg, stdout, stderr, false)
+	return execute(cfg, stdout, stderr)
 }
 
-func ExecuteSandboxInit(cfg spec.Config, stdout, stderr io.Writer) error {
-	return execute(cfg, stdout, stderr, true)
-}
-
-func execute(cfg spec.Config, stdout, stderr io.Writer, guestInit bool) error {
+func execute(cfg spec.Config, stdout, stderr io.Writer) error {
 	if runtimeUnsupported() {
 		return errors.New("sandbox backend currently supports Linux only")
 	}
@@ -52,7 +48,7 @@ func execute(cfg spec.Config, stdout, stderr io.Writer, guestInit bool) error {
 	if err != nil {
 		return err
 	}
-	unshareArgs, err := buildUnshareArgs(cfg, guestInit)
+	unshareArgs, err := buildUnshareArgs(cfg)
 	if err != nil {
 		return err
 	}
@@ -64,9 +60,6 @@ func execute(cfg spec.Config, stdout, stderr io.Writer, guestInit bool) error {
 
 	backendArgs := []string{self, "__backend-exec", "--rootfs", cfg.RootFS, "--network-backend", policyPlan.BackendMode}
 	backendArgs = append(backendArgs, "--policy-loopback", string(policyPlan.LoopbackAction))
-	if guestInit {
-		backendArgs = append(backendArgs, "--guest-init")
-	}
 	if cfg.Cwd != "" {
 		backendArgs = append(backendArgs, "--cwd", cfg.Cwd)
 	}
@@ -88,7 +81,7 @@ func execute(cfg spec.Config, stdout, stderr io.Writer, guestInit bool) error {
 	commandName := "unshare"
 	commandArgs := append(unshareArgs, backendArgs...)
 	var cmd *exec.Cmd
-	if requiresCgroupScope(cfg, guestInit) {
+	if requiresCgroupScope(cfg) {
 		cgroupArgs := []string{self, "__cgroup-exec"}
 		if cfg.Memory != "" {
 			cgroupArgs = append(cgroupArgs, "--memory", cfg.Memory)
@@ -176,7 +169,6 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 	var hostname string
 	var networkBackend string
 	var policyLoopback string
-	var guestInit bool
 	var roBind []string
 	var rwBind []string
 	var envItems []string
@@ -186,7 +178,6 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 	fs.StringVar(&hostname, "hostname", "", "backend hostname")
 	fs.StringVar(&networkBackend, "network-backend", "", "backend network mode")
 	fs.StringVar(&policyLoopback, "policy-loopback", "", "backend policy loopback action")
-	fs.BoolVar(&guestInit, "guest-init", false, "backend guest init mode")
 	fs.Var(stringSliceValue{target: &roBind}, "ro-bind", "backend read-only bind mount")
 	fs.Var(stringSliceValue{target: &rwBind}, "rw-bind", "backend read-write bind mount")
 	fs.Var(stringSliceValue{target: &envItems}, "env", "backend environment variable")
@@ -206,28 +197,19 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 			return err
 		}
 	}
-	if guestInit && (rootfs == "" || rootfs == "/") {
-		return errors.New("sandbox guest init requires a dedicated rootfs")
-	}
-
 	if hostname != "" {
 		if err := syscall.Sethostname([]byte(hostname)); err != nil {
 			return fmt.Errorf("set hostname: %w", err)
 		}
 	}
 
-	if rootfs != "/" || len(roBind) > 0 || len(rwBind) > 0 || guestInit {
+	if rootfs != "/" || len(roBind) > 0 || len(rwBind) > 0 {
 		if err := makeMountNamespacePrivate(); err != nil {
 			return err
 		}
 	}
 	if rootfs != "" && rootfs != "/" {
 		if err := prepareRootfsMountLayout(rootfs); err != nil {
-			return err
-		}
-	}
-	if guestInit {
-		if err := prepareGuestInitMountLayout(rootfs); err != nil {
 			return err
 		}
 	}
@@ -251,15 +233,10 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 		}
 	}
 
-	sandboxEnv, err := buildSandboxEnv(envItems, rootfs, guestInit)
+	sandboxEnv, err := buildSandboxEnv(envItems, rootfs)
 	if err != nil {
 		return err
 	}
-
-	if guestInit {
-		return runInitCommand(command, rootfs, sandboxEnv)
-	}
-
 	return runDirectCommand(command, rootfs, sandboxEnv)
 }
 
@@ -323,10 +300,6 @@ func maybeStartTransientOpenClawGateway(command []string, rootfs string, sandbox
 	return nil, fmt.Errorf("transient OpenClaw gateway helper did not become reachable at %s within 10s", openClawGatewayAddress)
 }
 
-func runInitCommand(command []string, rootfs string, sandboxEnv []string) error {
-	return execCommandInSandbox(command, rootfs, sandboxEnv)
-}
-
 func execCommandInSandbox(command []string, rootfs string, sandboxEnv []string) error {
 	binary, err := resolveCommandBinary(command[0], rootfs, sandboxEnv)
 	if err != nil {
@@ -335,8 +308,8 @@ func execCommandInSandbox(command []string, rootfs string, sandboxEnv []string) 
 	return syscall.Exec(binary, command, sandboxEnv)
 }
 
-func requiresCgroupScope(cfg spec.Config, guestInit bool) bool {
-	return cfg.Memory != "" || cfg.Pids > 0 || guestInit
+func requiresCgroupScope(cfg spec.Config) bool {
+	return cfg.Memory != "" || cfg.Pids > 0
 }
 
 func buildDelegatedScopeCommand(unitName string, args ...string) (*exec.Cmd, error) {
@@ -468,7 +441,7 @@ func resolveCommandBinary(commandName string, rootfs string, sandboxEnv []string
 	return "", fmt.Errorf("resolve command %q: %w", commandName, err)
 }
 
-func buildUnshareArgs(cfg spec.Config, guestInit bool) ([]string, error) {
+func buildUnshareArgs(cfg spec.Config) ([]string, error) {
 	args := []string{
 		"--user",
 		"--map-root-user",
@@ -477,9 +450,6 @@ func buildUnshareArgs(cfg spec.Config, guestInit bool) ([]string, error) {
 		"--mount",
 		"--uts",
 		"--ipc",
-	}
-	if guestInit {
-		args = append(args, "--cgroup")
 	}
 
 	plan, err := planNetworkPolicyBackend(cfg)
@@ -524,129 +494,6 @@ func prepareRootfsMountLayout(rootfs string) error {
 	}
 	if err := mountTmpfs(filepath.Join(rootfs, "run"), "mode=0755"); err != nil {
 		return err
-	}
-	return nil
-}
-
-func prepareGuestInitMountLayout(rootfs string) error {
-	if err := prepareGuestDevLayout(rootfs); err != nil {
-		return err
-	}
-	if err := prepareGuestRunLayout(rootfs); err != nil {
-		return err
-	}
-	if err := prepareGuestSysLayout(rootfs); err != nil {
-		return err
-	}
-	if err := prepareGuestCgroupLayout(rootfs); err != nil {
-		return err
-	}
-	if err := finalizeGuestSysLayout(rootfs); err != nil {
-		return err
-	}
-	return nil
-}
-
-func prepareGuestDevLayout(rootfs string) error {
-	devRoot := bindMountTargetPath(rootfs, "/dev")
-	if err := ensureMountpointDir(devRoot, 0o755); err != nil {
-		return fmt.Errorf("prepare guest /dev mountpoint: %w", err)
-	}
-	if err := mountTmpfs(devRoot, "mode=0755"); err != nil {
-		return fmt.Errorf("mount guest /dev tmpfs: %w", err)
-	}
-
-	shmRoot := bindMountTargetPath(rootfs, "/dev/shm")
-	if err := ensureMountpointDir(shmRoot, 0o1777); err != nil {
-		return fmt.Errorf("prepare guest /dev/shm mountpoint: %w", err)
-	}
-	if err := mountTmpfs(shmRoot, "mode=1777"); err != nil {
-		return fmt.Errorf("mount guest /dev/shm tmpfs: %w", err)
-	}
-
-	ptsRoot := bindMountTargetPath(rootfs, "/dev/pts")
-	if err := ensureMountpointDir(ptsRoot, 0o755); err != nil {
-		return fmt.Errorf("prepare guest /dev/pts mountpoint: %w", err)
-	}
-	if err := mountDevPTS(ptsRoot, "newinstance,ptmxmode=0666,mode=0620"); err != nil {
-		return err
-	}
-
-	for _, path := range []string{"/dev/null", "/dev/zero", "/dev/full", "/dev/random", "/dev/urandom", "/dev/tty"} {
-		if err := applyBindMount(rootfs, bindMount{Source: path, Target: path}); err != nil {
-			return fmt.Errorf("prepare guest device node %q: %w", path, err)
-		}
-	}
-	if err := bindOptionalMount(rootfs, "/dev/console", "/dev/console", false); err != nil {
-		return err
-	}
-
-	for target, link := range map[string]string{
-		"/dev/fd":     "/proc/self/fd",
-		"/dev/stdin":  "/proc/self/fd/0",
-		"/dev/stdout": "/proc/self/fd/1",
-		"/dev/stderr": "/proc/self/fd/2",
-		"/dev/ptmx":   "pts/ptmx",
-	} {
-		if err := ensureGuestSymlink(bindMountTargetPath(rootfs, target), link); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func prepareGuestRunLayout(rootfs string) error {
-	for _, dir := range []struct {
-		path string
-		mode os.FileMode
-	}{
-		{path: "/run/lock", mode: 0o1777},
-		{path: "/run/systemd", mode: 0o755},
-		{path: "/run/systemd/system", mode: 0o755},
-	} {
-		target := bindMountTargetPath(rootfs, dir.path)
-		if err := ensureMountpointDir(target, dir.mode); err != nil {
-			return fmt.Errorf("prepare guest runtime directory %q: %w", dir.path, err)
-		}
-	}
-	return nil
-}
-
-func prepareGuestSysLayout(rootfs string) error {
-	target := bindMountTargetPath(rootfs, "/sys")
-	if err := ensureMountpointDir(target, 0o755); err != nil {
-		return fmt.Errorf("prepare guest /sys mountpoint: %w", err)
-	}
-	if err := mountTmpfs(target, "mode=0755"); err != nil {
-		return fmt.Errorf("mount guest /sys tmpfs: %w", err)
-	}
-	for _, dir := range []string{"/sys/fs", "/sys/fs/cgroup"} {
-		if err := ensureMountpointDir(bindMountTargetPath(rootfs, dir), 0o755); err != nil {
-			return fmt.Errorf("prepare guest sysfs directory %q: %w", dir, err)
-		}
-	}
-	return nil
-}
-
-func finalizeGuestSysLayout(rootfs string) error {
-	target := bindMountTargetPath(rootfs, "/sys")
-	if err := remountBindReadOnlyFlat(target); err != nil {
-		return fmt.Errorf("remount guest /sys read-only: %w", err)
-	}
-	return nil
-}
-
-func prepareGuestCgroupLayout(rootfs string) error {
-	target := bindMountTargetPath(rootfs, "/sys/fs/cgroup")
-	if err := ensureMountpointDir(target, 0o755); err != nil {
-		return fmt.Errorf("prepare guest cgroup mountpoint: %w", err)
-	}
-	if err := syscall.Unmount(target, syscall.MNT_DETACH); err != nil && !errors.Is(err, syscall.EINVAL) && !errors.Is(err, syscall.ENOENT) {
-		return fmt.Errorf("detach inherited guest cgroup subtree at %q: %w", target, err)
-	}
-	flags := uintptr(syscall.MS_NOSUID | syscall.MS_NODEV | syscall.MS_NOEXEC)
-	if err := syscall.Mount("none", target, "cgroup2", flags, ""); err != nil {
-		return fmt.Errorf("mount guest cgroup2 tree at %q: %w", target, err)
 	}
 	return nil
 }
@@ -789,10 +636,6 @@ func remountBindReadOnly(targetPath string) error {
 	return syscall.Mount("", targetPath, "", syscall.MS_BIND|syscall.MS_REMOUNT|syscall.MS_RDONLY|syscall.MS_REC, "")
 }
 
-func remountBindReadOnlyFlat(targetPath string) error {
-	return syscall.Mount("", targetPath, "", syscall.MS_BIND|syscall.MS_REMOUNT|syscall.MS_RDONLY, "")
-}
-
 func mountSetattrReadOnly(targetPath string) error {
 	type mountAttr struct {
 		AttrSet     uint64
@@ -848,63 +691,7 @@ func mountTmpfs(target string, data string) error {
 	return nil
 }
 
-func mountDevPTS(target string, data string) error {
-	if err := syscall.Mount("devpts", target, "devpts", 0, data); err != nil {
-		return fmt.Errorf("mount devpts at %q: %w", target, err)
-	}
-	return nil
-}
-
-func bindOptionalMount(rootfs string, source string, target string, readOnly bool) error {
-	if _, err := os.Stat(source); errors.Is(err, os.ErrNotExist) {
-		return nil
-	} else if err != nil {
-		return fmt.Errorf("stat optional bind source %q: %w", source, err)
-	}
-	if err := applyBindMount(rootfs, bindMount{Source: source, Target: target, ReadOnly: readOnly}); err != nil {
-		return err
-	}
-	return nil
-}
-
-func ensureGuestSymlink(path string, target string) error {
-	info, err := os.Lstat(path)
-	if err == nil {
-		if info.Mode()&os.ModeSymlink != 0 {
-			resolved, err := os.Readlink(path)
-			if err != nil {
-				return fmt.Errorf("read guest symlink %q: %w", path, err)
-			}
-			if resolved == target {
-				return nil
-			}
-		}
-		if info.IsDir() {
-			return fmt.Errorf("prepare guest symlink %q: path is a directory", path)
-		}
-		if err := os.Remove(path); err != nil {
-			return fmt.Errorf("replace guest path %q with symlink: %w", path, err)
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("stat guest symlink path %q: %w", path, err)
-	}
-	if err := os.Symlink(target, path); err != nil {
-		return fmt.Errorf("create guest symlink %q -> %q: %w", path, target, err)
-	}
-	return nil
-}
-
-func hasEnvKey(items []string, key string) bool {
-	prefix := key + "="
-	for _, item := range items {
-		if strings.HasPrefix(item, prefix) {
-			return true
-		}
-	}
-	return false
-}
-
-func buildSandboxEnv(items []string, rootfs string, guestInit bool) ([]string, error) {
+func buildSandboxEnv(items []string, rootfs string) ([]string, error) {
 	home, user, err := defaultSandboxIdentity(rootfs)
 	if err != nil {
 		return nil, err
@@ -921,9 +708,6 @@ func buildSandboxEnv(items []string, rootfs string, guestInit bool) ([]string, e
 			continue
 		}
 		env = setEnvValue(env, key, item)
-	}
-	if guestInit && !hasEnvKey(env, "container") {
-		env = append(env, "container=mirage")
 	}
 	return env, nil
 }

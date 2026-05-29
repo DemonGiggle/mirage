@@ -29,7 +29,7 @@ defense against a determined kernel-level adversary.
 - `rootfs template`: a reusable description of files, directories, and binaries
   that should exist in a generated rootfs
 - `generated file`: a small file written directly into a generated rootfs, used
-  for assets such as an empty machine-id or future service-unit scaffolding
+  for small runtime assets needed by a template
 - `bind mount`: an explicit mapping from a host path into the sandbox, either
   read-only or read-write
 - `preset file`: a file-backed bundle of default options layered on top of the
@@ -41,7 +41,7 @@ The intended model is simple:
 
 1. the CLI resolves a final config
 2. the runner creates the requested isolation context
-3. the direct workload or guest-init entrypoint executes inside that context
+3. the workload executes inside that context
 4. optional logs are persisted on the host
 
 `mirage` is therefore a thin control plane in front of normal Linux isolation
@@ -91,8 +91,7 @@ The backend currently builds the sandbox in this order:
 3. mount `proc`, `tmpfs`, and `run` under a non-`/` rootfs
 4. apply read-only and read-write bind mounts
 5. hand off into the rootfs with `chroot`
-6. execute the workload directly, or in sandbox lifecycle flows hand off to the
-   guest init entrypoint
+6. execute the workload directly
 
 That sequencing explains an important current limitation:
 
@@ -110,53 +109,6 @@ One `mirage run` invocation corresponds to one isolated process tree.
 The workload root process and any later child processes should inherit the same
 namespace boundary automatically. This is the main reason the implementation
 uses standard Linux namespace setup rather than a host-side subprocess wrapper.
-
-## Guest-Systemd Sandbox Contract
-
-The guest-systemd sandbox contract is intentionally narrow:
-
-- it preserves a true guest PID 1 handoff
-- it does not yet add a Mirage supervisor above that init process
-- it shares the same policy-first network surface as direct mode
-- it assumes a unified cgroup v2 host and always enters a delegated
-  `systemd-run --user --scope` leaf before guest init starts
-- it currently requires a dedicated rootfs, because host-root mode keeps the
-  inherited `/sys/fs/cgroup` mount instead of a guest-private cgroup mount
-- it unshares a cgroup namespace and exposes `/sys/fs/cgroup` inside dedicated
-  rootfs runs so guest init sees a writable delegated subtree
-- it layers extra init-only mounts over the base runtime layout: a managed
-  `/dev`, a guest-private read-only `/sys`, and runtime state directories under
-  `/run`
-
-## Tracked Sandbox Lifecycle
-
-Issue #33 adds a thin lifecycle layer for guest-systemd sandboxes without
-turning Mirage into a daemon.
-
-The model is:
-
-1. `mirage sandbox start` resolves the final sandbox config and validates the
-   rootfs
-2. Mirage assigns a stable user-systemd scope unit name
-3. Mirage backgrounds a dedicated sandbox-exec flow and persists local sandbox
-   state
-4. later host-side commands (`status`, `stop`, `logs`) operate against that
-   recorded state and the named user-systemd scope
-
-Important consequences:
-
-- stop semantics are tied to the named `systemd-run --user --scope` unit rather
-  than to a wrapper PID
-- the persisted state is plain local JSON plus log files in the user's state
-  directory
-- stdout/stderr log export is the primary host-visible log surface for this
-  lifecycle model today
-- guest-systemd sandboxes advertise themselves to guest init processes with
-  `container=mirage`
-- Mirage still does not inject a supervisor *inside* the guest; guest `systemd`
-  remains PID 1 in the sandbox
-- Mirage still does not provide a general live namespace-entry API for running
-  follow-up commands inside an already-running sandbox
 
 ## Network Model
 

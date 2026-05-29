@@ -10,7 +10,7 @@ import (
 )
 
 func TestResolveCommandBinaryMentionsRootfsWhenPathLookupFails(t *testing.T) {
-	sandboxEnv, err := buildSandboxEnv(nil, "/tmp/test-rootfs", false)
+	sandboxEnv, err := buildSandboxEnv(nil, "/tmp/test-rootfs")
 	if err != nil {
 		t.Fatalf("buildSandboxEnv returned error: %v", err)
 	}
@@ -199,7 +199,7 @@ func TestBuildUnshareArgsUsesNetNamespaceForOfflineNetworkPolicy(t *testing.T) {
 			Ingress:  spec.IngressPolicy{Default: spec.PolicyDeny, Rules: []spec.IngressRule{}},
 			Egress:   spec.EgressPolicy{Default: spec.PolicyDeny, Rules: []spec.EgressRule{}},
 		},
-	}, false)
+	})
 	if err != nil {
 		t.Fatalf("buildUnshareArgs returned error: %v", err)
 	}
@@ -212,7 +212,7 @@ func TestBuildUnshareArgsSkipsNetNamespaceForAllowAllNetworkPolicy(t *testing.T)
 	policy := spec.AllowAllNetworkPolicy()
 	args, err := buildUnshareArgs(spec.Config{
 		NetworkPolicy: &policy,
-	}, false)
+	})
 	if err != nil {
 		t.Fatalf("buildUnshareArgs returned error: %v", err)
 	}
@@ -240,7 +240,7 @@ func TestBuildUnshareArgsRejectsUnsupportedPolicyAllows(t *testing.T) {
 				},
 			},
 		},
-	}, false)
+	})
 	if err == nil || !strings.Contains(err.Error(), "allow semantics this backend cannot enforce yet") {
 		t.Fatalf("expected unsupported allow policy error, got %v", err)
 	}
@@ -275,46 +275,14 @@ func slicesContains(items []string, want string) bool {
 	return false
 }
 
-func TestPrepareGuestRunLayoutCreatesSystemdStateDirs(t *testing.T) {
-	rootfs := t.TempDir()
-
-	if err := prepareGuestRunLayout(rootfs); err != nil {
-		t.Fatalf("prepareGuestRunLayout returned error: %v", err)
-	}
-
-	for _, want := range []string{
-		filepath.Join(rootfs, "run", "lock"),
-		filepath.Join(rootfs, "run", "systemd"),
-		filepath.Join(rootfs, "run", "systemd", "system"),
-	} {
-		info, err := os.Stat(want)
-		if err != nil {
-			t.Fatalf("expected runtime directory %q to exist: %v", want, err)
-		}
-		if !info.IsDir() {
-			t.Fatalf("expected runtime path %q to be a directory", want)
-		}
-	}
-}
-
-func TestHasEnvKey(t *testing.T) {
-	items := []string{"PATH=/usr/bin", "container=mirage"}
-	if !hasEnvKey(items, "container") {
-		t.Fatal("expected container env key to be found")
-	}
-	if hasEnvKey(items, "HOME") {
-		t.Fatal("did not expect missing env key to be reported present")
-	}
-}
-
 func TestBuildSandboxEnvDoesNotInheritHostVariables(t *testing.T) {
 	t.Setenv("SECRET_TOKEN", "host-secret")
 
-	env, err := buildSandboxEnv([]string{"FOO=bar"}, "/sandbox-rootfs", false)
+	env, err := buildSandboxEnv([]string{"FOO=bar"}, "/sandbox-rootfs")
 	if err != nil {
 		t.Fatalf("buildSandboxEnv returned error: %v", err)
 	}
-	if !hasEnvKey(env, "PATH") {
+	if envValue(env, "PATH", "") == "" {
 		t.Fatal("expected managed sandbox PATH to be present")
 	}
 	if got := envValue(env, "HOME", ""); got != defaultSandboxHome {
@@ -323,16 +291,16 @@ func TestBuildSandboxEnvDoesNotInheritHostVariables(t *testing.T) {
 	if got := envValue(env, "USER", ""); got != defaultSandboxUser {
 		t.Fatalf("expected default USER %q, got %q", defaultSandboxUser, got)
 	}
-	if hasEnvKey(env, "SECRET_TOKEN") {
+	if envValue(env, "SECRET_TOKEN", "") != "" {
 		t.Fatal("did not expect host-only variable to be inherited into sandbox env")
 	}
-	if !hasEnvKey(env, "FOO") {
+	if envValue(env, "FOO", "") != "bar" {
 		t.Fatal("expected explicit sandbox env variable to be present")
 	}
 }
 
-func TestBuildSandboxEnvSupportsPathOverrideAndInitContainer(t *testing.T) {
-	env, err := buildSandboxEnv([]string{"PATH=/custom/bin", "HOME=/workspace", "USER=workspace-user", "TERM=xterm-256color"}, "/sandbox-rootfs", true)
+func TestBuildSandboxEnvSupportsPathOverride(t *testing.T) {
+	env, err := buildSandboxEnv([]string{"PATH=/custom/bin", "HOME=/workspace", "USER=workspace-user", "TERM=xterm-256color"}, "/sandbox-rootfs")
 	if err != nil {
 		t.Fatalf("buildSandboxEnv returned error: %v", err)
 	}
@@ -355,9 +323,6 @@ func TestBuildSandboxEnvSupportsPathOverrideAndInitContainer(t *testing.T) {
 	if pathCount != 1 {
 		t.Fatalf("expected a single PATH entry, got %d entries: %v", pathCount, env)
 	}
-	if !hasEnvKey(env, "container") {
-		t.Fatal("expected guest-init sandbox env to inject container=mirage")
-	}
 	if got := envValue(env, "TERM", ""); got != "xterm-256color" {
 		t.Fatalf("expected TERM to be preserved from explicit env, got %q", got)
 	}
@@ -370,7 +335,7 @@ func TestResolveCommandBinaryUsesSandboxPath(t *testing.T) {
 		t.Fatalf("write demo binary: %v", err)
 	}
 
-	sandboxEnv, err := buildSandboxEnv([]string{"PATH=" + dir}, "/tmp/test-rootfs", false)
+	sandboxEnv, err := buildSandboxEnv([]string{"PATH=" + dir}, "/tmp/test-rootfs")
 	if err != nil {
 		t.Fatalf("buildSandboxEnv returned error: %v", err)
 	}
@@ -380,18 +345,5 @@ func TestResolveCommandBinaryUsesSandboxPath(t *testing.T) {
 	}
 	if resolved != binary {
 		t.Fatalf("expected resolved path %q, got %q", binary, resolved)
-	}
-}
-
-func TestBuildUnshareArgsAddsCgroupNamespaceForSandboxInit(t *testing.T) {
-	policy := spec.AllowAllNetworkPolicy()
-	args, err := buildUnshareArgs(spec.Config{
-		NetworkPolicy: &policy,
-	}, true)
-	if err != nil {
-		t.Fatalf("buildUnshareArgs returned error: %v", err)
-	}
-	if !strings.Contains(strings.Join(args, " "), "--cgroup") {
-		t.Fatalf("expected sandbox-init unshare args to include --cgroup, got %#v", args)
 	}
 }
