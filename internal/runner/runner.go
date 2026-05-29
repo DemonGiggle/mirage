@@ -16,6 +16,7 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/DemonGiggle/mirage/internal/netpolicy"
 	"github.com/DemonGiggle/mirage/internal/spec"
 )
 
@@ -449,7 +450,10 @@ func resolveCommandBinary(commandName string, rootfs string, sandboxEnv []string
 
 func buildUnshareArgs(cfg spec.Config) ([]string, error) {
 	if cfg.NetworkPolicy != nil {
-		return nil, errors.New("networkPolicy enforcement is not implemented yet")
+		if _, err := netpolicy.Compile(*cfg.NetworkPolicy); err != nil {
+			return nil, err
+		}
+		return nil, errors.New("networkPolicy enforcement backend is not implemented yet")
 	}
 	args := []string{
 		"--user",

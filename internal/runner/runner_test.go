@@ -183,7 +183,7 @@ func TestBuildUnshareArgsRejectsNetworkPolicyUntilBackendExists(t *testing.T) {
 			Egress:   spec.EgressPolicy{Default: spec.PolicyDeny, Rules: []spec.EgressRule{}},
 		},
 	})
-	if err == nil || !strings.Contains(err.Error(), "networkPolicy enforcement is not implemented yet") {
+	if err == nil || !strings.Contains(err.Error(), "networkPolicy enforcement backend is not implemented yet") {
 		t.Fatalf("expected policy backend error, got %v", err)
 	}
 }
