@@ -75,9 +75,8 @@ func TestSandboxStartWritesStateAndLaunchesNamedScope(t *testing.T) {
 
 	got := strings.Join(launched.RunArgs, " ")
 	for _, needle := range []string{
-		"run",
+		"__sandbox-exec",
 		"--rootfs " + rootfsPath,
-		"--runtime-mode init",
 		"--scope-name mirage-sandbox-demo.scope",
 		"--network-policy-file " + policyFile,
 		"--stdout-log " + filepath.Join(stateDir, "demo", "stdout.log"),

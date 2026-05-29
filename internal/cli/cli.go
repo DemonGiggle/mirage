@@ -31,6 +31,8 @@ func Run(args []string, stdout, stderr io.Writer) error {
 		return runner.RunBackendHelper(args[1:], stdout, stderr)
 	case "__cgroup-exec":
 		return runner.RunCgroupHelper(args[1:], stdout, stderr)
+	case "__sandbox-exec":
+		return runSandboxExec(args[1:], stdout, stderr)
 	case "rootfs":
 		return runRootfs(args[1:], stdout, stderr)
 	case "doctor":
@@ -134,15 +136,13 @@ func runDoctor(args []string, stdout, stderr io.Writer) error {
 	var command string
 	var cwd string
 	var presetFile string
-	var runtimeMode string
 	var serviceUnit string
 
 	fs.StringVar(&rootfsPath, "rootfs", "", "Path to the rootfs to validate")
 	fs.StringVar(&command, "command", "", "Command to resolve and validate inside the rootfs")
 	fs.StringVar(&cwd, "cwd", "", "Working directory to validate inside the rootfs")
 	fs.StringVar(&presetFile, "preset-file", "", "Path to a preset YAML file")
-	fs.StringVar(&runtimeMode, "runtime-mode", string(spec.RuntimeModeDirect), "Runtime mode to validate against: direct, init")
-	fs.StringVar(&serviceUnit, "service-unit", "", "Systemd unit to validate inside the rootfs when runtime-mode=init")
+	fs.StringVar(&serviceUnit, "service-unit", "", "Systemd unit to validate inside the rootfs")
 
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -150,10 +150,6 @@ func runDoctor(args []string, stdout, stderr io.Writer) error {
 	if len(fs.Args()) > 0 {
 		return fmt.Errorf("doctor does not accept positional arguments: %s", strings.Join(fs.Args(), " "))
 	}
-	if runtimeMode != string(spec.RuntimeModeDirect) && runtimeMode != string(spec.RuntimeModeInit) {
-		return fmt.Errorf("invalid runtime-mode %q; must be %q or %q", runtimeMode, spec.RuntimeModeDirect, spec.RuntimeModeInit)
-	}
-
 	setFlags := collectSetFlags(fs)
 	if err := rejectPresetFileConflicts("doctor", presetFile, setFlags, []string{"rootfs", "cwd"}); err != nil {
 		return err
@@ -169,10 +165,9 @@ func runDoctor(args []string, stdout, stderr io.Writer) error {
 	_, _ = fmt.Fprintln(stdout, "- host log export: available")
 
 	cfg := spec.Config{
-		RootFS:      rootfsPath,
-		Cwd:         cwd,
-		PresetFile:  presetFile,
-		RuntimeMode: spec.RuntimeMode(runtimeMode),
+		RootFS:     rootfsPath,
+		Cwd:        cwd,
+		PresetFile: presetFile,
 	}
 	resolved, preset, err := spec.ApplyPresetFile(cfg)
 	if err != nil {
@@ -199,7 +194,7 @@ func runDoctor(args []string, stdout, stderr io.Writer) error {
 		}
 	}
 
-	if runtimeMode == string(spec.RuntimeModeInit) {
+	if serviceUnit != "" {
 		return runInitDoctor(stdout, rootfsPath, command, serviceUnit, presetRequiredCommands)
 	}
 
@@ -323,7 +318,6 @@ func runSandbox(args []string, stdout, stderr io.Writer) error {
 	fs.Var(stringSliceValue{target: &cfg.RWBind}, "rw-bind", "Writable bind mount host:guest")
 	fs.Var(stringSliceValue{target: &cfg.Env}, "env", "Environment variable in KEY=VALUE form")
 	fs.StringVar(&cfg.NetworkPolicyFile, "network-policy-file", "", "Path to a standalone networkPolicy YAML file")
-	fs.StringVar((*string)(&cfg.RuntimeMode), "runtime-mode", string(spec.RuntimeModeDirect), "Runtime mode: direct, init")
 	fs.StringVar(&cfg.ScopeName, "scope-name", "", "Internal: explicit systemd user scope unit name")
 	fs.StringVar(&cfg.PresetFile, "preset-file", "", "Path to a preset YAML file")
 	fs.StringVar(&cfg.StdoutLog, "stdout-log", "", "Write workload stdout to a host-side log file")

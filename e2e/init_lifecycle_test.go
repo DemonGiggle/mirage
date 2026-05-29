@@ -26,7 +26,6 @@ ExecStart=/bin/sh -c 'printf fixture-started'
 	output, err := runMirage(t, repoRoot,
 		"doctor",
 		"--rootfs", rootfs,
-		"--runtime-mode", "init",
 		"--command", "/bin/sh",
 		"--service-unit", "openclaw.service",
 	)

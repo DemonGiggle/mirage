@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/DemonGiggle/mirage/internal/rootfs"
+	"github.com/DemonGiggle/mirage/internal/runner"
 	"github.com/DemonGiggle/mirage/internal/spec"
 )
 
@@ -154,13 +155,6 @@ func runSandboxStart(args []string, stdout, stderr io.Writer) error {
 		_ = os.Remove(statePath)
 		return err
 	}
-	if resolved.RuntimeMode == "" {
-		resolved.RuntimeMode = spec.RuntimeModeInit
-	}
-	if spec.NormalizeRuntimeMode(resolved.RuntimeMode) != spec.RuntimeModeInit {
-		_ = os.Remove(statePath)
-		return fmt.Errorf("sandbox start requires runtime-mode %q", spec.RuntimeModeInit)
-	}
 	if resolved.StdoutLog == "" {
 		resolved.StdoutLog = filepath.Join(sandboxDir, "stdout.log")
 	}
@@ -178,6 +172,10 @@ func runSandboxStart(args []string, stdout, stderr io.Writer) error {
 	}
 	if len(resolved.Command) == 0 {
 		resolved.Command = []string{report.ResolvedInit}
+	}
+	if err := validateSandboxStartConfig(resolved); err != nil {
+		_ = os.Remove(statePath)
+		return err
 	}
 	if err := spec.Validate(resolved); err != nil {
 		_ = os.Remove(statePath)
@@ -463,8 +461,7 @@ func writeSandboxState(path string, state sandboxState) error {
 
 func buildSandboxRunArgs(cfg spec.Config) []string {
 	args := []string{
-		"run",
-		"--runtime-mode", string(spec.NormalizeRuntimeMode(cfg.RuntimeMode)),
+		"__sandbox-exec",
 		"--scope-name", cfg.ScopeName,
 	}
 	if cfg.PresetFile != "" {
@@ -505,6 +502,94 @@ func buildSandboxRunArgs(cfg spec.Config) []string {
 	args = append(args, "--")
 	args = append(args, cfg.Command...)
 	return args
+}
+
+func runSandboxExec(args []string, stdout, stderr io.Writer) error {
+	fs := flag.NewFlagSet("__sandbox-exec", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+
+	var cfg spec.Config
+
+	fs.StringVar(&cfg.RootFS, "rootfs", "", "Path to the sandbox root filesystem")
+	fs.Var(stringSliceValue{target: &cfg.ROBind}, "ro-bind", "Read-only bind mount host:guest")
+	fs.Var(stringSliceValue{target: &cfg.RWBind}, "rw-bind", "Writable bind mount host:guest")
+	fs.Var(stringSliceValue{target: &cfg.Env}, "env", "Environment variable in KEY=VALUE form")
+	fs.StringVar(&cfg.NetworkPolicyFile, "network-policy-file", "", "Path to a standalone networkPolicy YAML file")
+	fs.StringVar(&cfg.ScopeName, "scope-name", "", "Internal: explicit systemd user scope unit name")
+	fs.StringVar(&cfg.PresetFile, "preset-file", "", "Path to a preset YAML file")
+	fs.StringVar(&cfg.StdoutLog, "stdout-log", "", "Write guest init stdout to a host-side log file")
+	fs.StringVar(&cfg.StderrLog, "stderr-log", "", "Write guest init stderr to a host-side log file")
+	fs.StringVar(&cfg.Cwd, "cwd", "", "Working directory inside the sandbox")
+	fs.StringVar(&cfg.Hostname, "hostname", "", "Hostname inside the sandbox")
+	fs.StringVar(&cfg.Memory, "memory", "", "Memory limit, for example 512M")
+	fs.IntVar(&cfg.Pids, "pids", 0, "PID limit")
+
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	cfg.Command = fs.Args()
+	if err := loadConfigNetworkPolicy(&cfg); err != nil {
+		return err
+	}
+
+	resolved, preset, err := spec.ApplyPresetFile(cfg)
+	if err != nil {
+		return err
+	}
+	if err := ensurePresetRootfs(resolved, preset, stderr); err != nil {
+		return err
+	}
+	if err := validateSandboxStartConfig(resolved); err != nil {
+		return err
+	}
+	if err := spec.Validate(resolved); err != nil {
+		return err
+	}
+	if resolved.RootFS == "" {
+		return errors.New("sandbox backend requires rootfs")
+	}
+	return runner.ExecuteSandboxInit(resolved, stdout, stderr)
+}
+
+func validateSandboxStartConfig(cfg spec.Config) error {
+	var problems []error
+	if cfg.RootFS == "" || cfg.RootFS == "/" {
+		problems = append(problems, errors.New("sandbox start requires a dedicated rootfs; use --rootfs with a non-root directory"))
+	}
+	for _, mount := range append(append([]string{}, cfg.ROBind...), cfg.RWBind...) {
+		target, ok := bindMountTarget(mount)
+		if !ok {
+			continue
+		}
+		if reservedPath, ok := reservedSandboxMountPath(target); ok {
+			if reservedPath == "/sys/fs/cgroup" {
+				problems = append(problems, fmt.Errorf("sandbox start reserves guest path %q for the delegated cgroup tree", target))
+				continue
+			}
+			problems = append(problems, fmt.Errorf("sandbox start manages guest path %q via its runtime mount contract", target))
+		}
+	}
+	if len(problems) == 0 {
+		return nil
+	}
+	return errors.Join(problems...)
+}
+
+func bindMountTarget(entry string) (string, bool) {
+	_, target, ok := strings.Cut(entry, ":")
+	if !ok || target == "" || !filepath.IsAbs(target) {
+		return "", false
+	}
+	return filepath.Clean(target), true
+}
+
+func reservedSandboxMountPath(target string) (string, bool) {
+	for _, root := range []string{"/sys/fs/cgroup", "/proc", "/tmp", "/run", "/dev", "/sys"} {
+		if target == root || strings.HasPrefix(target, root+"/") {
+			return root, true
+		}
+	}
+	return "", false
 }
 
 func sandboxScopeUnit(name string) string {

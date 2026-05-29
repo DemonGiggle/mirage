@@ -33,6 +33,14 @@ const (
 )
 
 func Execute(cfg spec.Config, stdout, stderr io.Writer) error {
+	return execute(cfg, stdout, stderr, false)
+}
+
+func ExecuteSandboxInit(cfg spec.Config, stdout, stderr io.Writer) error {
+	return execute(cfg, stdout, stderr, true)
+}
+
+func execute(cfg spec.Config, stdout, stderr io.Writer, guestInit bool) error {
 	if runtimeUnsupported() {
 		return errors.New("sandbox backend currently supports Linux only")
 	}
@@ -44,7 +52,7 @@ func Execute(cfg spec.Config, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	unshareArgs, err := buildUnshareArgs(cfg)
+	unshareArgs, err := buildUnshareArgs(cfg, guestInit)
 	if err != nil {
 		return err
 	}
@@ -56,7 +64,9 @@ func Execute(cfg spec.Config, stdout, stderr io.Writer) error {
 
 	backendArgs := []string{self, "__backend-exec", "--rootfs", cfg.RootFS, "--network-backend", policyPlan.BackendMode}
 	backendArgs = append(backendArgs, "--policy-loopback", string(policyPlan.LoopbackAction))
-	backendArgs = append(backendArgs, "--runtime-mode", string(spec.NormalizeRuntimeMode(cfg.RuntimeMode)))
+	if guestInit {
+		backendArgs = append(backendArgs, "--guest-init")
+	}
 	if cfg.Cwd != "" {
 		backendArgs = append(backendArgs, "--cwd", cfg.Cwd)
 	}
@@ -78,7 +88,7 @@ func Execute(cfg spec.Config, stdout, stderr io.Writer) error {
 	commandName := "unshare"
 	commandArgs := append(unshareArgs, backendArgs...)
 	var cmd *exec.Cmd
-	if requiresCgroupScope(cfg) {
+	if requiresCgroupScope(cfg, guestInit) {
 		cgroupArgs := []string{self, "__cgroup-exec"}
 		if cfg.Memory != "" {
 			cgroupArgs = append(cgroupArgs, "--memory", cfg.Memory)
@@ -166,7 +176,7 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 	var hostname string
 	var networkBackend string
 	var policyLoopback string
-	var runtimeMode string
+	var guestInit bool
 	var roBind []string
 	var rwBind []string
 	var envItems []string
@@ -176,7 +186,7 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 	fs.StringVar(&hostname, "hostname", "", "backend hostname")
 	fs.StringVar(&networkBackend, "network-backend", "", "backend network mode")
 	fs.StringVar(&policyLoopback, "policy-loopback", "", "backend policy loopback action")
-	fs.StringVar(&runtimeMode, "runtime-mode", string(spec.RuntimeModeDirect), "backend runtime mode")
+	fs.BoolVar(&guestInit, "guest-init", false, "backend guest init mode")
 	fs.Var(stringSliceValue{target: &roBind}, "ro-bind", "backend read-only bind mount")
 	fs.Var(stringSliceValue{target: &rwBind}, "rw-bind", "backend read-write bind mount")
 	fs.Var(stringSliceValue{target: &envItems}, "env", "backend environment variable")
@@ -188,10 +198,6 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 	if len(command) == 0 {
 		return errors.New("backend helper requires a command")
 	}
-	resolvedRuntimeMode := spec.NormalizeRuntimeMode(spec.RuntimeMode(runtimeMode))
-	if resolvedRuntimeMode != spec.RuntimeModeDirect && resolvedRuntimeMode != spec.RuntimeModeInit {
-		return fmt.Errorf("unsupported backend runtime mode %q", runtimeMode)
-	}
 	if networkBackend != backendNetworkPolicyHost && networkBackend != backendNetworkPolicyIsolated {
 		return fmt.Errorf("unsupported backend network mode %q", networkBackend)
 	}
@@ -200,8 +206,8 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 			return err
 		}
 	}
-	if resolvedRuntimeMode == spec.RuntimeModeInit && (rootfs == "" || rootfs == "/") {
-		return errors.New("init mode requires a dedicated rootfs")
+	if guestInit && (rootfs == "" || rootfs == "/") {
+		return errors.New("sandbox guest init requires a dedicated rootfs")
 	}
 
 	if hostname != "" {
@@ -210,7 +216,7 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 		}
 	}
 
-	if rootfs != "/" || len(roBind) > 0 || len(rwBind) > 0 || resolvedRuntimeMode == spec.RuntimeModeInit {
+	if rootfs != "/" || len(roBind) > 0 || len(rwBind) > 0 || guestInit {
 		if err := makeMountNamespacePrivate(); err != nil {
 			return err
 		}
@@ -220,7 +226,7 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 			return err
 		}
 	}
-	if resolvedRuntimeMode == spec.RuntimeModeInit {
+	if guestInit {
 		if err := prepareGuestInitMountLayout(rootfs); err != nil {
 			return err
 		}
@@ -245,12 +251,12 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 		}
 	}
 
-	sandboxEnv, err := buildSandboxEnv(envItems, resolvedRuntimeMode, rootfs)
+	sandboxEnv, err := buildSandboxEnv(envItems, rootfs, guestInit)
 	if err != nil {
 		return err
 	}
 
-	if resolvedRuntimeMode == spec.RuntimeModeInit {
+	if guestInit {
 		return runInitCommand(command, rootfs, sandboxEnv)
 	}
 
@@ -329,8 +335,8 @@ func execCommandInSandbox(command []string, rootfs string, sandboxEnv []string) 
 	return syscall.Exec(binary, command, sandboxEnv)
 }
 
-func requiresCgroupScope(cfg spec.Config) bool {
-	return cfg.Memory != "" || cfg.Pids > 0 || spec.NormalizeRuntimeMode(cfg.RuntimeMode) == spec.RuntimeModeInit
+func requiresCgroupScope(cfg spec.Config, guestInit bool) bool {
+	return cfg.Memory != "" || cfg.Pids > 0 || guestInit
 }
 
 func buildDelegatedScopeCommand(unitName string, args ...string) (*exec.Cmd, error) {
@@ -462,7 +468,7 @@ func resolveCommandBinary(commandName string, rootfs string, sandboxEnv []string
 	return "", fmt.Errorf("resolve command %q: %w", commandName, err)
 }
 
-func buildUnshareArgs(cfg spec.Config) ([]string, error) {
+func buildUnshareArgs(cfg spec.Config, guestInit bool) ([]string, error) {
 	args := []string{
 		"--user",
 		"--map-root-user",
@@ -472,7 +478,7 @@ func buildUnshareArgs(cfg spec.Config) ([]string, error) {
 		"--uts",
 		"--ipc",
 	}
-	if spec.NormalizeRuntimeMode(cfg.RuntimeMode) == spec.RuntimeModeInit {
+	if guestInit {
 		args = append(args, "--cgroup")
 	}
 
@@ -898,7 +904,7 @@ func hasEnvKey(items []string, key string) bool {
 	return false
 }
 
-func buildSandboxEnv(items []string, runtimeMode spec.RuntimeMode, rootfs string) ([]string, error) {
+func buildSandboxEnv(items []string, rootfs string, guestInit bool) ([]string, error) {
 	home, user, err := defaultSandboxIdentity(rootfs)
 	if err != nil {
 		return nil, err
@@ -916,7 +922,7 @@ func buildSandboxEnv(items []string, runtimeMode spec.RuntimeMode, rootfs string
 		}
 		env = setEnvValue(env, key, item)
 	}
-	if runtimeMode == spec.RuntimeModeInit && !hasEnvKey(env, "container") {
+	if guestInit && !hasEnvKey(env, "container") {
 		env = append(env, "container=mirage")
 	}
 	return env, nil
@@ -1038,15 +1044,8 @@ func closeQuietly(closer io.Closer) {
 func PlanNotes(cfg spec.Config) []string {
 	var notes []string
 	notes = append(notes, "execution backend: linux namespace runner")
-	switch spec.NormalizeRuntimeMode(cfg.RuntimeMode) {
-	case spec.RuntimeModeInit:
-		notes = append(notes, "execution mode: guest init command becomes sandbox PID 1")
-		notes = append(notes, "one sandbox = one isolated process tree rooted at guest init")
-		notes = append(notes, "init runtime mounts: managed /dev tmpfs, read-only /sys, and delegated cgroup2")
-	default:
-		notes = append(notes, "execution mode: direct workload command becomes sandbox PID 1")
-		notes = append(notes, "one sandbox = one isolated process tree")
-	}
+	notes = append(notes, "execution mode: direct workload command becomes sandbox PID 1")
+	notes = append(notes, "one sandbox = one isolated process tree")
 	if cfg.NetworkPolicy != nil {
 		if plan, err := planNetworkPolicyBackend(cfg); err == nil {
 			switch plan.BackendMode {
@@ -1072,11 +1071,8 @@ func PlanNotes(cfg spec.Config) []string {
 	if len(cfg.ROBind) > 0 || len(cfg.RWBind) > 0 {
 		notes = append(notes, "bind mounts: enforced read-only/read-write host path exposure")
 	}
-	if cfg.Memory != "" || cfg.Pids > 0 || spec.NormalizeRuntimeMode(cfg.RuntimeMode) == spec.RuntimeModeInit {
+	if cfg.Memory != "" || cfg.Pids > 0 {
 		var limits []string
-		if spec.NormalizeRuntimeMode(cfg.RuntimeMode) == spec.RuntimeModeInit {
-			limits = append(limits, "guest-unified-cgroup-v2")
-		}
 		if cfg.Memory != "" {
 			limits = append(limits, "memory="+cfg.Memory)
 		}

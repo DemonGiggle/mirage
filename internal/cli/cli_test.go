@@ -86,9 +86,6 @@ func TestRunDryRun(t *testing.T) {
 	if !strings.Contains(got, "note: one sandbox = one isolated process tree") {
 		t.Fatalf("expected dry run output to mention process tree model, got %q", got)
 	}
-	if !strings.Contains(got, "runtime-mode: direct") {
-		t.Fatalf("expected dry run output to mention runtime mode, got %q", got)
-	}
 }
 
 func TestRunDryRunWithPresetFile(t *testing.T) {
@@ -299,97 +296,6 @@ func TestRunRejectsLegacyNetFlag(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "flag provided but not defined: -net") {
 		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestRunRejectsInitModeWithHostRootfs(t *testing.T) {
-	var out bytes.Buffer
-	var errBuf bytes.Buffer
-
-	err := Run([]string{
-		"run",
-		"--rootfs", "/",
-		"--network-policy-file", filepath.Join("..", "..", "testdata", "network-policies", "allow-all.yaml"),
-		"--runtime-mode", "init",
-		"--",
-		"/usr/lib/systemd/systemd",
-	}, &out, &errBuf)
-	if err == nil {
-		t.Fatal("expected validation error, got nil")
-	}
-	if !strings.Contains(err.Error(), "runtime-mode init requires a dedicated rootfs") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestRunRejectsBindMountOverGuestCgroupTreeInInitMode(t *testing.T) {
-	var out bytes.Buffer
-	var errBuf bytes.Buffer
-
-	err := Run([]string{
-		"run",
-		"--rootfs", "/srv/rootfs",
-		"--network-policy-file", filepath.Join("..", "..", "testdata", "network-policies", "allow-all.yaml"),
-		"--runtime-mode", "init",
-		"--rw-bind", "/host/path:/sys/fs/cgroup",
-		"--",
-		"/usr/lib/systemd/systemd",
-	}, &out, &errBuf)
-	if err == nil {
-		t.Fatal("expected validation error, got nil")
-	}
-	if !strings.Contains(err.Error(), `runtime-mode init reserves guest path "/sys/fs/cgroup"`) {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestRunRejectsManagedRuntimeMountTargetInInitMode(t *testing.T) {
-	var out bytes.Buffer
-	var errBuf bytes.Buffer
-
-	err := Run([]string{
-		"run",
-		"--rootfs", "/srv/rootfs",
-		"--network-policy-file", filepath.Join("..", "..", "testdata", "network-policies", "allow-all.yaml"),
-		"--runtime-mode", "init",
-		"--ro-bind", "/host/path:/dev/null",
-		"--",
-		"/usr/lib/systemd/systemd",
-	}, &out, &errBuf)
-	if err == nil {
-		t.Fatal("expected validation error, got nil")
-	}
-	if !strings.Contains(err.Error(), `runtime-mode init manages guest path "/dev/null"`) {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestRunDryRunWithInitMode(t *testing.T) {
-	var out bytes.Buffer
-	var errBuf bytes.Buffer
-
-	err := Run([]string{
-		"run",
-		"--rootfs", "/srv/rootfs",
-		"--network-policy-file", filepath.Join("..", "..", "testdata", "network-policies", "allow-all.yaml"),
-		"--runtime-mode", "init",
-		"--dry-run",
-		"--",
-		"/usr/lib/systemd/systemd",
-	}, &out, &errBuf)
-	if err != nil {
-		t.Fatalf("Run returned error: %v", err)
-	}
-
-	got := out.String()
-	for _, needle := range []string{
-		"runtime-mode: init",
-		"note: execution mode: guest init command becomes sandbox PID 1",
-		"note: one sandbox = one isolated process tree rooted at guest init",
-	} {
-		if !strings.Contains(got, needle) {
-			t.Fatalf("expected dry run output to contain %q, got %q", needle, got)
-		}
 	}
 }
 
@@ -613,19 +519,6 @@ func TestDoctorReportsNetworkPolicyInputs(t *testing.T) {
 	}
 }
 
-func TestDoctorRejectsInvalidRuntimeMode(t *testing.T) {
-	var out bytes.Buffer
-	var errBuf bytes.Buffer
-
-	err := Run([]string{"doctor", "--rootfs", "/tmp/rootfs", "--runtime-mode", "invalid"}, &out, &errBuf)
-	if err == nil {
-		t.Fatal("expected invalid runtime-mode error")
-	}
-	if !strings.Contains(err.Error(), `invalid runtime-mode "invalid"`) {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
 func TestDoctorValidatesRootfsCommand(t *testing.T) {
 	var out bytes.Buffer
 	var errBuf bytes.Buffer
@@ -748,7 +641,6 @@ func TestDoctorValidatesInitRootfs(t *testing.T) {
 	err = Run([]string{
 		"doctor",
 		"--rootfs", rootfsPath,
-		"--runtime-mode", "init",
 		"--service-unit", "openclaw.service",
 	}, &out, &errBuf)
 	if err != nil {
@@ -806,7 +698,6 @@ func TestDoctorRejectsMissingInitServiceUnit(t *testing.T) {
 	err = Run([]string{
 		"doctor",
 		"--rootfs", rootfsPath,
-		"--runtime-mode", "init",
 		"--service-unit", "openclaw.service",
 	}, &out, &errBuf)
 	if err == nil {

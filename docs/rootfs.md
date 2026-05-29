@@ -46,7 +46,6 @@ that already contains the init binary and the service unit you expect to launch:
 ```bash
 ./bin/mirage doctor \
   --rootfs /srv/mirage/systemd-rootfs \
-  --runtime-mode init \
   --command /usr/bin/systemd \
   --service-unit openclaw.service
 ```

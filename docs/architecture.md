@@ -34,8 +34,6 @@ defense against a determined kernel-level adversary.
   read-only or read-write
 - `preset file`: a file-backed bundle of default options layered on top of the
   underlying network-policy model
-- `runtime mode`: whether Mirage launches a direct workload entrypoint or an
-  init-oriented entrypoint that must become sandbox PID 1
 
 ## Mental Model
 
@@ -43,7 +41,7 @@ The intended model is simple:
 
 1. the CLI resolves a final config
 2. the runner creates the requested isolation context
-3. the direct workload or guest init entrypoint executes inside that context
+3. the direct workload or guest-init entrypoint executes inside that context
 4. optional logs are persisted on the host
 
 `mirage` is therefore a thin control plane in front of normal Linux isolation
@@ -74,7 +72,7 @@ The runner is responsible for:
 - applying bind mounts
 - performing rootfs handoff
 - entering delegated cgroup v2 limits when configured
-- executing the final command according to the selected runtime mode
+- executing the final command
 
 ### State
 
@@ -93,8 +91,8 @@ The backend currently builds the sandbox in this order:
 3. mount `proc`, `tmpfs`, and `run` under a non-`/` rootfs
 4. apply read-only and read-write bind mounts
 5. hand off into the rootfs with `chroot`
-6. execute the workload directly, or hand off to a guest init entrypoint when
-   init mode is selected
+6. execute the workload directly, or in sandbox lifecycle flows hand off to the
+   guest init entrypoint
 
 That sequencing explains an important current limitation:
 
@@ -113,16 +111,9 @@ The workload root process and any later child processes should inherit the same
 namespace boundary automatically. This is the main reason the implementation
 uses standard Linux namespace setup rather than a host-side subprocess wrapper.
 
-## Runtime Modes
+## Guest-Systemd Sandbox Contract
 
-Mirage now distinguishes between two runtime modes:
-
-- `direct`: the requested workload is launched as the sandbox entrypoint and
-  becomes PID 1
-- `init`: the requested guest init binary becomes sandbox PID 1 directly, which
-  is the shape needed for guest `systemd`
-
-The current init-mode contract is intentionally narrow:
+The guest-systemd sandbox contract is intentionally narrow:
 
 - it preserves a true guest PID 1 handoff
 - it does not yet add a Mirage supervisor above that init process
@@ -144,10 +135,10 @@ turning Mirage into a daemon.
 
 The model is:
 
-1. `mirage sandbox start` resolves the final init-mode config and validates the
+1. `mirage sandbox start` resolves the final sandbox config and validates the
    rootfs
 2. Mirage assigns a stable user-systemd scope unit name
-3. Mirage backgrounds the existing `mirage run` flow and persists local sandbox
+3. Mirage backgrounds a dedicated sandbox-exec flow and persists local sandbox
    state
 4. later host-side commands (`status`, `stop`, `logs`) operate against that
    recorded state and the named user-systemd scope
@@ -160,7 +151,7 @@ Important consequences:
   directory
 - stdout/stderr log export is the primary host-visible log surface for this
   lifecycle model today
-- init-mode runs advertise themselves to guest init processes with
+- guest-systemd sandboxes advertise themselves to guest init processes with
   `container=mirage`
 - Mirage still does not inject a supervisor *inside* the guest; guest `systemd`
   remains PID 1 in the sandbox
