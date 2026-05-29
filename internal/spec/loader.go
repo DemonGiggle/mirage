@@ -119,16 +119,14 @@ func validatePresetDocument(doc presetFileDocument, source string) (map[string]P
 		if _, exists := out[preset.Name]; exists {
 			return nil, fmt.Errorf("preset file %q defines duplicate preset %q", source, preset.Name)
 		}
-		switch {
-		case preset.NetworkPolicy != nil:
-			policy, err := NormalizeNetworkPolicy(*preset.NetworkPolicy)
-			if err != nil {
-				return nil, fmt.Errorf("preset file %q preset %q has invalid networkPolicy: %w", source, preset.Name, err)
-			}
-			preset.NetworkPolicy = &policy
-		default:
+		if preset.NetworkPolicy == nil {
 			return nil, fmt.Errorf("preset file %q preset %q must define networkPolicy", source, preset.Name)
 		}
+		policy, err := NormalizeNetworkPolicy(*preset.NetworkPolicy)
+		if err != nil {
+			return nil, fmt.Errorf("preset file %q preset %q has invalid networkPolicy: %w", source, preset.Name, err)
+		}
+		preset.NetworkPolicy = &policy
 		preset.Rootfs.RecommendedTemplate = strings.TrimSpace(preset.Rootfs.RecommendedTemplate)
 		preset.Rootfs.RecommendedCwd = strings.TrimSpace(preset.Rootfs.RecommendedCwd)
 		if preset.Rootfs.RecommendedCwd != "" && !filepath.IsAbs(preset.Rootfs.RecommendedCwd) {

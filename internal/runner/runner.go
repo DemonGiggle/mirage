@@ -37,15 +37,12 @@ func Execute(cfg spec.Config, stdout, stderr io.Writer) error {
 		return errors.New("sandbox backend currently supports Linux only")
 	}
 
-	var policyPlan networkPolicyBackendPlan
-	var hasPolicyPlan bool
-	if cfg.NetworkPolicy != nil {
-		var err error
-		policyPlan, err = planNetworkPolicyBackend(cfg)
-		if err != nil {
-			return err
-		}
-		hasPolicyPlan = true
+	if cfg.NetworkPolicy == nil {
+		return errors.New("network policy backend plan is missing")
+	}
+	policyPlan, err := planNetworkPolicyBackend(cfg)
+	if err != nil {
+		return err
 	}
 	unshareArgs, err := buildUnshareArgs(cfg)
 	if err != nil {
@@ -57,13 +54,8 @@ func Execute(cfg spec.Config, stdout, stderr io.Writer) error {
 		return fmt.Errorf("resolve mirage executable: %w", err)
 	}
 
-	if !hasPolicyPlan {
-		return errors.New("network policy backend plan is missing")
-	}
 	backendArgs := []string{self, "__backend-exec", "--rootfs", cfg.RootFS, "--network-backend", policyPlan.BackendMode}
-	if hasPolicyPlan {
-		backendArgs = append(backendArgs, "--policy-loopback", string(policyPlan.LoopbackAction))
-	}
+	backendArgs = append(backendArgs, "--policy-loopback", string(policyPlan.LoopbackAction))
 	backendArgs = append(backendArgs, "--runtime-mode", string(spec.NormalizeRuntimeMode(cfg.RuntimeMode)))
 	if cfg.Cwd != "" {
 		backendArgs = append(backendArgs, "--cwd", cfg.Cwd)
