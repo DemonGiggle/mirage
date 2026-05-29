@@ -16,7 +16,6 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/DemonGiggle/mirage/internal/netpolicy"
 	"github.com/DemonGiggle/mirage/internal/spec"
 )
 
@@ -38,6 +37,16 @@ func Execute(cfg spec.Config, stdout, stderr io.Writer) error {
 		return errors.New("sandbox backend currently supports Linux only")
 	}
 
+	var policyPlan networkPolicyBackendPlan
+	var hasPolicyPlan bool
+	if cfg.NetworkPolicy != nil {
+		var err error
+		policyPlan, err = planNetworkPolicyBackend(cfg)
+		if err != nil {
+			return err
+		}
+		hasPolicyPlan = true
+	}
 	unshareArgs, err := buildUnshareArgs(cfg)
 	if err != nil {
 		return err
@@ -48,7 +57,14 @@ func Execute(cfg spec.Config, stdout, stderr io.Writer) error {
 		return fmt.Errorf("resolve mirage executable: %w", err)
 	}
 
-	backendArgs := []string{self, "__backend-exec", "--rootfs", cfg.RootFS, "--net", string(cfg.NetworkMode)}
+	backendNetMode := string(cfg.NetworkMode)
+	if hasPolicyPlan {
+		backendNetMode = policyPlan.BackendMode
+	}
+	backendArgs := []string{self, "__backend-exec", "--rootfs", cfg.RootFS, "--net", backendNetMode}
+	if hasPolicyPlan {
+		backendArgs = append(backendArgs, "--policy-loopback", string(policyPlan.LoopbackAction))
+	}
 	backendArgs = append(backendArgs, "--runtime-mode", string(spec.NormalizeRuntimeMode(cfg.RuntimeMode)))
 	if cfg.Cwd != "" {
 		backendArgs = append(backendArgs, "--cwd", cfg.Cwd)
@@ -158,6 +174,7 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 	var cwd string
 	var hostname string
 	var netMode string
+	var policyLoopback string
 	var runtimeMode string
 	var roBind []string
 	var rwBind []string
@@ -167,6 +184,7 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 	fs.StringVar(&cwd, "cwd", "", "backend cwd")
 	fs.StringVar(&hostname, "hostname", "", "backend hostname")
 	fs.StringVar(&netMode, "net", "", "backend network mode")
+	fs.StringVar(&policyLoopback, "policy-loopback", "", "backend policy loopback action")
 	fs.StringVar(&runtimeMode, "runtime-mode", string(spec.RuntimeModeDirect), "backend runtime mode")
 	fs.Var(stringSliceValue{target: &roBind}, "ro-bind", "backend read-only bind mount")
 	fs.Var(stringSliceValue{target: &rwBind}, "rw-bind", "backend read-write bind mount")
@@ -183,8 +201,13 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 	if resolvedRuntimeMode != spec.RuntimeModeDirect && resolvedRuntimeMode != spec.RuntimeModeInit {
 		return fmt.Errorf("unsupported backend runtime mode %q", runtimeMode)
 	}
-	if netMode != string(spec.NetworkHost) && netMode != string(spec.NetworkNone) {
+	if netMode != string(spec.NetworkHost) && netMode != string(spec.NetworkNone) && netMode != backendNetworkPolicyIsolated {
 		return fmt.Errorf("unsupported backend network mode %q", netMode)
+	}
+	if netMode == backendNetworkPolicyIsolated {
+		if err := configurePolicyNetworkBackend(policyLoopback); err != nil {
+			return err
+		}
 	}
 	if resolvedRuntimeMode == spec.RuntimeModeInit && (rootfs == "" || rootfs == "/") {
 		return errors.New("init mode requires a dedicated rootfs")
@@ -449,12 +472,6 @@ func resolveCommandBinary(commandName string, rootfs string, sandboxEnv []string
 }
 
 func buildUnshareArgs(cfg spec.Config) ([]string, error) {
-	if cfg.NetworkPolicy != nil {
-		if _, err := netpolicy.Compile(*cfg.NetworkPolicy); err != nil {
-			return nil, err
-		}
-		return nil, errors.New("networkPolicy enforcement backend is not implemented yet")
-	}
 	args := []string{
 		"--user",
 		"--map-root-user",
@@ -466,6 +483,14 @@ func buildUnshareArgs(cfg spec.Config) ([]string, error) {
 	}
 	if spec.NormalizeRuntimeMode(cfg.RuntimeMode) == spec.RuntimeModeInit {
 		args = append(args, "--cgroup")
+	}
+
+	if cfg.NetworkPolicy != nil {
+		if _, err := planNetworkPolicyBackend(cfg); err != nil {
+			return nil, err
+		}
+		args = append(args, "--net")
+		return args, nil
 	}
 
 	switch cfg.NetworkMode {
@@ -1047,7 +1072,11 @@ func PlanNotes(cfg spec.Config) []string {
 		notes = append(notes, "network backend: dedicated net namespace without host network")
 	}
 	if cfg.NetworkPolicy != nil {
-		notes = append(notes, "network backend: rule-first policy config present; enforcement pending backend implementation")
+		if plan, err := planNetworkPolicyBackend(cfg); err == nil {
+			notes = append(notes, fmt.Sprintf("network backend: rule-first isolated namespace (%s loopback)", plan.LoopbackAction))
+		} else {
+			notes = append(notes, fmt.Sprintf("network backend: rule-first policy unsupported by current backend (%v)", err))
+		}
 	}
 	if cfg.StdoutLog != "" || cfg.StderrLog != "" {
 		var exports []string

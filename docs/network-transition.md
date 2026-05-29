@@ -137,8 +137,8 @@ Follow-up implication:
 
 - runtime compilation and enforcement can now consume a policy object without
   depending on YAML layout
-- policy-bearing runs still need a backend implementation before they can
-  execute rather than only dry-run
+- the first backend slice can enforce offline policy in a dedicated network
+  namespace and fails closed for allow semantics it cannot enforce yet
 
 This is one of the main reasons `#70` exists. The design doc alone does not say
 how to get from the current config model to the future one.
