@@ -162,10 +162,10 @@ func runDoctor(args []string, stdout, stderr io.Writer) error {
 	_, _ = fmt.Fprintln(stdout, "mirage doctor")
 	_, _ = fmt.Fprintln(stdout, "- namespace backend: available (linux, initial)")
 	_, _ = fmt.Fprintln(stdout, "- rootfs isolation: available via mounted runtime layout plus chroot handoff")
-	_, _ = fmt.Fprintln(stdout, "- rule-first network policy config: available via preset files and --network-policy-file")
+	_, _ = fmt.Fprintln(stdout, "- network policy config: available via --preset-file and --network-policy-file")
 	_, _ = fmt.Fprintln(stdout, "- policy backend coverage: allow-all host passthrough, isolated deny-only policies, explicit errors for unsupported rules")
 	_, _ = fmt.Fprintln(stdout, "- cgroup v2 resource controls: available via delegated systemd user scopes when systemd-run is present")
-	_, _ = fmt.Fprintln(stdout, "- policy-first preset loading: available via --preset-file")
+	_, _ = fmt.Fprintln(stdout, "- preset-file loading: available")
 	_, _ = fmt.Fprintln(stdout, "- host log export: available")
 
 	cfg := spec.Config{

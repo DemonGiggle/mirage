@@ -599,7 +599,7 @@ func TestEnsurePresetRootfsReportsMissingAssets(t *testing.T) {
 	}
 }
 
-func TestDoctorReportsPolicyFirstNetworking(t *testing.T) {
+func TestDoctorReportsNetworkPolicyInputs(t *testing.T) {
 	var out bytes.Buffer
 	var errBuf bytes.Buffer
 
@@ -608,8 +608,8 @@ func TestDoctorReportsPolicyFirstNetworking(t *testing.T) {
 	}
 
 	got := out.String()
-	if !strings.Contains(got, "rule-first network policy config: available via preset files and --network-policy-file") {
-		t.Fatalf("expected doctor output to report policy-first networking, got %q", got)
+	if !strings.Contains(got, "network policy config: available via --preset-file and --network-policy-file") {
+		t.Fatalf("expected doctor output to report network policy inputs, got %q", got)
 	}
 }
 

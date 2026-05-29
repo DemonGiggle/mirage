@@ -25,10 +25,6 @@ func LoadPresetFile(path string) (Preset, error) {
 }
 
 func parsePresetFileYAML(data []byte, source string) (Preset, error) {
-	if hasLegacyPresetList(data) {
-		return Preset{}, fmt.Errorf("load preset file %q: legacy preset lists are no longer supported; pass a file containing exactly one preset document", source)
-	}
-
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	decoder.KnownFields(true)
 
@@ -46,28 +42,6 @@ func parsePresetFileYAML(data []byte, source string) (Preset, error) {
 		return Preset{}, fmt.Errorf("load preset file %q: %w", source, err)
 	}
 	return preset, nil
-}
-
-func hasLegacyPresetList(data []byte) bool {
-	var node yaml.Node
-	if err := yaml.Unmarshal(data, &node); err != nil {
-		return false
-	}
-	if len(node.Content) == 0 {
-		return false
-	}
-
-	root := node.Content[0]
-	if root.Kind != yaml.MappingNode {
-		return false
-	}
-
-	for i := 0; i+1 < len(root.Content); i += 2 {
-		if root.Content[i].Value == "presets" {
-			return true
-		}
-	}
-	return false
 }
 
 func validatePreset(preset Preset, source string) (Preset, error) {
