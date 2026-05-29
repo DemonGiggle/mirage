@@ -55,6 +55,7 @@ Rule-first config plumbing now also exists:
 - configs and presets reject ambiguous `network` + `networkPolicy`
   combinations
 - dry-run summaries and doctor output identify policy-bearing configs
+- canonical policy fixtures live under `testdata/network-policies`
 
 These are not bugs by themselves. They are the surfaces that later rule-first
 work must either replace, compile down to, or retire.
@@ -156,12 +157,14 @@ Current state:
 
 - many tests assert behavior directly in terms of `--net host` and `--net none`
 - this is correct for current implementation verification
+- policy-focused fixture tests now cover parser validation, runtime matching,
+  backend support decisions, and CLI dry-run output
 
 Follow-up implication:
 
-- later rule-first implementation work must decide which tests remain valid as
-  "current-surface compatibility" and which should migrate to policy-based
-  fixtures
+- later rule-first implementation work should keep `--net host|none` tests as
+  explicit compatibility coverage while extending the policy fixture matrix for
+  new backend capabilities
 
 ### Internal naming
 

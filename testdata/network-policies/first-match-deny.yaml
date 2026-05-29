@@ -1,0 +1,21 @@
+networkPolicy:
+  version: 1
+  loopback:
+    default: allow
+  ingress:
+    default: deny
+    rules: []
+  egress:
+    default: deny
+    rules:
+      - name: deny-private-v4
+        action: deny
+        destination:
+          cidr: 10.0.0.0/8
+        protocol: any
+      - name: allow-one-host
+        action: allow
+        destination:
+          ip: 10.0.0.5
+        protocol: tcp
+        ports: [443]

@@ -1,0 +1,15 @@
+networkPolicy:
+  version: 1
+  loopback:
+    default: allow
+  ingress:
+    default: allow
+    rules:
+      - name: deny-admin-range
+        action: deny
+        source:
+          cidr: 198.51.100.0/24
+        protocol: any
+  egress:
+    default: deny
+    rules: []

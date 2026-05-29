@@ -219,6 +219,37 @@ func TestRunDryRunWithPolicyPresetFile(t *testing.T) {
 	}
 }
 
+func TestRunDryRunWithOfflinePolicyFixture(t *testing.T) {
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+
+	presetFile := writePolicyPresetFile(t, "offline-fixture", "offline.yaml")
+	err := Run([]string{
+		"run",
+		"--rootfs", "/srv/rootfs",
+		"--preset-file", presetFile,
+		"--preset", "offline-fixture",
+		"--dry-run",
+		"--",
+		"echo", "hello",
+	}, &out, &errBuf)
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	got := out.String()
+	for _, needle := range []string{
+		"network-policy: v1",
+		"network-policy-egress: default=deny rules=0",
+		"note: network backend: rule-first isolated namespace (allow loopback)",
+		"execution: skipped (--dry-run)",
+	} {
+		if !strings.Contains(got, needle) {
+			t.Fatalf("expected dry run output to contain %q, got %q", needle, got)
+		}
+	}
+}
+
 func TestRunRejectsPolicyPresetCombinedWithNetFlag(t *testing.T) {
 	var out bytes.Buffer
 	var errBuf bytes.Buffer
@@ -253,6 +284,32 @@ func TestRunRejectsPolicyPresetCombinedWithNetFlag(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "--net cannot be combined") {
 		t.Fatalf("expected policy/net ambiguity error, got %v", err)
 	}
+}
+
+func writePolicyPresetFile(t *testing.T, presetName string, fixtureName string) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "network-policies", fixtureName))
+	if err != nil {
+		t.Fatalf("read policy fixture %q: %v", fixtureName, err)
+	}
+	body := "presets:\n  - name: " + presetName + "\n" + indentYAML(string(data), "    ") + "    description: Policy fixture preset\n"
+	path := filepath.Join(t.TempDir(), "presets.yaml")
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("write preset file: %v", err)
+	}
+	return path
+}
+
+func indentYAML(text string, prefix string) string {
+	var b strings.Builder
+	for _, line := range strings.SplitAfter(text, "\n") {
+		if line == "" {
+			continue
+		}
+		b.WriteString(prefix)
+		b.WriteString(line)
+	}
+	return b.String()
 }
 
 func TestRunRejectsUnsupportedNetworkMode(t *testing.T) {
