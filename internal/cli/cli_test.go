@@ -211,7 +211,7 @@ func TestRunDryRunWithPolicyPresetFile(t *testing.T) {
 		"network-policy: v1",
 		"network-policy-loopback-default: allow",
 		"network-policy-egress: default=deny rules=1",
-		"note: network backend: rule-first policy config present; enforcement pending backend implementation",
+		"note: network backend: rule-first policy unsupported by current backend",
 	} {
 		if !strings.Contains(got, needle) {
 			t.Fatalf("expected dry run output to contain %q, got %q", needle, got)

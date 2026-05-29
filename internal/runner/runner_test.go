@@ -169,13 +169,13 @@ func TestPlanNotesNetworkPolicy(t *testing.T) {
 		},
 	})
 	got := strings.Join(notes, "\n")
-	if !strings.Contains(got, "network backend: rule-first policy config present") {
+	if !strings.Contains(got, "network backend: rule-first isolated namespace (allow loopback)") {
 		t.Fatalf("expected policy network note, got %q", got)
 	}
 }
 
-func TestBuildUnshareArgsRejectsNetworkPolicyUntilBackendExists(t *testing.T) {
-	_, err := buildUnshareArgs(spec.Config{
+func TestBuildUnshareArgsUsesNetNamespaceForOfflineNetworkPolicy(t *testing.T) {
+	args, err := buildUnshareArgs(spec.Config{
 		NetworkPolicy: &spec.NetworkPolicy{
 			Version:  1,
 			Loopback: spec.LoopbackPolicy{Default: spec.PolicyAllow},
@@ -183,8 +183,36 @@ func TestBuildUnshareArgsRejectsNetworkPolicyUntilBackendExists(t *testing.T) {
 			Egress:   spec.EgressPolicy{Default: spec.PolicyDeny, Rules: []spec.EgressRule{}},
 		},
 	})
-	if err == nil || !strings.Contains(err.Error(), "networkPolicy enforcement backend is not implemented yet") {
-		t.Fatalf("expected policy backend error, got %v", err)
+	if err != nil {
+		t.Fatalf("buildUnshareArgs returned error: %v", err)
+	}
+	if !slicesContains(args, "--net") {
+		t.Fatalf("expected policy backend to use a dedicated net namespace, got %#v", args)
+	}
+}
+
+func TestBuildUnshareArgsRejectsUnsupportedPolicyAllows(t *testing.T) {
+	_, err := buildUnshareArgs(spec.Config{
+		NetworkPolicy: &spec.NetworkPolicy{
+			Version:  1,
+			Loopback: spec.LoopbackPolicy{Default: spec.PolicyAllow},
+			Ingress:  spec.IngressPolicy{Default: spec.PolicyDeny, Rules: []spec.IngressRule{}},
+			Egress: spec.EgressPolicy{
+				Default: spec.PolicyDeny,
+				Rules: []spec.EgressRule{
+					{
+						Name:        "allow-api",
+						Action:      spec.PolicyAllow,
+						Destination: spec.NetworkSelector{IP: "203.0.113.10"},
+						Protocol:    spec.ProtocolTCP,
+						Ports:       []int{443},
+					},
+				},
+			},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "allow semantics this backend cannot enforce yet") {
+		t.Fatalf("expected unsupported allow policy error, got %v", err)
 	}
 }
 
@@ -233,6 +261,15 @@ func TestRequiresCgroupScopeForInitMode(t *testing.T) {
 	if !requiresCgroupScope(spec.Config{RuntimeMode: spec.RuntimeModeInit}) {
 		t.Fatal("expected init mode to require a delegated cgroup scope")
 	}
+}
+
+func slicesContains(items []string, want string) bool {
+	for _, item := range items {
+		if item == want {
+			return true
+		}
+	}
+	return false
 }
 
 func TestPrepareGuestRunLayoutCreatesSystemdStateDirs(t *testing.T) {
