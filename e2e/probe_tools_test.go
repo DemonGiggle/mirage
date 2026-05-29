@@ -40,6 +40,58 @@ func TestProbeSpawnChildStaysInSandboxTree(t *testing.T) {
 	}
 }
 
+// Verifies that dedicated rootfs sandboxes provide the managed /dev layout
+// needed for child process spawning inside the guest.
+func TestProbeSpawnChildWorksInPreparedRootfs(t *testing.T) {
+	requireNamespaceBackend(t)
+
+	repoRoot := projectRoot(t)
+	rootfs := t.TempDir()
+	buildProbeIntoRootfs(t, repoRoot, "./cmd/probe-spawn-child", rootfs, "probe-spawn-child")
+
+	output, err := runMirage(t, repoRoot,
+		"run",
+		"--rootfs", rootfs,
+		"--network-policy-file", policyFixturePath(repoRoot, "allow-all.yaml"),
+		"--",
+		"/probe-spawn-child",
+	)
+	if err != nil {
+		t.Fatalf("expected prepared-rootfs child spawn to succeed: %v\noutput:\n%s", err, output)
+	}
+
+	if !strings.Contains(output, "parent pid=1") {
+		t.Fatalf("expected sandbox parent pid 1, got:\n%s", output)
+	}
+	if !strings.Contains(output, "child pid=") || !strings.Contains(output, "ppid=1") {
+		t.Fatalf("expected child process to stay under sandbox init, got:\n%s", output)
+	}
+}
+
+// Verifies that dedicated rootfs sandboxes expose the PTY control device needed
+// by PTY-backed workloads such as OpenClaw shell execution.
+func TestProbeOpenPTMXWorksInPreparedRootfs(t *testing.T) {
+	requireNamespaceBackend(t)
+
+	repoRoot := projectRoot(t)
+	rootfs := t.TempDir()
+	buildProbeIntoRootfs(t, repoRoot, "./cmd/probe-open-ptmx", rootfs, "probe-open-ptmx")
+
+	output, err := runMirage(t, repoRoot,
+		"run",
+		"--rootfs", rootfs,
+		"--network-policy-file", policyFixturePath(repoRoot, "allow-all.yaml"),
+		"--",
+		"/probe-open-ptmx",
+	)
+	if err != nil {
+		t.Fatalf("expected prepared-rootfs PTY probe to succeed: %v\noutput:\n%s", err, output)
+	}
+	if !strings.Contains(output, "open-ok path=/dev/ptmx") {
+		t.Fatalf("unexpected PTY probe output:\n%s", output)
+	}
+}
+
 // Verifies that file reads succeed for content inside the sandbox rootfs and
 // fail for host paths outside the exposed filesystem view.
 func TestProbeFileReadRespectsRootfsBoundary(t *testing.T) {

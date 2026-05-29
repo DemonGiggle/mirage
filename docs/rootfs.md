@@ -54,13 +54,18 @@ A V1 rootfs template describes:
 - runtime files copied from the host into the rootfs
 - generated files written directly by Mirage into the rootfs
 
-Every built-in template currently prepares the same baseline runtime layout:
+Every built-in template currently prepares the same baseline rootfs content:
 
 - runtime directories: `/proc`, `/tmp`, and `/run`
 - common runtime files: `/etc/hosts`, `/etc/resolv.conf`, and
   `/etc/nsswitch.conf`
 - declared binaries copied with their ELF dependency closures when requested
 - shebang interpreters copied when a declared command is a script wrapper
+
+At launch time, dedicated non-`/` rootfs runs also get a managed device layout
+inside the sandbox, including `/dev`, `/dev/shm`, and `/dev/pts`, so child
+process spawning and PTY-backed tools can work without relying on host-root
+device paths baked into the generated rootfs.
 
 Mirage reports missing **non-optional** host assets as warnings and still writes
 the rest of the rootfs. Optional host assets are skipped silently.

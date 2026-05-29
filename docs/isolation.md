@@ -67,6 +67,7 @@ Today you can rely on:
 - explicit bind-mount application
 - policy-first network selection through preset files or standalone policy files
 - delegated cgroup v2 memory and PID limits
+- managed `/dev` runtime mounts for dedicated rootfs runs
 - host-side log export
 
 ## Current Limitations

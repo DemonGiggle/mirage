@@ -89,7 +89,7 @@ type validationState struct {
 }
 
 func validateRuntimePaths(root string, problems []error) ([]RuntimePathStatus, []error) {
-	return validateRequiredRuntimePaths(root, []string{"/proc", "/tmp", "/run"}, problems)
+	return validateRequiredRuntimePaths(root, []string{"/proc", "/tmp", "/run", "/dev"}, problems)
 }
 
 func validateRequiredRuntimePaths(root string, required []string, problems []error) ([]RuntimePathStatus, []error) {

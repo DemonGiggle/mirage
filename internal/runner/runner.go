@@ -209,7 +209,7 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 		}
 	}
 	if rootfs != "" && rootfs != "/" {
-		if err := prepareRootfsMountLayout(rootfs); err != nil {
+		if err := prepareRootfsMountLayout(rootfs, !guestInit); err != nil {
 			return err
 		}
 	}
@@ -462,7 +462,7 @@ func buildUnshareArgs(cfg spec.Config) ([]string, error) {
 	return args, nil
 }
 
-func prepareRootfsMountLayout(rootfs string) error {
+func prepareRootfsMountLayout(rootfs string, manageDevices bool) error {
 	info, err := os.Stat(rootfs)
 	if err != nil {
 		return fmt.Errorf("prepare rootfs %q: %w", rootfs, err)
@@ -494,6 +494,11 @@ func prepareRootfsMountLayout(rootfs string) error {
 	}
 	if err := mountTmpfs(filepath.Join(rootfs, "run"), "mode=0755"); err != nil {
 		return err
+	}
+	if manageDevices {
+		if err := prepareGuestDevLayout(rootfs); err != nil {
+			return err
+		}
 	}
 	return nil
 }
