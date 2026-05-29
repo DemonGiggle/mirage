@@ -13,16 +13,15 @@ Mirage no longer accepts:
 
 Mirage now accepts:
 
-- built-in presets such as `allow-all`, `offline`, and `openclaw-offline`
-- file-backed presets that define `networkPolicy`
+- single preset files passed through `--preset-file`
 - standalone policy documents via `--network-policy-file`
 
 ## Replacement Map
 
 | Removed surface | Replacement |
 | --- | --- |
-| `--net none` | `--preset offline` or `--network-policy-file ./offline.yaml` |
-| `--net host` | `--preset allow-all` or `--network-policy-file ./allow-all.yaml` |
+| `--net none` | `--network-policy-file ./examples/network-policies/offline.yaml` or `--preset-file ./examples/presets/openclaw-offline.yaml` |
+| `--net host` | `--network-policy-file ./examples/network-policies/allow-all.yaml` or `--preset-file ./examples/presets/openclaw-allow-all.yaml` |
 | preset `network: none` | preset `networkPolicy` with deny-only ingress/egress |
 | preset `network: host` | preset `networkPolicy` with allow-all ingress/egress |
 
@@ -44,13 +43,13 @@ accepting a coarse mode that bypasses the policy model.
 Local-only command:
 
 ```bash
-./bin/mirage run --rootfs / --preset offline -- /bin/echo hello
+./bin/mirage run --rootfs / --network-policy-file ./examples/network-policies/offline.yaml -- /bin/echo hello
 ```
 
 Host-network command:
 
 ```bash
-./bin/mirage run --rootfs /srv/rootfs --preset allow-all -- app
+./bin/mirage run --rootfs /srv/rootfs --network-policy-file ./examples/network-policies/allow-all.yaml -- app
 ```
 
 Standalone policy document:
@@ -65,19 +64,10 @@ Standalone policy document:
 Preset file:
 
 ```yaml
-presets:
-  - name: team-offline
-    networkPolicy:
-      version: 1
-      loopback:
-        default: allow
-      ingress:
-        default: deny
-        rules: []
-      egress:
-        default: deny
-        rules: []
-    description: Team preset for local-only work
+rootfs:
+  path: /srv/rootfs
+networkPolicyFile: ../network-policies/offline.yaml
+description: Team preset for local-only work
 ```
 
 ## Remaining Follow-Up Work

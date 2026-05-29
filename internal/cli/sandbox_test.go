@@ -46,6 +46,7 @@ func TestSandboxStartWritesStateAndLaunchesNamedScope(t *testing.T) {
 		return nil
 	}
 
+	policyFile := filepath.Join("..", "..", "testdata", "network-policies", "allow-all.yaml")
 	var out bytes.Buffer
 	var errBuf bytes.Buffer
 	err := Run([]string{
@@ -54,6 +55,7 @@ func TestSandboxStartWritesStateAndLaunchesNamedScope(t *testing.T) {
 		"--name", "demo",
 		"--state-dir", stateDir,
 		"--rootfs", rootfsPath,
+		"--network-policy-file", policyFile,
 		"--service-unit", "openclaw.service",
 	}, &out, &errBuf)
 	if err != nil {
@@ -73,10 +75,11 @@ func TestSandboxStartWritesStateAndLaunchesNamedScope(t *testing.T) {
 
 	got := strings.Join(launched.RunArgs, " ")
 	for _, needle := range []string{
-		"run --rootfs " + rootfsPath,
+		"run",
+		"--rootfs " + rootfsPath,
 		"--runtime-mode init",
 		"--scope-name mirage-sandbox-demo.scope",
-		"--preset allow-all",
+		"--network-policy-file " + policyFile,
 		"--stdout-log " + filepath.Join(stateDir, "demo", "stdout.log"),
 		"--stderr-log " + filepath.Join(stateDir, "demo", "stderr.log"),
 		"-- /usr/lib/systemd/systemd",

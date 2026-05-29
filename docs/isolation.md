@@ -10,7 +10,7 @@ see [network-rule-model.md](network-rule-model.md).
 
 There are three sources of behavior to keep separate:
 
-- network policy or preset choice
+- network policy or preset-file choice
 - runner behavior: namespaces, mounts, and cgroups
 - rootfs choice: how strong the filesystem and `/proc` view are
 
@@ -22,8 +22,8 @@ Mirage now exposes only policy-first network inputs:
 
 | Surface | Network behavior |
 | --- | --- |
-| `--preset allow-all` or allow-all `networkPolicy` | No network namespace isolation; the workload uses the host network stack |
-| `--preset offline` / `openclaw-offline` or isolated deny-only `networkPolicy` | Dedicated network namespace with no non-loopback network access |
+| `--network-policy-file ./examples/network-policies/allow-all.yaml` or allow-all `networkPolicy` | No network namespace isolation; the workload uses the host network stack |
+| `--network-policy-file ./examples/network-policies/offline.yaml` or isolated deny-only `networkPolicy` | Dedicated network namespace with no non-loopback network access |
 | richer allow rules or deferred selectors | Explicit unsupported error |
 
 That should still be read as a narrow implementation slice, not as the complete
@@ -56,8 +56,8 @@ This is the most important current caveat:
 - `--rootfs /` does not remount proc, so tools such as `ps` can still inspect
   the host procfs mount
 
-That is why `mirage run --rootfs / --preset offline -- ps aux` can still show
-the host process list.
+That is why `mirage run --rootfs / --network-policy-file ./examples/network-policies/offline.yaml -- ps aux`
+can still show the host process list.
 
 ## Current Guarantees
 
@@ -65,7 +65,7 @@ Today you can rely on:
 
 - namespace-backed process-tree execution on Linux
 - explicit bind-mount application
-- policy-first network selection through presets or standalone policy files
+- policy-first network selection through preset files or standalone policy files
 - delegated cgroup v2 memory and PID limits
 - delegated unified cgroup v2 exposure for `--runtime-mode init`
 - init-mode-only managed runtime mounts for `/dev`, `/sys`, and `/run`
@@ -87,8 +87,8 @@ Today you should assume:
 
 - use `--rootfs /` only for quick local checks and simple host-root-based runs
 - use a dedicated rootfs when filesystem separation or proc visibility matters
-- prefer explicit `--network-policy-file` or named presets in operator flows so
-  network behavior stays reviewable
+- prefer explicit `--network-policy-file` or `--preset-file` in operator flows
+  so network behavior stays reviewable
 - choose the runtime mode deliberately:
   - `direct` for one-shot commands where Mirage owns the foreground workload
   - `init` for guest-init-style sandboxes that need a dedicated rootfs, a

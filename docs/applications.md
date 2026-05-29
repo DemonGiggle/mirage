@@ -35,17 +35,15 @@ Pick the template level you want, then generate a dedicated rootfs:
 If you want a different tool surface, replace `openclaw-developer` with one of
 the other OpenClaw templates listed above.
 
-The built-in `openclaw-offline` preset is useful when you want a reviewed
-offline policy plus the recommended `openclaw-developer` rootfs level and a
-default working directory of `/workspace`.
+The example preset `examples/presets/openclaw-offline.yaml` is useful when you
+want a reviewed offline policy plus the recommended `openclaw-developer`
+rootfs level and a default working directory of `/workspace`.
 
 Install the package inside the generated rootfs:
 
 ```bash
 ./bin/mirage run \
-  --rootfs /srv/mirage/openclaw-rootfs \
-  --preset allow-all \
-  --cwd /workspace \
+  --preset-file ./examples/presets/openclaw-allow-all.yaml \
   -- npm i -g openclaw
 ```
 
@@ -53,9 +51,7 @@ Run the onboarding flow:
 
 ```bash
 ./bin/mirage run \
-  --rootfs /srv/mirage/openclaw-rootfs \
-  --preset allow-all \
-  --cwd /workspace \
+  --preset-file ./examples/presets/openclaw-allow-all.yaml \
   -- openclaw onboard
 ```
 
@@ -63,9 +59,7 @@ Start the local OpenClaw gateway on port `18789`:
 
 ```bash
 ./bin/mirage run \
-  --rootfs /srv/mirage/openclaw-rootfs \
-  --preset allow-all \
-  --cwd /workspace \
+  --preset-file ./examples/presets/openclaw-allow-all.yaml \
   -- openclaw gateway --port 18789
 ```
 
@@ -73,8 +67,10 @@ Start the local OpenClaw gateway on port `18789`:
 
 - If you want a smaller or stricter installation environment, choose a narrower
   rootfs level such as `openclaw-chat-only` or `openclaw-work`.
-- Prefer `openclaw-offline` or `offline` for local-only work, and switch to
-  `allow-all` or an explicit policy file only when the workflow truly needs the
-  host network stack.
+- Prefer `examples/presets/openclaw-offline.yaml` or
+  `examples/network-policies/offline.yaml` for local-only work, and switch to
+  `examples/presets/openclaw-allow-all.yaml` or
+  `examples/network-policies/allow-all.yaml` only when the workflow truly needs
+  the host network stack.
 - For the exact built-in template contents, see
   [rootfs.md#built-in-templates](rootfs.md#built-in-templates).

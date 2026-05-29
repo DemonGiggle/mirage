@@ -2,138 +2,119 @@ package spec
 
 import (
 	"bytes"
-	"embed"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
-	"path"
 	"path/filepath"
 	"strings"
 
 	"gopkg.in/yaml.v3"
 )
 
-//go:embed presets/*.yaml
-var builtInPresetFiles embed.FS
-
-var BuiltInPresets = mustLoadBuiltInPresets()
-
-type presetFileDocument struct {
-	Presets []Preset `json:"presets" yaml:"presets"`
-}
-
-func mustLoadBuiltInPresets() map[string]Preset {
-	presets, err := loadPresetsFromFS(builtInPresetFiles, "presets")
-	if err != nil {
-		panic(fmt.Sprintf("load built-in presets: %v", err))
-	}
-	return presets
-}
-
-func loadPresetsFromFS(fsys fs.FS, dir string) (map[string]Preset, error) {
-	entries, err := fs.ReadDir(fsys, dir)
-	if err != nil {
-		return nil, fmt.Errorf("read preset directory %q: %w", dir, err)
-	}
-
-	presets := make(map[string]Preset)
-	var found bool
-	for _, entry := range entries {
-		ext := strings.ToLower(path.Ext(entry.Name()))
-		if entry.IsDir() || (ext != ".yaml" && ext != ".yml") {
-			continue
-		}
-
-		found = true
-		filePath := path.Join(dir, entry.Name())
-		data, err := fs.ReadFile(fsys, filePath)
-		if err != nil {
-			return nil, fmt.Errorf("read preset file %q: %w", filePath, err)
-		}
-
-		filePresets, err := parsePresetFileYAML(data, filePath)
-		if err != nil {
-			return nil, err
-		}
-		for name, preset := range filePresets {
-			if _, exists := presets[name]; exists {
-				return nil, fmt.Errorf("preset %q is duplicated across preset files", name)
-			}
-			presets[name] = preset
-		}
-	}
-
-	if !found {
-		return nil, fmt.Errorf("no preset files found in %q", dir)
-	}
-	return presets, nil
-}
-
-func LoadPresetFile(path string) (map[string]Preset, error) {
-	switch strings.ToLower(filepath.Ext(path)) {
-	case ".yaml", ".yml":
-	default:
-		return nil, fmt.Errorf("preset file %q must use a .yaml or .yml extension", path)
-	}
-
+func LoadPresetFile(path string) (Preset, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("read preset file %q: %w", path, err)
+		return Preset{}, fmt.Errorf("load preset file %q: %w", path, err)
 	}
 
-	return parsePresetFileYAML(data, path)
+	preset, err := parsePresetFileYAML(data, path)
+	if err != nil {
+		return Preset{}, err
+	}
+	return preset, nil
 }
 
-func parsePresetFileYAML(data []byte, source string) (map[string]Preset, error) {
+func parsePresetFileYAML(data []byte, source string) (Preset, error) {
+	if hasLegacyPresetList(data) {
+		return Preset{}, fmt.Errorf("load preset file %q: legacy preset lists are no longer supported; pass a file containing exactly one preset document", source)
+	}
+
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	decoder.KnownFields(true)
 
-	var doc presetFileDocument
-	if err := decoder.Decode(&doc); err != nil {
-		return nil, fmt.Errorf("parse preset file %q: %w", source, err)
+	var preset Preset
+	if err := decoder.Decode(&preset); err != nil {
+		return Preset{}, fmt.Errorf("load preset file %q: %w", source, err)
 	}
 
-	var extra any
-	err := decoder.Decode(&extra)
-	switch {
-	case err == io.EOF:
-		return validatePresetDocument(doc, source)
-	case err != nil:
-		return nil, fmt.Errorf("parse preset file %q: %w", source, err)
-	default:
-		return nil, fmt.Errorf("parse preset file %q: multiple YAML documents are not supported", source)
+	if err := decoder.Decode(&struct{}{}); err != nil && err != io.EOF {
+		return Preset{}, fmt.Errorf("load preset file %q: expected a single YAML document: %w", source, err)
 	}
+
+	preset, err := validatePreset(preset, source)
+	if err != nil {
+		return Preset{}, fmt.Errorf("load preset file %q: %w", source, err)
+	}
+	return preset, nil
 }
 
-func validatePresetDocument(doc presetFileDocument, source string) (map[string]Preset, error) {
-	if len(doc.Presets) == 0 {
-		return nil, fmt.Errorf("preset file %q does not define any presets", source)
+func hasLegacyPresetList(data []byte) bool {
+	var node yaml.Node
+	if err := yaml.Unmarshal(data, &node); err != nil {
+		return false
+	}
+	if len(node.Content) == 0 {
+		return false
 	}
 
-	out := make(map[string]Preset, len(doc.Presets))
-	for _, preset := range doc.Presets {
-		if preset.Name == "" {
-			return nil, fmt.Errorf("preset file %q contains a preset without a name", source)
+	root := node.Content[0]
+	if root.Kind != yaml.MappingNode {
+		return false
+	}
+
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		if root.Content[i].Value == "presets" {
+			return true
 		}
-		if _, exists := out[preset.Name]; exists {
-			return nil, fmt.Errorf("preset file %q defines duplicate preset %q", source, preset.Name)
+	}
+	return false
+}
+
+func validatePreset(preset Preset, source string) (Preset, error) {
+	preset.Description = strings.TrimSpace(preset.Description)
+	preset.Cwd = strings.TrimSpace(preset.Cwd)
+	preset.Hostname = strings.TrimSpace(preset.Hostname)
+	preset.Memory = strings.TrimSpace(preset.Memory)
+	preset.NetworkPolicyFile = strings.TrimSpace(preset.NetworkPolicyFile)
+	preset.Rootfs.Path = strings.TrimSpace(preset.Rootfs.Path)
+	preset.Rootfs.Template = strings.TrimSpace(preset.Rootfs.Template)
+	preset.Rootfs.RequiredCommands = normalizeRequiredCommands(preset.Rootfs.RequiredCommands)
+
+	switch {
+	case preset.NetworkPolicy != nil && preset.NetworkPolicyFile != "":
+		return Preset{}, fmt.Errorf("specify either networkPolicy or networkPolicyFile, not both")
+	case preset.NetworkPolicy == nil && preset.NetworkPolicyFile == "":
+		return Preset{}, fmt.Errorf("networkPolicy or networkPolicyFile is required")
+	}
+
+	if preset.NetworkPolicyFile != "" {
+		policyPath := preset.NetworkPolicyFile
+		if !filepath.IsAbs(policyPath) {
+			policyPath = filepath.Join(filepath.Dir(source), policyPath)
 		}
-		if preset.NetworkPolicy == nil {
-			return nil, fmt.Errorf("preset file %q preset %q must define networkPolicy", source, preset.Name)
-		}
-		policy, err := NormalizeNetworkPolicy(*preset.NetworkPolicy)
+
+		policy, err := LoadNetworkPolicyFile(policyPath)
 		if err != nil {
-			return nil, fmt.Errorf("preset file %q preset %q has invalid networkPolicy: %w", source, preset.Name, err)
+			return Preset{}, fmt.Errorf("load referenced network policy %q: %w", preset.NetworkPolicyFile, err)
 		}
 		preset.NetworkPolicy = &policy
-		preset.Rootfs.RecommendedTemplate = strings.TrimSpace(preset.Rootfs.RecommendedTemplate)
-		preset.Rootfs.RecommendedCwd = strings.TrimSpace(preset.Rootfs.RecommendedCwd)
-		if preset.Rootfs.RecommendedCwd != "" && !filepath.IsAbs(preset.Rootfs.RecommendedCwd) {
-			return nil, fmt.Errorf("preset file %q preset %q has invalid recommended rootfs cwd %q", source, preset.Name, preset.Rootfs.RecommendedCwd)
-		}
-		preset.Rootfs.RequiredCommands = normalizeCommands(preset.Rootfs.RequiredCommands)
-		out[preset.Name] = preset
 	}
-	return out, nil
+
+	if preset.NetworkPolicy != nil {
+		normalized, err := NormalizeNetworkPolicy(*preset.NetworkPolicy)
+		if err != nil {
+			return Preset{}, fmt.Errorf("networkPolicy: %w", err)
+		}
+		preset.NetworkPolicy = &normalized
+	}
+
+	if preset.Cwd != "" && !filepath.IsAbs(preset.Cwd) {
+		return Preset{}, fmt.Errorf("cwd must be an absolute path, got %q", preset.Cwd)
+	}
+
+	if preset.Pids < 0 {
+		return Preset{}, fmt.Errorf("pids must be zero or greater, got %d", preset.Pids)
+	}
+
+	return preset, nil
 }
