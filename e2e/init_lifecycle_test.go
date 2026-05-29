@@ -61,6 +61,7 @@ func TestSandboxLifecycleForInitModeShellE2E(t *testing.T) {
 		"--name", name,
 		"--state-dir", stateDir,
 		"--rootfs", rootfs,
+		"--network-policy-file", policyFixturePath(repoRoot, "allow-all.yaml"),
 		"--",
 		"/bin/sh", "-c", "echo shell-ready; trap 'exit 0' TERM; while :; do sleep 1; done",
 	)
@@ -125,6 +126,7 @@ func TestSandboxStartReportsMissingInitContractE2E(t *testing.T) {
 		"--name", "broken",
 		"--state-dir", t.TempDir(),
 		"--rootfs", rootfs,
+		"--network-policy-file", policyFixturePath(repoRoot, "allow-all.yaml"),
 		"--",
 		"/bin/sh",
 	)

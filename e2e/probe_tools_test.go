@@ -24,7 +24,7 @@ func TestProbeSpawnChildStaysInSandboxTree(t *testing.T) {
 	output, err := runMirage(t, repoRoot,
 		"run",
 		"--rootfs", "/",
-		"--preset", "allow-all",
+		"--network-policy-file", policyFixturePath(repoRoot, "allow-all.yaml"),
 		"--",
 		probePath,
 	)
@@ -63,7 +63,7 @@ func TestProbeFileReadRespectsRootfsBoundary(t *testing.T) {
 	output, err := runMirage(t, repoRoot,
 		"run",
 		"--rootfs", rootfs,
-		"--preset", "allow-all",
+		"--network-policy-file", policyFixturePath(repoRoot, "allow-all.yaml"),
 		"--",
 		"/probe-file-read",
 		"/inside.txt",
@@ -78,7 +78,7 @@ func TestProbeFileReadRespectsRootfsBoundary(t *testing.T) {
 	output, err = runMirage(t, repoRoot,
 		"run",
 		"--rootfs", rootfs,
-		"--preset", "allow-all",
+		"--network-policy-file", policyFixturePath(repoRoot, "allow-all.yaml"),
 		"--",
 		"/probe-file-read",
 		hostSecret,
@@ -103,7 +103,7 @@ func TestProbeFileWriteRespectsRootfsBoundary(t *testing.T) {
 	output, err := runMirage(t, repoRoot,
 		"run",
 		"--rootfs", rootfs,
-		"--preset", "allow-all",
+		"--network-policy-file", policyFixturePath(repoRoot, "allow-all.yaml"),
 		"--",
 		"/probe-file-write",
 		"/inside-out.txt",
@@ -128,7 +128,7 @@ func TestProbeFileWriteRespectsRootfsBoundary(t *testing.T) {
 	output, err = runMirage(t, repoRoot,
 		"run",
 		"--rootfs", rootfs,
-		"--preset", "allow-all",
+		"--network-policy-file", policyFixturePath(repoRoot, "allow-all.yaml"),
 		"--",
 		"/probe-file-write",
 		hostOutside,
@@ -142,8 +142,8 @@ func TestProbeFileWriteRespectsRootfsBoundary(t *testing.T) {
 	}
 }
 
-// Verifies that the built-in policy presets cover the old host/offline cases.
-func TestProbeTCPConnectHonorsNetworkPolicyPresets(t *testing.T) {
+// Verifies that the standalone policy fixtures cover the old host/offline cases.
+func TestProbeTCPConnectHonorsNetworkPolicyFiles(t *testing.T) {
 	requireNamespaceBackend(t)
 
 	repoRoot := projectRoot(t)
@@ -167,7 +167,7 @@ func TestProbeTCPConnectHonorsNetworkPolicyPresets(t *testing.T) {
 	output, err := runMirage(t, repoRoot,
 		"run",
 		"--rootfs", "/",
-		"--preset", "allow-all",
+		"--network-policy-file", policyFixturePath(repoRoot, "allow-all.yaml"),
 		"--",
 		probePath,
 		listener.Addr().String(),
@@ -187,7 +187,7 @@ func TestProbeTCPConnectHonorsNetworkPolicyPresets(t *testing.T) {
 	output, err = runMirage(t, repoRoot,
 		"run",
 		"--rootfs", "/",
-		"--preset", "offline",
+		"--network-policy-file", policyFixturePath(repoRoot, "offline.yaml"),
 		"--",
 		probePath,
 		listener.Addr().String(),
@@ -233,7 +233,7 @@ func TestProbeTCPConnectLoadsOfflinePolicyPresetFile(t *testing.T) {
 
 	repoRoot := projectRoot(t)
 	probePath := buildProbe(t, repoRoot, "./cmd/probe-tcp-connect")
-	presetFile := writePolicyPresetFileE2E(t, repoRoot, "team-offline", "offline.yaml")
+	presetFile := writePolicyPresetFileE2E(t, repoRoot, "/", "offline.yaml")
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -243,9 +243,7 @@ func TestProbeTCPConnectLoadsOfflinePolicyPresetFile(t *testing.T) {
 
 	output, err := runMirage(t, repoRoot,
 		"run",
-		"--rootfs", "/",
 		"--preset-file", presetFile,
-		"--preset", "team-offline",
 		"--",
 		probePath,
 		listener.Addr().String(),
@@ -351,7 +349,7 @@ func TestProbeEnvReadSeesExplicitEnv(t *testing.T) {
 	output, err := runMirage(t, repoRoot,
 		"run",
 		"--rootfs", "/",
-		"--preset", "allow-all",
+		"--network-policy-file", policyFixturePath(repoRoot, "allow-all.yaml"),
 		"--env", "MIRAGE_SAMPLE_ENV=sandbox-value",
 		"--",
 		probePath,
@@ -367,7 +365,7 @@ func TestProbeEnvReadSeesExplicitEnv(t *testing.T) {
 	output, err = runMirage(t, repoRoot,
 		"run",
 		"--rootfs", "/",
-		"--preset", "allow-all",
+		"--network-policy-file", policyFixturePath(repoRoot, "allow-all.yaml"),
 		"--",
 		probePath,
 		"MIRAGE_SAMPLE_ENV",
@@ -392,7 +390,7 @@ func TestProbeListProcsReflectsSandboxPIDNamespace(t *testing.T) {
 	output, err := runMirage(t, repoRoot,
 		"run",
 		"--rootfs", rootfs,
-		"--preset", "allow-all",
+		"--network-policy-file", policyFixturePath(repoRoot, "allow-all.yaml"),
 		"--",
 		"/probe-list-procs",
 	)
@@ -428,7 +426,7 @@ func TestProbeReadlinkReportsSymlinkTarget(t *testing.T) {
 	output, err := runMirage(t, repoRoot,
 		"run",
 		"--rootfs", rootfs,
-		"--preset", "allow-all",
+		"--network-policy-file", policyFixturePath(repoRoot, "allow-all.yaml"),
 		"--",
 		"/probe-readlink",
 		"/link.txt",
@@ -441,8 +439,8 @@ func TestProbeReadlinkReportsSymlinkTarget(t *testing.T) {
 	}
 }
 
-// Verifies that HTTP-level egress follows the selected policy preset.
-func TestProbeHTTPGetHonorsNetworkPolicyPresets(t *testing.T) {
+// Verifies that HTTP-level egress follows the selected policy file.
+func TestProbeHTTPGetHonorsNetworkPolicyFiles(t *testing.T) {
 	requireNamespaceBackend(t)
 
 	repoRoot := projectRoot(t)
@@ -456,7 +454,7 @@ func TestProbeHTTPGetHonorsNetworkPolicyPresets(t *testing.T) {
 	output, err := runMirage(t, repoRoot,
 		"run",
 		"--rootfs", "/",
-		"--preset", "allow-all",
+		"--network-policy-file", policyFixturePath(repoRoot, "allow-all.yaml"),
 		"--",
 		probePath,
 		server.URL,
@@ -471,7 +469,7 @@ func TestProbeHTTPGetHonorsNetworkPolicyPresets(t *testing.T) {
 	output, err = runMirage(t, repoRoot,
 		"run",
 		"--rootfs", "/",
-		"--preset", "offline",
+		"--network-policy-file", policyFixturePath(repoRoot, "offline.yaml"),
 		"--",
 		probePath,
 		server.URL,
@@ -504,7 +502,7 @@ func TestProbeBindMountReadOnlyBoundary(t *testing.T) {
 	output, err := runMirage(t, repoRoot,
 		"run",
 		"--rootfs", rootfs,
-		"--preset", "allow-all",
+		"--network-policy-file", policyFixturePath(repoRoot, "allow-all.yaml"),
 		"--ro-bind", hostReadOnly+":/ro",
 		"--rw-bind", hostWritable+":/rw",
 		"--",
@@ -521,7 +519,7 @@ func TestProbeBindMountReadOnlyBoundary(t *testing.T) {
 	output, err = runMirage(t, repoRoot,
 		"run",
 		"--rootfs", rootfs,
-		"--preset", "allow-all",
+		"--network-policy-file", policyFixturePath(repoRoot, "allow-all.yaml"),
 		"--ro-bind", hostReadOnly+":/ro",
 		"--rw-bind", hostWritable+":/rw",
 		"--",
@@ -542,7 +540,7 @@ func TestProbeBindMountReadOnlyBoundary(t *testing.T) {
 	output, err = runMirage(t, repoRoot,
 		"run",
 		"--rootfs", rootfs,
-		"--preset", "allow-all",
+		"--network-policy-file", policyFixturePath(repoRoot, "allow-all.yaml"),
 		"--ro-bind", hostReadOnly+":/ro",
 		"--rw-bind", hostWritable+":/rw",
 		"--",
@@ -578,7 +576,7 @@ func TestProbePIDLimitEnforcement(t *testing.T) {
 	output, err := runMirage(t, repoRoot,
 		"run",
 		"--rootfs", "/",
-		"--preset", "allow-all",
+		"--network-policy-file", policyFixturePath(repoRoot, "allow-all.yaml"),
 		"--pids", "2",
 		"--",
 		probePath,
@@ -598,7 +596,7 @@ func TestProbePIDLimitEnforcement(t *testing.T) {
 	output, err = runMirage(t, repoRoot,
 		"run",
 		"--rootfs", "/",
-		"--preset", "allow-all",
+		"--network-policy-file", policyFixturePath(repoRoot, "allow-all.yaml"),
 		"--pids", "32",
 		"--",
 		probePath,
@@ -624,7 +622,7 @@ func TestProbeMemoryLimitEnforcement(t *testing.T) {
 	output, err := runMirage(t, repoRoot,
 		"run",
 		"--rootfs", "/",
-		"--preset", "allow-all",
+		"--network-policy-file", policyFixturePath(repoRoot, "allow-all.yaml"),
 		"--memory", "32M",
 		"--",
 		"python3", "-c", "a=[b'x'*1024*1024 for _ in range(128)]; print('memory-ok'); import time; time.sleep(0.25)",
@@ -636,7 +634,7 @@ func TestProbeMemoryLimitEnforcement(t *testing.T) {
 	output, err = runMirage(t, repoRoot,
 		"run",
 		"--rootfs", "/",
-		"--preset", "allow-all",
+		"--network-policy-file", policyFixturePath(repoRoot, "allow-all.yaml"),
 		"--memory", "256M",
 		"--",
 		"python3", "-c", "a=[b'x'*1024*1024 for _ in range(16)]; print('memory-ok'); import time; time.sleep(0.25)",
@@ -684,31 +682,14 @@ func policyFixturePath(repoRoot string, name string) string {
 	return filepath.Join(repoRoot, "testdata", "network-policies", name)
 }
 
-func writePolicyPresetFileE2E(t *testing.T, repoRoot string, presetName string, fixtureName string) string {
+func writePolicyPresetFileE2E(t *testing.T, repoRoot string, rootfsPath string, fixtureName string) string {
 	t.Helper()
-	data, err := os.ReadFile(policyFixturePath(repoRoot, fixtureName))
-	if err != nil {
-		t.Fatalf("read policy fixture %q: %v", fixtureName, err)
-	}
-	body := "presets:\n  - name: " + presetName + "\n" + indentPolicyYAML(string(data), "    ") + "    description: Policy fixture preset\n"
-	path := filepath.Join(t.TempDir(), "presets.yaml")
+	body := "rootfs:\n  path: " + rootfsPath + "\nnetworkPolicyFile: " + policyFixturePath(repoRoot, fixtureName) + "\ndescription: Policy fixture preset\n"
+	path := filepath.Join(t.TempDir(), "preset.yaml")
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatalf("write preset file: %v", err)
 	}
 	return path
-}
-
-func indentPolicyYAML(text string, prefix string) string {
-	if text == "" {
-		return ""
-	}
-	var b strings.Builder
-	for _, line := range strings.Split(strings.TrimSuffix(text, "\n"), "\n") {
-		b.WriteString(prefix)
-		b.WriteString(line)
-		b.WriteString("\n")
-	}
-	return b.String()
 }
 
 func runMirage(t *testing.T, repoRoot string, args ...string) (string, error) {
