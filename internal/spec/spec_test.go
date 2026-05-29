@@ -177,24 +177,10 @@ pids: 32
 	}
 }
 
-func TestValidateRejectsInvalidRuntimeMode(t *testing.T) {
-	policy := AllowAllNetworkPolicy()
-	err := Validate(Config{
-		RootFS:        "/",
-		NetworkPolicy: &policy,
-		RuntimeMode:   "sidecar",
-		Command:       []string{"/bin/true"},
-	})
-	if err == nil || !strings.Contains(err.Error(), `invalid runtime mode "sidecar"`) {
-		t.Fatalf("expected invalid runtime mode error, got %v", err)
-	}
-}
-
 func TestValidateRejectsMissingNetworkPolicy(t *testing.T) {
 	err := Validate(Config{
-		RootFS:      "/srv/rootfs",
-		RuntimeMode: RuntimeModeInit,
-		Command:     []string{"/sbin/init"},
+		RootFS:  "/srv/rootfs",
+		Command: []string{"/sbin/init"},
 	})
 	if err == nil || !strings.Contains(err.Error(), "networkPolicy is required") {
 		t.Fatalf("expected missing network policy error, got %v", err)
@@ -211,69 +197,9 @@ func TestValidateAllowsNetworkPolicy(t *testing.T) {
 	err := Validate(Config{
 		RootFS:        "/srv/rootfs",
 		NetworkPolicy: &policy,
-		RuntimeMode:   RuntimeModeInit,
 		Command:       []string{"/sbin/init"},
 	})
 	if err != nil {
 		t.Fatalf("Validate returned error: %v", err)
-	}
-}
-
-func TestNormalizeRuntimeModeDefaultsToDirect(t *testing.T) {
-	if got := NormalizeRuntimeMode(""); got != RuntimeModeDirect {
-		t.Fatalf("expected empty runtime mode to normalize to %q, got %q", RuntimeModeDirect, got)
-	}
-}
-
-func TestValidateRejectsInitModeWithHostRootfs(t *testing.T) {
-	policy := AllowAllNetworkPolicy()
-	err := Validate(Config{
-		RootFS:        "/",
-		NetworkPolicy: &policy,
-		RuntimeMode:   RuntimeModeInit,
-		Command:       []string{"/sbin/init"},
-	})
-	if err == nil || !strings.Contains(err.Error(), "runtime-mode init requires a dedicated rootfs") {
-		t.Fatalf("expected init-mode rootfs error, got %v", err)
-	}
-}
-
-func TestValidateRejectsInitModeWithoutRootfs(t *testing.T) {
-	policy := AllowAllNetworkPolicy()
-	err := Validate(Config{
-		NetworkPolicy: &policy,
-		RuntimeMode:   RuntimeModeInit,
-		Command:       []string{"/sbin/init"},
-	})
-	if err == nil || !strings.Contains(err.Error(), "runtime-mode init requires a dedicated rootfs") {
-		t.Fatalf("expected init-mode missing rootfs error, got %v", err)
-	}
-}
-
-func TestValidateRejectsBindMountsOverGuestCgroupTreeInInitMode(t *testing.T) {
-	policy := AllowAllNetworkPolicy()
-	err := Validate(Config{
-		RootFS:        "/srv/rootfs",
-		NetworkPolicy: &policy,
-		RuntimeMode:   RuntimeModeInit,
-		RWBind:        []string{"/host/path:/sys/fs/cgroup"},
-		Command:       []string{"/sbin/init"},
-	})
-	if err == nil || !strings.Contains(err.Error(), `runtime-mode init reserves guest path "/sys/fs/cgroup"`) {
-		t.Fatalf("expected init-mode cgroup bind error, got %v", err)
-	}
-}
-
-func TestValidateRejectsManagedRuntimeMountTargetsInInitMode(t *testing.T) {
-	policy := AllowAllNetworkPolicy()
-	err := Validate(Config{
-		RootFS:        "/srv/rootfs",
-		NetworkPolicy: &policy,
-		RuntimeMode:   RuntimeModeInit,
-		ROBind:        []string{"/host/path:/dev/null"},
-		Command:       []string{"/sbin/init"},
-	})
-	if err == nil || !strings.Contains(err.Error(), `runtime-mode init manages guest path "/dev/null"`) {
-		t.Fatalf("expected init-mode runtime mount error, got %v", err)
 	}
 }

@@ -3,15 +3,7 @@ package spec
 import (
 	"errors"
 	"fmt"
-	"path/filepath"
 	"strings"
-)
-
-type RuntimeMode string
-
-const (
-	RuntimeModeDirect RuntimeMode = "direct"
-	RuntimeModeInit   RuntimeMode = "init"
 )
 
 type RootfsPreset struct {
@@ -38,7 +30,6 @@ type Config struct {
 	RootFS            string
 	NetworkPolicyFile string
 	NetworkPolicy     *NetworkPolicy
-	RuntimeMode       RuntimeMode
 	ScopeName         string
 	PresetFile        string
 	ROBind            []string
@@ -121,11 +112,6 @@ func Validate(cfg Config) error {
 	if cfg.RootFS == "" {
 		problems = append(problems, errors.New("rootfs is required"))
 	}
-	switch NormalizeRuntimeMode(cfg.RuntimeMode) {
-	case RuntimeModeDirect, RuntimeModeInit:
-	default:
-		problems = append(problems, fmt.Errorf("invalid runtime mode %q", cfg.RuntimeMode))
-	}
 	if cfg.NetworkPolicy == nil {
 		problems = append(problems, errors.New("networkPolicy is required"))
 	} else if err := ValidateNetworkPolicy(cfg.NetworkPolicy); err != nil {
@@ -133,24 +119,6 @@ func Validate(cfg Config) error {
 	}
 	if len(cfg.Command) == 0 {
 		problems = append(problems, errors.New("command is required after --"))
-	}
-	if NormalizeRuntimeMode(cfg.RuntimeMode) == RuntimeModeInit && (cfg.RootFS == "" || cfg.RootFS == "/") {
-		problems = append(problems, errors.New("runtime-mode init requires a dedicated rootfs; use --rootfs with a non-root directory"))
-	}
-	if NormalizeRuntimeMode(cfg.RuntimeMode) == RuntimeModeInit {
-		for _, mount := range append(append([]string{}, cfg.ROBind...), cfg.RWBind...) {
-			target, ok := bindMountTarget(mount)
-			if !ok {
-				continue
-			}
-			if reservedPath, ok := reservedInitMountPath(target); ok {
-				if reservedPath == "/sys/fs/cgroup" {
-					problems = append(problems, fmt.Errorf("runtime-mode init reserves guest path %q for the delegated cgroup tree", target))
-					continue
-				}
-				problems = append(problems, fmt.Errorf("runtime-mode init manages guest path %q via its runtime mount contract", target))
-			}
-		}
 	}
 	if cfg.StdoutLog != "" && cfg.StderrLog != "" && cfg.StdoutLog == cfg.StderrLog {
 		problems = append(problems, errors.New("stdout-log and stderr-log must be different paths"))
@@ -176,7 +144,6 @@ func Summary(cfg Config) string {
 	if cfg.NetworkPolicyFile != "" {
 		fmt.Fprintf(&b, "network-policy-file: %s\n", cfg.NetworkPolicyFile)
 	}
-	fmt.Fprintf(&b, "runtime-mode: %s\n", NormalizeRuntimeMode(cfg.RuntimeMode))
 	if cfg.PresetFile != "" {
 		fmt.Fprintf(&b, "preset-file: %s\n", cfg.PresetFile)
 	}
@@ -218,28 +185,4 @@ func Summary(cfg Config) string {
 	}
 	fmt.Fprintf(&b, "command: %s\n", strings.Join(cfg.Command, " "))
 	return b.String()
-}
-
-func NormalizeRuntimeMode(mode RuntimeMode) RuntimeMode {
-	if mode == "" {
-		return RuntimeModeDirect
-	}
-	return mode
-}
-
-func bindMountTarget(entry string) (string, bool) {
-	_, target, ok := strings.Cut(entry, ":")
-	if !ok || target == "" || !filepath.IsAbs(target) {
-		return "", false
-	}
-	return filepath.Clean(target), true
-}
-
-func reservedInitMountPath(target string) (string, bool) {
-	for _, root := range []string{"/sys/fs/cgroup", "/proc", "/tmp", "/run", "/dev", "/sys"} {
-		if target == root || strings.HasPrefix(target, root+"/") {
-			return root, true
-		}
-	}
-	return "", false
 }

@@ -29,7 +29,7 @@ Tools such as OpenClaw often need a middle ground:
 Today the project includes:
 
 - namespace-backed process-tree execution on Linux
-- explicit direct-workload and init-oriented runtime modes
+- a single direct-workload `mirage run` path
 - chroot-based rootfs handoff when using a non-`/` rootfs
 - a shared V1 rootfs template schema with curated built-in templates
 - read-only and read-write bind mounts
@@ -37,13 +37,12 @@ Today the project includes:
 - current backend coverage for allow-all host passthrough and isolated deny-only policies
 - stdout and stderr export to host-visible log files
 - delegated cgroup v2 memory and PID limits
-- tracked sandbox lifecycle commands for init-mode runs (`sandbox start/status/stop/logs`)
+- tracked sandbox lifecycle commands for guest-systemd sandboxes (`sandbox start/status/stop/logs`)
 
-The runtime modes target different operator shapes:
+Mirage now has two operator-facing shapes:
 
-- **direct exec**: one foreground workload becomes sandbox PID 1
-- **guest init**: a guest init entrypoint becomes sandbox PID 1, and Mirage can
-  track the sandbox through a named host-side lifecycle entry
+- **direct exec**: `mirage run` launches one foreground workload as sandbox PID 1
+- **tracked sandbox lifecycle**: `mirage sandbox start` launches a guest-init-style sandbox behind a named host-side lifecycle entry
 
 Important caveat:
 
@@ -85,8 +84,8 @@ Run a simple local-only command:
 ./bin/mirage run --rootfs / --preset-file ./examples/presets/openclaw-offline.yaml -- /bin/echo hello
 ```
 
-For the full template catalog, dedicated-rootfs guidance, guest-init workflows,
-bind mounts, preset-file workflows, and tracked sandbox commands, use the docs
+For the full template catalog, dedicated-rootfs guidance, guest-systemd
+workflows, bind mounts, preset-file workflows, and tracked sandbox commands, use the docs
 linked below.
 
 ## Documentation Map

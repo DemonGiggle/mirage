@@ -67,8 +67,8 @@ Today you can rely on:
 - explicit bind-mount application
 - policy-first network selection through preset files or standalone policy files
 - delegated cgroup v2 memory and PID limits
-- delegated unified cgroup v2 exposure for `--runtime-mode init`
-- init-mode-only managed runtime mounts for `/dev`, `/sys`, and `/run`
+- delegated unified cgroup v2 exposure for tracked guest-systemd sandboxes
+- guest-systemd-only managed runtime mounts for `/dev`, `/sys`, and `/run`
 - host-side log export
 
 ## Current Limitations
@@ -89,12 +89,11 @@ Today you should assume:
 - use a dedicated rootfs when filesystem separation or proc visibility matters
 - prefer explicit `--network-policy-file` or `--preset-file` in operator flows
   so network behavior stays reviewable
-- choose the runtime mode deliberately:
-  - `direct` for one-shot commands where Mirage owns the foreground workload
-  - `init` for guest-init-style sandboxes that need a dedicated rootfs, a
-    broader runtime mount contract, and host-side lifecycle tracking
-- for `init` mode, prefer `mirage sandbox start/status/stop/logs` over ad hoc
-  backgrounding so the host-visible state and logs stay coherent
+- use `mirage run` for one-shot commands where Mirage owns the foreground
+  workload
+- use `mirage sandbox start/status/stop/logs` for guest-init-style sandboxes
+  that need a dedicated rootfs, a broader runtime mount contract, and host-side
+  lifecycle tracking
 - use this document as the source of truth for current behavior, and
   [roadmap.md](roadmap.md) for deferred work
 
