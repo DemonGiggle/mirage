@@ -1,0 +1,16 @@
+networkPolicy:
+  version: 1
+  loopback:
+    default: allow
+  ingress:
+    default: deny
+    rules:
+      - action: allow
+        source:
+          ip: 203.0.113.10
+          cidr: 203.0.113.0/24
+        protocol: tcp
+        ports: [22]
+  egress:
+    default: deny
+    rules: []

@@ -1,0 +1,15 @@
+networkPolicy:
+  version: 1
+  loopback:
+    default: allow
+  ingress:
+    default: deny
+    rules: []
+  egress:
+    default: deny
+    rules:
+      - name: allow-private-v4
+        action: allow
+        destination:
+          cidr: 192.168.0.0/16
+        protocol: any
