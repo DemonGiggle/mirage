@@ -31,14 +31,10 @@ func Run(args []string, stdout, stderr io.Writer) error {
 		return runner.RunBackendHelper(args[1:], stdout, stderr)
 	case "__cgroup-exec":
 		return runner.RunCgroupHelper(args[1:], stdout, stderr)
-	case "__sandbox-exec":
-		return runSandboxExec(args[1:], stdout, stderr)
 	case "rootfs":
 		return runRootfs(args[1:], stdout, stderr)
 	case "doctor":
 		return runDoctor(args[1:], stdout, stderr)
-	case "sandbox":
-		return runSandboxCommand(args[1:], stdout, stderr)
 	case "run":
 		return runSandbox(args[1:], stdout, stderr)
 	default:
@@ -52,14 +48,12 @@ func printRootHelp(w io.Writer) {
 Usage:
   mirage rootfs init --template <name> --output <path>
   mirage doctor [flags]
-  mirage sandbox <start|status|stop|logs> [flags]
   mirage run [flags] -- <command> [args...]
   mirage version
 
 Examples:
   mirage rootfs init --template basic --output /srv/mirage/basic-rootfs
   mirage doctor --rootfs /srv/mirage/basic-rootfs --command /bin/ls
-  mirage sandbox start --name openclaw --rootfs /srv/systemd-rootfs --network-policy-file ./examples/network-policies/allow-all.yaml --service-unit openclaw.service
   mirage run --rootfs /srv/rootfs --network-policy-file ./network-policy.yaml -- app
   mirage run --preset-file ./examples/presets/openclaw-offline.yaml -- app
 `)
@@ -136,13 +130,11 @@ func runDoctor(args []string, stdout, stderr io.Writer) error {
 	var command string
 	var cwd string
 	var presetFile string
-	var serviceUnit string
 
 	fs.StringVar(&rootfsPath, "rootfs", "", "Path to the rootfs to validate")
 	fs.StringVar(&command, "command", "", "Command to resolve and validate inside the rootfs")
 	fs.StringVar(&cwd, "cwd", "", "Working directory to validate inside the rootfs")
 	fs.StringVar(&presetFile, "preset-file", "", "Path to a preset YAML file")
-	fs.StringVar(&serviceUnit, "service-unit", "", "Systemd unit to validate inside the rootfs")
 
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -176,7 +168,7 @@ func runDoctor(args []string, stdout, stderr io.Writer) error {
 	rootfsPath = resolved.RootFS
 	cwd = resolved.Cwd
 
-	if rootfsPath == "" && command == "" && cwd == "" && presetFile == "" && serviceUnit == "" {
+	if rootfsPath == "" && command == "" && cwd == "" && presetFile == "" {
 		return nil
 	}
 	if rootfsPath == "" {
@@ -192,10 +184,6 @@ func runDoctor(args []string, stdout, stderr io.Writer) error {
 		if len(presetRequiredCommands) > 0 {
 			_, _ = fmt.Fprintf(stdout, "- preset required rootfs commands: %s\n", strings.Join(presetRequiredCommands, ", "))
 		}
-	}
-
-	if serviceUnit != "" {
-		return runInitDoctor(stdout, rootfsPath, command, serviceUnit, presetRequiredCommands)
 	}
 
 	report, err := rootfs.ValidateRootfs(rootfsPath, "", cwd)
@@ -240,42 +228,6 @@ func runDoctor(args []string, stdout, stderr io.Writer) error {
 		return errors.Join(problems...)
 	}
 	_, _ = fmt.Fprintln(stdout, "- rootfs validation: ok")
-	return nil
-}
-
-func runInitDoctor(stdout io.Writer, rootfsPath string, command string, serviceUnit string, presetRequiredCommands []string) error {
-	report, err := rootfs.ValidateInitRootfs(rootfsPath, command, serviceUnit)
-	_, _ = fmt.Fprintf(stdout, "- rootfs path: %s\n", report.Rootfs)
-	for _, status := range report.RuntimePaths {
-		_, _ = fmt.Fprintf(stdout, "- init runtime path %s: %s\n", status.Path, status.Status)
-	}
-	if report.ResolvedInit != "" {
-		_, _ = fmt.Fprintf(stdout, "- resolved init command: %s\n", report.ResolvedInit)
-	}
-	if report.MachineIDPath != "" {
-		_, _ = fmt.Fprintf(stdout, "- systemd machine-id: %s\n", report.MachineIDPath)
-	}
-	if serviceUnit != "" && report.ServiceUnitPath != "" {
-		_, _ = fmt.Fprintf(stdout, "- systemd unit %s: ok (%s)\n", serviceUnit, report.ServiceUnitPath)
-	}
-
-	var problems []error
-	if err != nil {
-		problems = append(problems, err)
-	}
-	for _, commandToValidate := range presetRequiredCommands {
-		commandReport, err := rootfs.ValidateRootfs(rootfsPath, commandToValidate, "")
-		if err != nil {
-			problems = append(problems, err)
-			continue
-		}
-		_, _ = fmt.Fprintf(stdout, "- preset required command %s: ok (%s)\n", commandToValidate, commandReport.ResolvedCommand)
-	}
-	if len(problems) > 0 {
-		_, _ = fmt.Fprintln(stdout, "- init rootfs validation: failed")
-		return errors.Join(problems...)
-	}
-	_, _ = fmt.Fprintln(stdout, "- init rootfs validation: ok")
 	return nil
 }
 

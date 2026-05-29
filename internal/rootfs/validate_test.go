@@ -82,54 +82,6 @@ func TestValidateRootfsRejectsMissingSharedLibrary(t *testing.T) {
 	}
 }
 
-func TestValidateInitRootfsPassesForSystemdReadyRootfs(t *testing.T) {
-	systemdPath, err := exec.LookPath("systemd")
-	if err != nil {
-		t.Skip("host PATH does not contain systemd")
-	}
-
-	rootfs := filepath.Join(t.TempDir(), "rootfs")
-	template := Template{
-		Version:     TemplateVersionV1,
-		Name:        "custom-systemd",
-		Description: "Systemd-ready test rootfs",
-		Directories: []Directory{
-			{Path: "/proc", Mode: 0o755},
-			{Path: "/tmp", Mode: 0o1777},
-			{Path: "/run", Mode: 0o755},
-			{Path: "/dev", Mode: 0o755},
-			{Path: "/sys", Mode: 0o755},
-			{Path: "/sys/fs/cgroup", Mode: 0o755},
-			{Path: "/etc/systemd/system", Mode: 0o755},
-			{Path: "/usr/lib/systemd/system", Mode: 0o755},
-		},
-		Binaries: []Binary{
-			{HostPath: systemdPath, TargetPath: "/usr/bin/systemd", CopyDependencies: true},
-		},
-		GeneratedFiles: []GeneratedFile{
-			{TargetPath: "/etc/machine-id", Mode: 0o644},
-			{TargetPath: "/etc/systemd/system/openclaw.service", Content: "[Unit]\nDescription=OpenClaw\n[Service]\nExecStart=/usr/bin/true\n", Mode: 0o644},
-		},
-	}
-	if err := Generate(rootfs, template); err != nil {
-		t.Fatalf("Generate returned error: %v", err)
-	}
-
-	report, err := ValidateInitRootfs(rootfs, "/usr/bin/systemd", "openclaw.service")
-	if err != nil {
-		t.Fatalf("ValidateInitRootfs returned error: %v", err)
-	}
-	if report.ResolvedInit != "/usr/bin/systemd" {
-		t.Fatalf("unexpected resolved init: %#v", report)
-	}
-	if report.MachineIDPath != "/etc/machine-id" {
-		t.Fatalf("unexpected machine-id path: %#v", report)
-	}
-	if report.ServiceUnitPath != "/etc/systemd/system/openclaw.service" {
-		t.Fatalf("unexpected service unit path: %#v", report)
-	}
-}
-
 func generatedShellRootfs(t *testing.T) (string, string, string, string) {
 	t.Helper()
 

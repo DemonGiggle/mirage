@@ -24,15 +24,6 @@ type ValidationReport struct {
 	RuntimePaths    []RuntimePathStatus
 }
 
-type InitValidationReport struct {
-	Rootfs          string
-	ResolvedInit    string
-	RuntimePaths    []RuntimePathStatus
-	MachineIDPath   string
-	ServiceUnit     string
-	ServiceUnitPath string
-}
-
 type RuntimePathStatus struct {
 	Path      string
 	Status    string
@@ -92,75 +83,6 @@ func ValidateRootfs(rootfsPath string, command string, cwd string) (ValidationRe
 	return report, errors.Join(problems...)
 }
 
-func ValidateInitRootfs(rootfsPath string, command string, serviceUnit string) (InitValidationReport, error) {
-	root, err := filepath.Abs(rootfsPath)
-	if err != nil {
-		return InitValidationReport{}, fmt.Errorf("resolve rootfs path %q: %w", rootfsPath, err)
-	}
-
-	report := InitValidationReport{Rootfs: root, ServiceUnit: serviceUnit}
-	info, err := os.Stat(root)
-	if err != nil {
-		return report, fmt.Errorf("stat rootfs %q: %w", root, err)
-	}
-	if !info.IsDir() {
-		return report, fmt.Errorf("rootfs %q is not a directory", root)
-	}
-
-	var problems []error
-	report.RuntimePaths, problems = validateRequiredRuntimePaths(root, []string{
-		"/proc",
-		"/tmp",
-		"/run",
-		"/dev",
-		"/sys",
-		"/sys/fs/cgroup",
-		"/etc/systemd/system",
-		"/usr/lib/systemd/system",
-	}, problems)
-
-	initCommand := command
-	if initCommand == "" {
-		var resolved string
-		resolved, err = firstExistingCommand(root, []string{"/usr/bin/systemd", "/usr/lib/systemd/systemd", "/lib/systemd/systemd", "/sbin/init"})
-		if err != nil {
-			problems = append(problems, err)
-		} else {
-			initCommand = resolved
-		}
-	}
-	if initCommand != "" {
-		baseReport, err := ValidateRootfs(root, initCommand, "")
-		if err != nil {
-			problems = append(problems, err)
-		}
-		report.ResolvedInit = baseReport.ResolvedCommand
-	}
-
-	machineIDPath := rootPath(root, "/etc/machine-id")
-	if info, err := os.Stat(machineIDPath); err != nil {
-		problems = append(problems, fmt.Errorf("systemd machine-id file %q is missing inside rootfs %q", "/etc/machine-id", root))
-	} else if info.IsDir() {
-		problems = append(problems, fmt.Errorf("systemd machine-id path %q inside rootfs %q is a directory", "/etc/machine-id", root))
-	} else {
-		report.MachineIDPath = "/etc/machine-id"
-	}
-
-	if serviceUnit != "" {
-		resolved, err := resolveSystemdUnit(root, serviceUnit)
-		if err != nil {
-			problems = append(problems, err)
-		} else {
-			report.ServiceUnitPath = resolved
-		}
-	}
-
-	if len(problems) == 0 {
-		return report, nil
-	}
-	return report, errors.Join(problems...)
-}
-
 type validationState struct {
 	visitedCommands map[string]struct{}
 	libraries       map[string]struct{}
@@ -196,28 +118,6 @@ func validateRequiredRuntimePaths(root string, required []string, problems []err
 		}
 	}
 	return statuses, problems
-}
-
-func firstExistingCommand(root string, candidates []string) (string, error) {
-	for _, candidate := range candidates {
-		if _, err := os.Stat(rootPath(root, candidate)); err == nil {
-			return candidate, nil
-		}
-	}
-	return "", fmt.Errorf("guest init command was not found inside rootfs %q; expected one of %s", root, strings.Join(candidates, ", "))
-}
-
-func resolveSystemdUnit(root string, unit string) (string, error) {
-	for _, candidate := range []string{
-		filepath.Join("/etc/systemd/system", unit),
-		filepath.Join("/usr/lib/systemd/system", unit),
-	} {
-		info, err := os.Stat(rootPath(root, candidate))
-		if err == nil && !info.IsDir() {
-			return candidate, nil
-		}
-	}
-	return "", fmt.Errorf("systemd unit %q was not found inside rootfs %q; place it at /etc/systemd/system/%s or /usr/lib/systemd/system/%s", unit, root, unit, unit)
 }
 
 func canCreatePath(path string) bool {
