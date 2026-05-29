@@ -26,6 +26,19 @@ func TestPlanNetworkPolicyBackendOfflinePolicy(t *testing.T) {
 	}
 }
 
+func TestPlanNetworkPolicyBackendAllowAllPolicyUsesHostPassthrough(t *testing.T) {
+	policy := spec.AllowAllNetworkPolicy()
+	plan, err := planNetworkPolicyBackend(spec.Config{
+		NetworkPolicy: &policy,
+	})
+	if err != nil {
+		t.Fatalf("planNetworkPolicyBackend returned error: %v", err)
+	}
+	if plan.BackendMode != backendNetworkPolicyHost || plan.LoopbackAction != netpolicy.ActionAllow {
+		t.Fatalf("unexpected backend plan: %#v", plan)
+	}
+}
+
 func TestPlanNetworkPolicyBackendRejectsAllowDefault(t *testing.T) {
 	_, err := planNetworkPolicyBackend(spec.Config{
 		NetworkPolicy: &spec.NetworkPolicy{

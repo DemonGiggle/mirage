@@ -62,9 +62,10 @@ Examples:
   mirage rootfs init --template basic --output /srv/mirage/basic-rootfs
   mirage doctor --rootfs /srv/mirage/basic-rootfs --command /bin/ls
   mirage sandbox start --name openclaw --rootfs /srv/systemd-rootfs --service-unit openclaw.service
-  mirage run --rootfs / --net none -- echo hello
-  mirage run --rootfs /srv/systemd-rootfs --net host --runtime-mode init -- /usr/lib/systemd/systemd
+  mirage run --rootfs / --preset offline -- echo hello
+  mirage run --rootfs /srv/systemd-rootfs --preset allow-all --runtime-mode init -- /usr/lib/systemd/systemd
   mirage run --rootfs /srv/rootfs --preset offline -- app
+  mirage run --rootfs /srv/rootfs --network-policy-file ./network-policy.yaml -- app
   mirage run --rootfs /srv/rootfs --preset-file ./presets.yaml --preset team-offline -- app
 `)
 }
@@ -185,10 +186,10 @@ func runDoctor(args []string, stdout, stderr io.Writer) error {
 	_, _ = fmt.Fprintln(stdout, "mirage doctor")
 	_, _ = fmt.Fprintln(stdout, "- namespace backend: available (linux, initial)")
 	_, _ = fmt.Fprintln(stdout, "- rootfs isolation: available via mounted runtime layout plus chroot handoff")
-	_, _ = fmt.Fprintln(stdout, "- current coarse network modes: host, none")
-	_, _ = fmt.Fprintln(stdout, "- rule-first network policy config: available for presets and dry-run summaries")
+	_, _ = fmt.Fprintln(stdout, "- rule-first network policy config: available via presets and --network-policy-file")
+	_, _ = fmt.Fprintln(stdout, "- policy backend coverage: allow-all host passthrough, isolated deny-only policies, explicit errors for unsupported rules")
 	_, _ = fmt.Fprintln(stdout, "- cgroup v2 resource controls: available via delegated systemd user scopes when systemd-run is present")
-	_, _ = fmt.Fprintln(stdout, "- transitional preset loading: available")
+	_, _ = fmt.Fprintln(stdout, "- policy-first preset loading: available")
 	_, _ = fmt.Fprintln(stdout, "- host log export: available")
 
 	if rootfsPath == "" && command == "" && cwd == "" && preset == "" && presetFile == "" && serviceUnit == "" {
@@ -362,7 +363,7 @@ func runSandbox(args []string, stdout, stderr io.Writer) error {
 	fs.Var(stringSliceValue{target: &cfg.ROBind}, "ro-bind", "Read-only bind mount host:guest")
 	fs.Var(stringSliceValue{target: &cfg.RWBind}, "rw-bind", "Writable bind mount host:guest")
 	fs.Var(stringSliceValue{target: &cfg.Env}, "env", "Environment variable in KEY=VALUE form")
-	fs.StringVar((*string)(&cfg.NetworkMode), "net", "", "Network mode: none, host")
+	fs.StringVar(&cfg.NetworkPolicyFile, "network-policy-file", "", "Path to a standalone networkPolicy YAML file")
 	fs.StringVar((*string)(&cfg.RuntimeMode), "runtime-mode", string(spec.RuntimeModeDirect), "Runtime mode: direct, init")
 	fs.StringVar(&cfg.ScopeName, "scope-name", "", "Internal: explicit systemd user scope unit name")
 	fs.StringVar(&cfg.Preset, "preset", "", "Named preset to apply before inline overrides")
@@ -379,6 +380,9 @@ func runSandbox(args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 	cfg.Command = fs.Args()
+	if err := loadConfigNetworkPolicy(&cfg); err != nil {
+		return err
+	}
 
 	resolved, err := spec.ApplyPreset(cfg)
 	if err != nil {
@@ -407,10 +411,7 @@ func runSandbox(args []string, stdout, stderr io.Writer) error {
 }
 
 func presetNetworkSummary(preset spec.Preset) string {
-	if preset.NetworkPolicy != nil {
-		return fmt.Sprintf("networkPolicy:v%d", preset.NetworkPolicy.Version)
-	}
-	return string(preset.NetworkMode)
+	return fmt.Sprintf("networkPolicy:v%d", preset.NetworkPolicy.Version)
 }
 
 func ensurePresetRootfs(cfg spec.Config, stderr io.Writer) error {
@@ -474,6 +475,18 @@ func printGenerateWarnings(w io.Writer, report rootfs.GenerateReport, prefix str
 	for _, asset := range report.MissingAssets {
 		_, _ = fmt.Fprintf(w, "warning: %s%s\n", prefix, asset.Message())
 	}
+}
+
+func loadConfigNetworkPolicy(cfg *spec.Config) error {
+	if cfg == nil || cfg.NetworkPolicyFile == "" {
+		return nil
+	}
+	policy, err := spec.LoadNetworkPolicyFile(cfg.NetworkPolicyFile)
+	if err != nil {
+		return err
+	}
+	cfg.NetworkPolicy = &policy
+	return nil
 }
 
 func presetNames(presets map[string]spec.Preset) []string {

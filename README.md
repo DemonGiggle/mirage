@@ -33,8 +33,8 @@ Today the project includes:
 - chroot-based rootfs handoff when using a non-`/` rootfs
 - a shared V1 rootfs template schema with curated built-in templates
 - read-only and read-write bind mounts
-- transitional built-in presets and local preset-file loading
-- current coarse `host` / `none` network selection pending rule-model redesign
+- policy-first built-in presets, local preset-file loading, and standalone network policy files
+- current backend coverage for allow-all host passthrough and isolated deny-only policies
 - stdout and stderr export to host-visible log files
 - delegated cgroup v2 memory and PID limits
 - tracked sandbox lifecycle commands for init-mode runs (`sandbox start/status/stop/logs`)
@@ -82,7 +82,7 @@ Validate that rootfs before trying to run inside it:
 Run a simple local-only command:
 
 ```bash
-./bin/mirage run --rootfs / --net none -- /bin/echo hello
+./bin/mirage run --rootfs / --preset offline -- /bin/echo hello
 ```
 
 For the full template catalog, dedicated-rootfs guidance, guest-init workflows,
@@ -100,9 +100,9 @@ commands, use the docs linked below.
 - [docs/isolation.md](docs/isolation.md): current isolation matrix, guarantees,
   and known caveats
 - [docs/network-rule-model.md](docs/network-rule-model.md): canonical draft
-  design for the future rule-first network policy model
-- [docs/network-transition.md](docs/network-transition.md): migration inventory
-  and transition plan from the current mode-first surface
+  design for the rule-first network policy model
+- [docs/network-transition.md](docs/network-transition.md): migration notes,
+  replacements for removed `--net` usage, and current backend limits
 - [docs/architecture.md](docs/architecture.md): control-plane and backend
   design, namespace setup, and run flow
 - [docs/development.md](docs/development.md): build, test, formatting, and repo
@@ -114,9 +114,9 @@ commands, use the docs linked below.
 The current backend is useful, but still transitional:
 
 - rootfs handoff still ends with `chroot`, not `pivot_root`
-- the CLI still exposes `preset` loading and coarse `host` / `none` networking,
-  but that surface should be treated as transitional compatibility rather than
-  the long-term network model
+- the CLI now exposes only policy-first networking inputs, but richer allow-rule
+  enforcement beyond allow-all host passthrough and isolated deny-only policies
+  is still intentionally incomplete
 - proc and mount hardening around `--rootfs /` is intentionally documented as a
   current limitation rather than a solved property
 

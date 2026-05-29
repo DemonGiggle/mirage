@@ -1,6 +1,8 @@
 package spec
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -119,6 +121,31 @@ func TestValidateNetworkPolicyDoesNotNormalizeInPlace(t *testing.T) {
 	}
 	if got := normalized.Egress.Rules[0].Destination.CIDR; got != "192.168.0.0/16" {
 		t.Fatalf("expected normalized CIDR, got %q", got)
+	}
+}
+
+func TestLoadNetworkPolicyFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "policy.yaml")
+	if err := os.WriteFile(path, []byte(`networkPolicy:
+  version: 1
+  loopback:
+    default: allow
+  ingress:
+    default: deny
+    rules: []
+  egress:
+    default: deny
+    rules: []
+`), 0o644); err != nil {
+		t.Fatalf("write policy file: %v", err)
+	}
+
+	policy, err := LoadNetworkPolicyFile(path)
+	if err != nil {
+		t.Fatalf("LoadNetworkPolicyFile returned error: %v", err)
+	}
+	if policy.Egress.Default != PolicyDeny {
+		t.Fatalf("unexpected loaded policy: %#v", policy)
 	}
 }
 

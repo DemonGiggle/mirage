@@ -147,14 +147,19 @@ func TestShouldStartTransientOpenClawGateway(t *testing.T) {
 	}
 }
 
-func TestPlanNotesNoneNetwork(t *testing.T) {
+func TestPlanNotesOfflinePolicy(t *testing.T) {
 	notes := PlanNotes(spec.Config{
-		RootFS:      "/",
-		NetworkMode: spec.NetworkNone,
+		RootFS: "/",
+		NetworkPolicy: &spec.NetworkPolicy{
+			Version:  1,
+			Loopback: spec.LoopbackPolicy{Default: spec.PolicyAllow},
+			Ingress:  spec.IngressPolicy{Default: spec.PolicyDeny, Rules: []spec.IngressRule{}},
+			Egress:   spec.EgressPolicy{Default: spec.PolicyDeny, Rules: []spec.EgressRule{}},
+		},
 	})
 	got := strings.Join(notes, "\n")
-	if !strings.Contains(got, "network backend: dedicated net namespace without host network") {
-		t.Fatalf("expected no-network note, got %q", got)
+	if !strings.Contains(got, "network backend: isolated policy namespace (allow loopback)") {
+		t.Fatalf("expected offline policy note, got %q", got)
 	}
 }
 
@@ -169,8 +174,20 @@ func TestPlanNotesNetworkPolicy(t *testing.T) {
 		},
 	})
 	got := strings.Join(notes, "\n")
-	if !strings.Contains(got, "network backend: rule-first isolated namespace (allow loopback)") {
+	if !strings.Contains(got, "network backend: isolated policy namespace (allow loopback)") {
 		t.Fatalf("expected policy network note, got %q", got)
+	}
+}
+
+func TestPlanNotesAllowAllPolicy(t *testing.T) {
+	policy := spec.AllowAllNetworkPolicy()
+	notes := PlanNotes(spec.Config{
+		RootFS:        "/",
+		NetworkPolicy: &policy,
+	})
+	got := strings.Join(notes, "\n")
+	if !strings.Contains(got, "network backend: allow-all policy via host namespace passthrough") {
+		t.Fatalf("expected allow-all note, got %q", got)
 	}
 }
 
@@ -188,6 +205,19 @@ func TestBuildUnshareArgsUsesNetNamespaceForOfflineNetworkPolicy(t *testing.T) {
 	}
 	if !slicesContains(args, "--net") {
 		t.Fatalf("expected policy backend to use a dedicated net namespace, got %#v", args)
+	}
+}
+
+func TestBuildUnshareArgsSkipsNetNamespaceForAllowAllNetworkPolicy(t *testing.T) {
+	policy := spec.AllowAllNetworkPolicy()
+	args, err := buildUnshareArgs(spec.Config{
+		NetworkPolicy: &policy,
+	})
+	if err != nil {
+		t.Fatalf("buildUnshareArgs returned error: %v", err)
+	}
+	if slicesContains(args, "--net") {
+		t.Fatalf("expected allow-all policy to avoid a dedicated net namespace, got %#v", args)
 	}
 }
 
@@ -237,11 +267,12 @@ func TestWriteOptionalCgroupFileIgnoresMissingFile(t *testing.T) {
 }
 
 func TestPlanNotesInitMode(t *testing.T) {
+	policy := spec.AllowAllNetworkPolicy()
 	notes := PlanNotes(spec.Config{
-		RootFS:      "/",
-		NetworkMode: spec.NetworkHost,
-		RuntimeMode: spec.RuntimeModeInit,
-		ScopeName:   "mirage-sandbox-demo.scope",
+		RootFS:        "/",
+		NetworkPolicy: &policy,
+		RuntimeMode:   spec.RuntimeModeInit,
+		ScopeName:     "mirage-sandbox-demo.scope",
 	})
 	got := strings.Join(notes, "\n")
 	for _, needle := range []string{
@@ -381,9 +412,10 @@ func TestResolveCommandBinaryUsesSandboxPath(t *testing.T) {
 }
 
 func TestBuildUnshareArgsAddsCgroupNamespaceForInitMode(t *testing.T) {
+	policy := spec.AllowAllNetworkPolicy()
 	args, err := buildUnshareArgs(spec.Config{
-		NetworkMode: spec.NetworkHost,
-		RuntimeMode: spec.RuntimeModeInit,
+		NetworkPolicy: &policy,
+		RuntimeMode:   spec.RuntimeModeInit,
 	})
 	if err != nil {
 		t.Fatalf("buildUnshareArgs returned error: %v", err)

@@ -24,7 +24,7 @@ func TestProbeSpawnChildStaysInSandboxTree(t *testing.T) {
 	output, err := runMirage(t, repoRoot,
 		"run",
 		"--rootfs", "/",
-		"--net", "host",
+		"--preset", "allow-all",
 		"--",
 		probePath,
 	)
@@ -63,7 +63,7 @@ func TestProbeFileReadRespectsRootfsBoundary(t *testing.T) {
 	output, err := runMirage(t, repoRoot,
 		"run",
 		"--rootfs", rootfs,
-		"--net", "host",
+		"--preset", "allow-all",
 		"--",
 		"/probe-file-read",
 		"/inside.txt",
@@ -78,7 +78,7 @@ func TestProbeFileReadRespectsRootfsBoundary(t *testing.T) {
 	output, err = runMirage(t, repoRoot,
 		"run",
 		"--rootfs", rootfs,
-		"--net", "host",
+		"--preset", "allow-all",
 		"--",
 		"/probe-file-read",
 		hostSecret,
@@ -103,7 +103,7 @@ func TestProbeFileWriteRespectsRootfsBoundary(t *testing.T) {
 	output, err := runMirage(t, repoRoot,
 		"run",
 		"--rootfs", rootfs,
-		"--net", "host",
+		"--preset", "allow-all",
 		"--",
 		"/probe-file-write",
 		"/inside-out.txt",
@@ -128,7 +128,7 @@ func TestProbeFileWriteRespectsRootfsBoundary(t *testing.T) {
 	output, err = runMirage(t, repoRoot,
 		"run",
 		"--rootfs", rootfs,
-		"--net", "host",
+		"--preset", "allow-all",
 		"--",
 		"/probe-file-write",
 		hostOutside,
@@ -142,9 +142,8 @@ func TestProbeFileWriteRespectsRootfsBoundary(t *testing.T) {
 	}
 }
 
-// Verifies that basic outbound TCP behavior matches the selected network mode:
-// host networking should connect, while net=none should fail closed.
-func TestProbeTCPConnectHonorsNetworkMode(t *testing.T) {
+// Verifies that the built-in policy presets cover the old host/offline cases.
+func TestProbeTCPConnectHonorsNetworkPolicyPresets(t *testing.T) {
 	requireNamespaceBackend(t)
 
 	repoRoot := projectRoot(t)
@@ -168,7 +167,7 @@ func TestProbeTCPConnectHonorsNetworkMode(t *testing.T) {
 	output, err := runMirage(t, repoRoot,
 		"run",
 		"--rootfs", "/",
-		"--net", "host",
+		"--preset", "allow-all",
 		"--",
 		probePath,
 		listener.Addr().String(),
@@ -188,7 +187,7 @@ func TestProbeTCPConnectHonorsNetworkMode(t *testing.T) {
 	output, err = runMirage(t, repoRoot,
 		"run",
 		"--rootfs", "/",
-		"--net", "none",
+		"--preset", "offline",
 		"--",
 		probePath,
 		listener.Addr().String(),
@@ -198,6 +197,146 @@ func TestProbeTCPConnectHonorsNetworkMode(t *testing.T) {
 	}
 	if !strings.Contains(output, "connect-failed") {
 		t.Fatalf("expected connect-failed output, got:\n%s", output)
+	}
+}
+
+func TestProbeTCPConnectLoadsAllowAllPolicyFile(t *testing.T) {
+	requireNamespaceBackend(t)
+
+	repoRoot := projectRoot(t)
+	probePath := buildProbe(t, repoRoot, "./cmd/probe-tcp-connect")
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer listener.Close()
+
+	output, err := runMirage(t, repoRoot,
+		"run",
+		"--rootfs", "/",
+		"--network-policy-file", policyFixturePath(repoRoot, "allow-all.yaml"),
+		"--",
+		probePath,
+		listener.Addr().String(),
+	)
+	if err != nil {
+		t.Fatalf("expected allow-all policy file connect to succeed: %v\noutput:\n%s", err, output)
+	}
+	if !strings.Contains(output, "connect-ok addr=") {
+		t.Fatalf("unexpected connect success output:\n%s", output)
+	}
+}
+
+func TestProbeTCPConnectLoadsOfflinePolicyPresetFile(t *testing.T) {
+	requireNamespaceBackend(t)
+
+	repoRoot := projectRoot(t)
+	probePath := buildProbe(t, repoRoot, "./cmd/probe-tcp-connect")
+	presetFile := writePolicyPresetFileE2E(t, repoRoot, "team-offline", "offline.yaml")
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer listener.Close()
+
+	output, err := runMirage(t, repoRoot,
+		"run",
+		"--rootfs", "/",
+		"--preset-file", presetFile,
+		"--preset", "team-offline",
+		"--",
+		probePath,
+		listener.Addr().String(),
+	)
+	if err == nil {
+		t.Fatalf("expected offline preset-file connect to fail, got output:\n%s", output)
+	}
+	if !strings.Contains(output, "connect-failed") {
+		t.Fatalf("expected connect-failed output, got:\n%s", output)
+	}
+}
+
+func TestProbeTCPConnectRejectsLoopbackWhenPolicyDeniesIt(t *testing.T) {
+	requireNamespaceBackend(t)
+
+	repoRoot := projectRoot(t)
+	probePath := buildProbe(t, repoRoot, "./cmd/probe-tcp-connect")
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer listener.Close()
+
+	output, err := runMirage(t, repoRoot,
+		"run",
+		"--rootfs", "/",
+		"--network-policy-file", policyFixturePath(repoRoot, "loopback-deny-offline.yaml"),
+		"--",
+		probePath,
+		listener.Addr().String(),
+	)
+	if err == nil {
+		t.Fatalf("expected loopback-deny policy connect to fail, got output:\n%s", output)
+	}
+	if !strings.Contains(output, "connect-failed") {
+		t.Fatalf("expected connect-failed output, got:\n%s", output)
+	}
+}
+
+func TestRunRejectsUnsupportedEgressPolicyFileE2E(t *testing.T) {
+	repoRoot := projectRoot(t)
+
+	output, err := runMirage(t, repoRoot,
+		"run",
+		"--rootfs", "/",
+		"--network-policy-file", policyFixturePath(repoRoot, "allow-private-egress.yaml"),
+		"--",
+		"echo", "hello",
+	)
+	if err == nil {
+		t.Fatalf("expected unsupported egress policy to fail, got output:\n%s", output)
+	}
+	if !strings.Contains(output, "allow semantics this backend cannot enforce yet") {
+		t.Fatalf("expected unsupported egress policy error, got:\n%s", output)
+	}
+}
+
+func TestRunRejectsUnsupportedIngressPolicyFileE2E(t *testing.T) {
+	repoRoot := projectRoot(t)
+
+	output, err := runMirage(t, repoRoot,
+		"run",
+		"--rootfs", "/",
+		"--network-policy-file", policyFixturePath(repoRoot, "default-ingress-allow.yaml"),
+		"--",
+		"echo", "hello",
+	)
+	if err == nil {
+		t.Fatalf("expected unsupported ingress policy to fail, got output:\n%s", output)
+	}
+	if !strings.Contains(output, "ingress.default=allow") {
+		t.Fatalf("expected unsupported ingress policy error, got:\n%s", output)
+	}
+}
+
+func TestRunRejectsDomainPolicyFileE2E(t *testing.T) {
+	repoRoot := projectRoot(t)
+
+	output, err := runMirage(t, repoRoot,
+		"run",
+		"--rootfs", "/",
+		"--network-policy-file", policyFixturePath(repoRoot, "domain-egress.yaml"),
+		"--",
+		"echo", "hello",
+	)
+	if err == nil {
+		t.Fatalf("expected domain-backed policy to fail, got output:\n%s", output)
+	}
+	if !strings.Contains(output, "destination.domain is documented but not enforceable") {
+		t.Fatalf("expected deferred domain error, got:\n%s", output)
 	}
 }
 
@@ -212,7 +351,7 @@ func TestProbeEnvReadSeesExplicitEnv(t *testing.T) {
 	output, err := runMirage(t, repoRoot,
 		"run",
 		"--rootfs", "/",
-		"--net", "host",
+		"--preset", "allow-all",
 		"--env", "MIRAGE_SAMPLE_ENV=sandbox-value",
 		"--",
 		probePath,
@@ -228,7 +367,7 @@ func TestProbeEnvReadSeesExplicitEnv(t *testing.T) {
 	output, err = runMirage(t, repoRoot,
 		"run",
 		"--rootfs", "/",
-		"--net", "host",
+		"--preset", "allow-all",
 		"--",
 		probePath,
 		"MIRAGE_SAMPLE_ENV",
@@ -253,7 +392,7 @@ func TestProbeListProcsReflectsSandboxPIDNamespace(t *testing.T) {
 	output, err := runMirage(t, repoRoot,
 		"run",
 		"--rootfs", rootfs,
-		"--net", "host",
+		"--preset", "allow-all",
 		"--",
 		"/probe-list-procs",
 	)
@@ -289,7 +428,7 @@ func TestProbeReadlinkReportsSymlinkTarget(t *testing.T) {
 	output, err := runMirage(t, repoRoot,
 		"run",
 		"--rootfs", rootfs,
-		"--net", "host",
+		"--preset", "allow-all",
 		"--",
 		"/probe-readlink",
 		"/link.txt",
@@ -302,8 +441,8 @@ func TestProbeReadlinkReportsSymlinkTarget(t *testing.T) {
 	}
 }
 
-// Verifies that HTTP-level egress follows the selected network mode.
-func TestProbeHTTPGetHonorsNetworkMode(t *testing.T) {
+// Verifies that HTTP-level egress follows the selected policy preset.
+func TestProbeHTTPGetHonorsNetworkPolicyPresets(t *testing.T) {
 	requireNamespaceBackend(t)
 
 	repoRoot := projectRoot(t)
@@ -317,7 +456,7 @@ func TestProbeHTTPGetHonorsNetworkMode(t *testing.T) {
 	output, err := runMirage(t, repoRoot,
 		"run",
 		"--rootfs", "/",
-		"--net", "host",
+		"--preset", "allow-all",
 		"--",
 		probePath,
 		server.URL,
@@ -332,7 +471,7 @@ func TestProbeHTTPGetHonorsNetworkMode(t *testing.T) {
 	output, err = runMirage(t, repoRoot,
 		"run",
 		"--rootfs", "/",
-		"--net", "none",
+		"--preset", "offline",
 		"--",
 		probePath,
 		server.URL,
@@ -365,7 +504,7 @@ func TestProbeBindMountReadOnlyBoundary(t *testing.T) {
 	output, err := runMirage(t, repoRoot,
 		"run",
 		"--rootfs", rootfs,
-		"--net", "host",
+		"--preset", "allow-all",
 		"--ro-bind", hostReadOnly+":/ro",
 		"--rw-bind", hostWritable+":/rw",
 		"--",
@@ -382,7 +521,7 @@ func TestProbeBindMountReadOnlyBoundary(t *testing.T) {
 	output, err = runMirage(t, repoRoot,
 		"run",
 		"--rootfs", rootfs,
-		"--net", "host",
+		"--preset", "allow-all",
 		"--ro-bind", hostReadOnly+":/ro",
 		"--rw-bind", hostWritable+":/rw",
 		"--",
@@ -403,7 +542,7 @@ func TestProbeBindMountReadOnlyBoundary(t *testing.T) {
 	output, err = runMirage(t, repoRoot,
 		"run",
 		"--rootfs", rootfs,
-		"--net", "host",
+		"--preset", "allow-all",
 		"--ro-bind", hostReadOnly+":/ro",
 		"--rw-bind", hostWritable+":/rw",
 		"--",
@@ -439,7 +578,7 @@ func TestProbePIDLimitEnforcement(t *testing.T) {
 	output, err := runMirage(t, repoRoot,
 		"run",
 		"--rootfs", "/",
-		"--net", "host",
+		"--preset", "allow-all",
 		"--pids", "2",
 		"--",
 		probePath,
@@ -459,7 +598,7 @@ func TestProbePIDLimitEnforcement(t *testing.T) {
 	output, err = runMirage(t, repoRoot,
 		"run",
 		"--rootfs", "/",
-		"--net", "host",
+		"--preset", "allow-all",
 		"--pids", "32",
 		"--",
 		probePath,
@@ -485,7 +624,7 @@ func TestProbeMemoryLimitEnforcement(t *testing.T) {
 	output, err := runMirage(t, repoRoot,
 		"run",
 		"--rootfs", "/",
-		"--net", "host",
+		"--preset", "allow-all",
 		"--memory", "32M",
 		"--",
 		"python3", "-c", "a=[b'x'*1024*1024 for _ in range(128)]; print('memory-ok'); import time; time.sleep(0.25)",
@@ -497,7 +636,7 @@ func TestProbeMemoryLimitEnforcement(t *testing.T) {
 	output, err = runMirage(t, repoRoot,
 		"run",
 		"--rootfs", "/",
-		"--net", "host",
+		"--preset", "allow-all",
 		"--memory", "256M",
 		"--",
 		"python3", "-c", "a=[b'x'*1024*1024 for _ in range(16)]; print('memory-ok'); import time; time.sleep(0.25)",
@@ -539,6 +678,37 @@ func buildProbeBinary(t *testing.T, repoRoot, pkg, out string) {
 	if err != nil {
 		t.Fatalf("build probe %s failed: %v\noutput:\n%s", pkg, err, string(buildOutput))
 	}
+}
+
+func policyFixturePath(repoRoot string, name string) string {
+	return filepath.Join(repoRoot, "testdata", "network-policies", name)
+}
+
+func writePolicyPresetFileE2E(t *testing.T, repoRoot string, presetName string, fixtureName string) string {
+	t.Helper()
+	data, err := os.ReadFile(policyFixturePath(repoRoot, fixtureName))
+	if err != nil {
+		t.Fatalf("read policy fixture %q: %v", fixtureName, err)
+	}
+	body := "presets:\n  - name: " + presetName + "\n" + indentPolicyYAML(string(data), "    ") + "    description: Policy fixture preset\n"
+	path := filepath.Join(t.TempDir(), "presets.yaml")
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("write preset file: %v", err)
+	}
+	return path
+}
+
+func indentPolicyYAML(text string, prefix string) string {
+	if text == "" {
+		return ""
+	}
+	var b strings.Builder
+	for _, line := range strings.Split(strings.TrimSuffix(text, "\n"), "\n") {
+		b.WriteString(prefix)
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+	return b.String()
 }
 
 func runMirage(t *testing.T, repoRoot string, args ...string) (string, error) {

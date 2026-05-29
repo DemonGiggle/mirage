@@ -35,16 +35,16 @@ Pick the template level you want, then generate a dedicated rootfs:
 If you want a different tool surface, replace `openclaw-developer` with one of
 the other OpenClaw templates listed above.
 
-The built-in `openclaw-offline` preset can still be useful as a transitional
-convenience because it recommends the `openclaw-developer` rootfs level and
-defaults the working directory to `/workspace`.
+The built-in `openclaw-offline` preset is useful when you want a reviewed
+offline policy plus the recommended `openclaw-developer` rootfs level and a
+default working directory of `/workspace`.
 
 Install the package inside the generated rootfs:
 
 ```bash
 ./bin/mirage run \
   --rootfs /srv/mirage/openclaw-rootfs \
-  --net host \
+  --preset allow-all \
   --cwd /workspace \
   -- npm i -g openclaw
 ```
@@ -54,7 +54,7 @@ Run the onboarding flow:
 ```bash
 ./bin/mirage run \
   --rootfs /srv/mirage/openclaw-rootfs \
-  --net host \
+  --preset allow-all \
   --cwd /workspace \
   -- openclaw onboard
 ```
@@ -64,7 +64,7 @@ Start the local OpenClaw gateway on port `18789`:
 ```bash
 ./bin/mirage run \
   --rootfs /srv/mirage/openclaw-rootfs \
-  --net host \
+  --preset allow-all \
   --cwd /workspace \
   -- openclaw gateway --port 18789
 ```
@@ -73,9 +73,8 @@ Start the local OpenClaw gateway on port `18789`:
 
 - If you want a smaller or stricter installation environment, choose a narrower
   rootfs level such as `openclaw-chat-only` or `openclaw-work`.
-- Prefer `--net none` for local-only work, and switch to `--net host`
-  explicitly when the workflow truly needs outbound network access.
-- Treat `openclaw-offline` as a convenience wrapper for current defaults rather
-  than the long-term network-policy model.
+- Prefer `openclaw-offline` or `offline` for local-only work, and switch to
+  `allow-all` or an explicit policy file only when the workflow truly needs the
+  host network stack.
 - For the exact built-in template contents, see
   [rootfs.md#built-in-templates](rootfs.md#built-in-templates).

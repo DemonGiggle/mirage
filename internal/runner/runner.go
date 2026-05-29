@@ -57,11 +57,10 @@ func Execute(cfg spec.Config, stdout, stderr io.Writer) error {
 		return fmt.Errorf("resolve mirage executable: %w", err)
 	}
 
-	backendNetMode := string(cfg.NetworkMode)
-	if hasPolicyPlan {
-		backendNetMode = policyPlan.BackendMode
+	if !hasPolicyPlan {
+		return errors.New("network policy backend plan is missing")
 	}
-	backendArgs := []string{self, "__backend-exec", "--rootfs", cfg.RootFS, "--net", backendNetMode}
+	backendArgs := []string{self, "__backend-exec", "--rootfs", cfg.RootFS, "--network-backend", policyPlan.BackendMode}
 	if hasPolicyPlan {
 		backendArgs = append(backendArgs, "--policy-loopback", string(policyPlan.LoopbackAction))
 	}
@@ -173,7 +172,7 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 	var rootfs string
 	var cwd string
 	var hostname string
-	var netMode string
+	var networkBackend string
 	var policyLoopback string
 	var runtimeMode string
 	var roBind []string
@@ -183,7 +182,7 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 	fs.StringVar(&rootfs, "rootfs", "", "backend rootfs")
 	fs.StringVar(&cwd, "cwd", "", "backend cwd")
 	fs.StringVar(&hostname, "hostname", "", "backend hostname")
-	fs.StringVar(&netMode, "net", "", "backend network mode")
+	fs.StringVar(&networkBackend, "network-backend", "", "backend network mode")
 	fs.StringVar(&policyLoopback, "policy-loopback", "", "backend policy loopback action")
 	fs.StringVar(&runtimeMode, "runtime-mode", string(spec.RuntimeModeDirect), "backend runtime mode")
 	fs.Var(stringSliceValue{target: &roBind}, "ro-bind", "backend read-only bind mount")
@@ -201,10 +200,10 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 	if resolvedRuntimeMode != spec.RuntimeModeDirect && resolvedRuntimeMode != spec.RuntimeModeInit {
 		return fmt.Errorf("unsupported backend runtime mode %q", runtimeMode)
 	}
-	if netMode != string(spec.NetworkHost) && netMode != string(spec.NetworkNone) && netMode != backendNetworkPolicyIsolated {
-		return fmt.Errorf("unsupported backend network mode %q", netMode)
+	if networkBackend != backendNetworkPolicyHost && networkBackend != backendNetworkPolicyIsolated {
+		return fmt.Errorf("unsupported backend network mode %q", networkBackend)
 	}
-	if netMode == backendNetworkPolicyIsolated {
+	if networkBackend == backendNetworkPolicyIsolated {
 		if err := configurePolicyNetworkBackend(policyLoopback); err != nil {
 			return err
 		}
@@ -485,22 +484,13 @@ func buildUnshareArgs(cfg spec.Config) ([]string, error) {
 		args = append(args, "--cgroup")
 	}
 
-	if cfg.NetworkPolicy != nil {
-		if _, err := planNetworkPolicyBackend(cfg); err != nil {
-			return nil, err
-		}
-		args = append(args, "--net")
-		return args, nil
+	plan, err := planNetworkPolicyBackend(cfg)
+	if err != nil {
+		return nil, err
 	}
-
-	switch cfg.NetworkMode {
-	case spec.NetworkHost:
-	case spec.NetworkNone:
+	if plan.BackendMode == backendNetworkPolicyIsolated {
 		args = append(args, "--net")
-	default:
-		return nil, fmt.Errorf("unsupported network mode %q", cfg.NetworkMode)
 	}
-
 	return args, nil
 }
 
@@ -1065,17 +1055,16 @@ func PlanNotes(cfg spec.Config) []string {
 		notes = append(notes, "execution mode: direct workload command becomes sandbox PID 1")
 		notes = append(notes, "one sandbox = one isolated process tree")
 	}
-	switch cfg.NetworkMode {
-	case spec.NetworkHost:
-		notes = append(notes, "network backend: host namespace")
-	case spec.NetworkNone:
-		notes = append(notes, "network backend: dedicated net namespace without host network")
-	}
 	if cfg.NetworkPolicy != nil {
 		if plan, err := planNetworkPolicyBackend(cfg); err == nil {
-			notes = append(notes, fmt.Sprintf("network backend: rule-first isolated namespace (%s loopback)", plan.LoopbackAction))
+			switch plan.BackendMode {
+			case backendNetworkPolicyHost:
+				notes = append(notes, "network backend: allow-all policy via host namespace passthrough")
+			case backendNetworkPolicyIsolated:
+				notes = append(notes, fmt.Sprintf("network backend: isolated policy namespace (%s loopback)", plan.LoopbackAction))
+			}
 		} else {
-			notes = append(notes, fmt.Sprintf("network backend: rule-first policy unsupported by current backend (%v)", err))
+			notes = append(notes, fmt.Sprintf("network backend: networkPolicy unsupported by current backend (%v)", err))
 		}
 	}
 	if cfg.StdoutLog != "" || cfg.StderrLog != "" {

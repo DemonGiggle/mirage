@@ -1,10 +1,41 @@
 presets:
+  - name: allow-all
+    networkPolicy:
+      version: 1
+      loopback:
+        default: allow
+      ingress:
+        default: allow
+        rules: []
+      egress:
+        default: allow
+        rules: []
+    description: Allow all ingress and egress traffic.
+
   - name: offline
-    network: none
+    networkPolicy:
+      version: 1
+      loopback:
+        default: allow
+      ingress:
+        default: deny
+        rules: []
+      egress:
+        default: deny
+        rules: []
     description: No network access.
 
   - name: openclaw-offline
-    network: none
+    networkPolicy:
+      version: 1
+      loopback:
+        default: allow
+      ingress:
+        default: deny
+        rules: []
+      egress:
+        default: deny
+        rules: []
     rootfs:
       template: openclaw-developer
       required_commands:

@@ -90,7 +90,7 @@ func runSandboxStart(args []string, stdout, stderr io.Writer) error {
 	fs.Var(stringSliceValue{target: &cfg.ROBind}, "ro-bind", "Read-only bind mount host:guest")
 	fs.Var(stringSliceValue{target: &cfg.RWBind}, "rw-bind", "Writable bind mount host:guest")
 	fs.Var(stringSliceValue{target: &cfg.Env}, "env", "Environment variable in KEY=VALUE form")
-	fs.StringVar((*string)(&cfg.NetworkMode), "net", "", "Network mode: none, host")
+	fs.StringVar(&cfg.NetworkPolicyFile, "network-policy-file", "", "Path to a standalone networkPolicy YAML file")
 	fs.StringVar(&cfg.Preset, "preset", "", "Named preset to apply before inline overrides")
 	fs.StringVar(&cfg.PresetFile, "preset-file", "", "Path to a local preset YAML file")
 	fs.StringVar(&cfg.StdoutLog, "stdout-log", "", "Write guest init stdout to a host-side log file")
@@ -109,6 +109,9 @@ func runSandboxStart(args []string, stdout, stderr io.Writer) error {
 	cfg.RuntimeMode = spec.RuntimeModeInit
 	cfg.Command = fs.Args()
 	cfg.ScopeName = sandboxScopeUnit(name)
+	if err := loadConfigNetworkPolicy(&cfg); err != nil {
+		return err
+	}
 
 	rootDir, err := sandboxStateRootDir(stateDir)
 	if err != nil {
@@ -143,8 +146,11 @@ func runSandboxStart(args []string, stdout, stderr io.Writer) error {
 		_ = os.Remove(statePath)
 		return err
 	}
-	if resolved.NetworkMode == "" && resolved.NetworkPolicy == nil {
-		resolved.NetworkMode = spec.NetworkHost
+	if resolved.NetworkPolicy == nil {
+		resolved.Preset = "allow-all"
+		resolved.PresetFile = ""
+		policy := spec.AllowAllNetworkPolicy()
+		resolved.NetworkPolicy = &policy
 	}
 	if err := ensurePresetRootfs(resolved, stderr); err != nil {
 		_ = os.Remove(statePath)
@@ -447,8 +453,8 @@ func buildSandboxRunArgs(cfg spec.Config) []string {
 		"--runtime-mode", string(spec.NormalizeRuntimeMode(cfg.RuntimeMode)),
 		"--scope-name", cfg.ScopeName,
 	}
-	if cfg.NetworkMode != "" {
-		args = append(args, "--net", string(cfg.NetworkMode))
+	if cfg.NetworkPolicyFile != "" {
+		args = append(args, "--network-policy-file", cfg.NetworkPolicyFile)
 	}
 	if cfg.Preset != "" {
 		args = append(args, "--preset", cfg.Preset)
