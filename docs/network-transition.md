@@ -43,10 +43,18 @@ making the migration boundary explicit.
 These are the parts of Mirage that are still intentionally mode-first today:
 
 - `--net host|none` in the public CLI
-- preset YAML that stores `network: host|none`
-- `spec.NetworkMode` and `Config.NetworkMode`
+- legacy preset YAML that stores `network: host|none`
+- `spec.NetworkMode` and `Config.NetworkMode` for the compatibility path
 - built-in presets such as `offline` and `openclaw-offline`
 - tests that validate current host/none behavior directly
+
+Rule-first config plumbing now also exists:
+
+- preset YAML may define `networkPolicy` instead of `network`
+- `spec.Config` can carry a parsed `NetworkPolicy`
+- configs and presets reject ambiguous `network` + `networkPolicy`
+  combinations
+- dry-run summaries and doctor output identify policy-bearing configs
 
 These are not bugs by themselves. They are the surfaces that later rule-first
 work must either replace, compile down to, or retire.
@@ -120,16 +128,17 @@ Relevant files:
 
 Current state:
 
-- config still centers on `NetworkMode`
+- config can carry either `NetworkMode` or a parsed `NetworkPolicy`
 - presets still serialize `network: host|none`
-- validation still treats `NetworkMode` as required input
+- validation requires exactly one of coarse `network` or rule-first
+  `networkPolicy`
 
 Follow-up implication:
 
-- the first rule-first implementation will need either:
-  - a parallel policy object alongside `NetworkMode`, or
-  - a migration layer that compiles policy into the old coarse modes where
-    possible
+- runtime compilation and enforcement can now consume a policy object without
+  depending on YAML layout
+- policy-bearing runs still need a backend implementation before they can
+  execute rather than only dry-run
 
 This is one of the main reasons `#70` exists. The design doc alone does not say
 how to get from the current config model to the future one.

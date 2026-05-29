@@ -65,6 +65,38 @@ func TestPresetListWithPresetFile(t *testing.T) {
 	}
 }
 
+func TestPresetListShowsNetworkPolicyPreset(t *testing.T) {
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+
+	presetFile := filepath.Join(t.TempDir(), "presets.yaml")
+	if err := os.WriteFile(presetFile, []byte(`presets:
+  - name: team-policy
+    networkPolicy:
+      version: 1
+      loopback:
+        default: allow
+      ingress:
+        default: deny
+        rules: []
+      egress:
+        default: deny
+        rules: []
+    description: Team policy preset
+`), 0o644); err != nil {
+		t.Fatalf("write preset file: %v", err)
+	}
+
+	if err := Run([]string{"preset", "list", "--preset-file", presetFile}, &out, &errBuf); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	got := out.String()
+	if !strings.Contains(got, "team-policy\tnetworkPolicy:v1") {
+		t.Fatalf("expected preset list to show policy networking, got %q", got)
+	}
+}
+
 func TestRunDryRun(t *testing.T) {
 	var out bytes.Buffer
 	var errBuf bytes.Buffer
@@ -131,6 +163,95 @@ func TestRunDryRunWithPresetFile(t *testing.T) {
 	}
 	if !strings.Contains(got, "preset: team-offline") || !strings.Contains(got, "net: none") {
 		t.Fatalf("expected dry run output to mention simplified preset networking, got %q", got)
+	}
+}
+
+func TestRunDryRunWithPolicyPresetFile(t *testing.T) {
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+
+	presetFile := filepath.Join(t.TempDir(), "presets.yaml")
+	if err := os.WriteFile(presetFile, []byte(`presets:
+  - name: team-policy
+    networkPolicy:
+      version: 1
+      loopback:
+        default: allow
+      ingress:
+        default: deny
+        rules: []
+      egress:
+        default: deny
+        rules:
+          - name: allow-lan
+            action: allow
+            destination:
+              cidr: 192.168.0.0/16
+            protocol: any
+    description: Team policy preset
+`), 0o644); err != nil {
+		t.Fatalf("write preset file: %v", err)
+	}
+
+	err := Run([]string{
+		"run",
+		"--rootfs", "/srv/rootfs",
+		"--preset-file", presetFile,
+		"--preset", "team-policy",
+		"--dry-run",
+		"--",
+		"echo", "hello",
+	}, &out, &errBuf)
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	got := out.String()
+	for _, needle := range []string{
+		"network-policy: v1",
+		"network-policy-loopback-default: allow",
+		"network-policy-egress: default=deny rules=1",
+		"note: network backend: rule-first policy config present; enforcement pending backend implementation",
+	} {
+		if !strings.Contains(got, needle) {
+			t.Fatalf("expected dry run output to contain %q, got %q", needle, got)
+		}
+	}
+}
+
+func TestRunRejectsPolicyPresetCombinedWithNetFlag(t *testing.T) {
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+
+	presetFile := filepath.Join(t.TempDir(), "presets.yaml")
+	if err := os.WriteFile(presetFile, []byte(`presets:
+  - name: team-policy
+    networkPolicy:
+      version: 1
+      loopback:
+        default: allow
+      ingress:
+        default: deny
+        rules: []
+      egress:
+        default: deny
+        rules: []
+`), 0o644); err != nil {
+		t.Fatalf("write preset file: %v", err)
+	}
+
+	err := Run([]string{
+		"run",
+		"--rootfs", "/srv/rootfs",
+		"--preset-file", presetFile,
+		"--preset", "team-policy",
+		"--net", "none",
+		"--dry-run",
+		"--",
+		"echo", "hello",
+	}, &out, &errBuf)
+	if err == nil || !strings.Contains(err.Error(), "--net cannot be combined") {
+		t.Fatalf("expected policy/net ambiguity error, got %v", err)
 	}
 }
 

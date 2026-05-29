@@ -90,7 +90,7 @@ func runSandboxStart(args []string, stdout, stderr io.Writer) error {
 	fs.Var(stringSliceValue{target: &cfg.ROBind}, "ro-bind", "Read-only bind mount host:guest")
 	fs.Var(stringSliceValue{target: &cfg.RWBind}, "rw-bind", "Writable bind mount host:guest")
 	fs.Var(stringSliceValue{target: &cfg.Env}, "env", "Environment variable in KEY=VALUE form")
-	fs.StringVar((*string)(&cfg.NetworkMode), "net", string(spec.NetworkHost), "Network mode: none, host")
+	fs.StringVar((*string)(&cfg.NetworkMode), "net", "", "Network mode: none, host")
 	fs.StringVar(&cfg.Preset, "preset", "", "Named preset to apply before inline overrides")
 	fs.StringVar(&cfg.PresetFile, "preset-file", "", "Path to a local preset YAML file")
 	fs.StringVar(&cfg.StdoutLog, "stdout-log", "", "Write guest init stdout to a host-side log file")
@@ -142,6 +142,9 @@ func runSandboxStart(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		_ = os.Remove(statePath)
 		return err
+	}
+	if resolved.NetworkMode == "" && resolved.NetworkPolicy == nil {
+		resolved.NetworkMode = spec.NetworkHost
 	}
 	if err := ensurePresetRootfs(resolved, stderr); err != nil {
 		_ = os.Remove(statePath)
@@ -441,9 +444,11 @@ func buildSandboxRunArgs(cfg spec.Config) []string {
 	args := []string{
 		"run",
 		"--rootfs", cfg.RootFS,
-		"--net", string(cfg.NetworkMode),
 		"--runtime-mode", string(spec.NormalizeRuntimeMode(cfg.RuntimeMode)),
 		"--scope-name", cfg.ScopeName,
+	}
+	if cfg.NetworkMode != "" {
+		args = append(args, "--net", string(cfg.NetworkMode))
 	}
 	if cfg.Preset != "" {
 		args = append(args, "--preset", cfg.Preset)

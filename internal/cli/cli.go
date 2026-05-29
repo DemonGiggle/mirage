@@ -86,7 +86,7 @@ func runPreset(args []string, stdout io.Writer) error {
 		}
 		for _, name := range presetNames(presets) {
 			preset := presets[name]
-			_, _ = fmt.Fprintf(stdout, "%s\t%s\t%s\n", preset.Name, preset.NetworkMode, preset.Description)
+			_, _ = fmt.Fprintf(stdout, "%s\t%s\t%s\n", preset.Name, presetNetworkSummary(preset), preset.Description)
 		}
 		return nil
 	}
@@ -186,6 +186,7 @@ func runDoctor(args []string, stdout, stderr io.Writer) error {
 	_, _ = fmt.Fprintln(stdout, "- namespace backend: available (linux, initial)")
 	_, _ = fmt.Fprintln(stdout, "- rootfs isolation: available via mounted runtime layout plus chroot handoff")
 	_, _ = fmt.Fprintln(stdout, "- current coarse network modes: host, none")
+	_, _ = fmt.Fprintln(stdout, "- rule-first network policy config: available for presets and dry-run summaries")
 	_, _ = fmt.Fprintln(stdout, "- cgroup v2 resource controls: available via delegated systemd user scopes when systemd-run is present")
 	_, _ = fmt.Fprintln(stdout, "- transitional preset loading: available")
 	_, _ = fmt.Fprintln(stdout, "- host log export: available")
@@ -206,7 +207,7 @@ func runDoctor(args []string, stdout, stderr io.Writer) error {
 		if !ok {
 			return fmt.Errorf("unknown preset %q", preset)
 		}
-		_, _ = fmt.Fprintf(stdout, "- preset: %s (%s)\n", resolvedPreset.Name, resolvedPreset.NetworkMode)
+		_, _ = fmt.Fprintf(stdout, "- preset: %s (%s)\n", resolvedPreset.Name, presetNetworkSummary(resolvedPreset))
 		if resolvedPreset.Rootfs.RecommendedTemplate != "" {
 			_, _ = fmt.Fprintf(stdout, "- preset recommended rootfs template: %s\n", resolvedPreset.Rootfs.RecommendedTemplate)
 		}
@@ -403,6 +404,13 @@ func runSandbox(args []string, stdout, stderr io.Writer) error {
 		return errors.New("execution backend requires rootfs")
 	}
 	return runner.Execute(resolved, stdout, stderr)
+}
+
+func presetNetworkSummary(preset spec.Preset) string {
+	if preset.NetworkPolicy != nil {
+		return fmt.Sprintf("networkPolicy:v%d", preset.NetworkPolicy.Version)
+	}
+	return string(preset.NetworkMode)
 }
 
 func ensurePresetRootfs(cfg spec.Config, stderr io.Writer) error {
