@@ -33,7 +33,7 @@ Today the project includes:
 - chroot-based rootfs handoff when using a non-`/` rootfs
 - a shared V1 rootfs template schema with curated built-in templates
 - read-only and read-write bind mounts
-- policy-first built-in presets, local preset-file loading, and standalone network policy files
+- file-backed preset loading and standalone network policy files
 - current backend coverage for allow-all host passthrough and isolated deny-only policies
 - stdout and stderr export to host-visible log files
 - delegated cgroup v2 memory and PID limits
@@ -82,12 +82,12 @@ Validate that rootfs before trying to run inside it:
 Run a simple local-only command:
 
 ```bash
-./bin/mirage run --rootfs / --preset offline -- /bin/echo hello
+./bin/mirage run --rootfs / --preset-file ./examples/presets/openclaw-offline.yaml -- /bin/echo hello
 ```
 
 For the full template catalog, dedicated-rootfs guidance, guest-init workflows,
-bind mounts, the current transitional preset surface, and tracked sandbox
-commands, use the docs linked below.
+bind mounts, preset-file workflows, and tracked sandbox commands, use the docs
+linked below.
 
 ## Documentation Map
 
@@ -96,7 +96,7 @@ commands, use the docs linked below.
 - [docs/rootfs.md](docs/rootfs.md): rootfs choice, template catalog, schema, and
   guest-init rootfs validation guidance
 - [docs/usage.md](docs/usage.md): installation assumptions, command patterns,
-  current command surface, transitional presets, and common run examples
+  current command surface, preset-file workflows, and common run examples
 - [docs/isolation.md](docs/isolation.md): current isolation matrix, guarantees,
   and known caveats
 - [docs/network-rule-model.md](docs/network-rule-model.md): canonical draft

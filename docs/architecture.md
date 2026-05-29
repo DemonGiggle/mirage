@@ -32,8 +32,8 @@ defense against a determined kernel-level adversary.
   for assets such as an empty machine-id or future service-unit scaffolding
 - `bind mount`: an explicit mapping from a host path into the sandbox, either
   read-only or read-write
-- `preset`: a named bundle of current default options; this is a transitional
-  CLI convenience layer rather than the long-term network-policy shape
+- `preset file`: a file-backed bundle of default options layered on top of the
+  underlying network-policy model
 - `runtime mode`: whether Mirage launches a direct workload entrypoint or an
   init-oriented entrypoint that must become sandbox PID 1
 

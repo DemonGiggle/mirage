@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestLoadPresetFileRejectsLegacyPresetLists(t *testing.T) {
+func TestLoadPresetFileRejectsLegacyPresetListField(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "preset.yaml")
 	if err := os.WriteFile(path, []byte(`presets:
   - networkPolicy:
@@ -25,8 +25,8 @@ func TestLoadPresetFileRejectsLegacyPresetLists(t *testing.T) {
 	}
 
 	_, err := LoadPresetFile(path)
-	if err == nil || !strings.Contains(err.Error(), "legacy preset lists are no longer supported") {
-		t.Fatalf("expected legacy preset list error, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "presets") {
+		t.Fatalf("expected unknown presets field error, got %v", err)
 	}
 }
 
