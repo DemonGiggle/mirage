@@ -1,81 +1,77 @@
 package spec
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
-	"testing/fstest"
 )
 
-func TestLoadPresetsFromFS(t *testing.T) {
-	presets, err := loadPresetsFromFS(fstest.MapFS{
-		"presets/custom.yaml": {
-			Data: []byte(`presets:
-  - name: custom
-    networkPolicy:
+func TestLoadPresetFileRejectsLegacyPresetLists(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "preset.yaml")
+	if err := os.WriteFile(path, []byte(`presets:
+  - networkPolicy:
       version: 1
       loopback:
         default: allow
       ingress:
-        default: allow
+        default: deny
         rules: []
       egress:
-        default: allow
+        default: deny
         rules: []
-    description: Custom preset
-`),
-		},
-	}, "presets")
-	if err != nil {
-		t.Fatalf("loadPresetsFromFS returned error: %v", err)
+`), 0o644); err != nil {
+		t.Fatalf("write preset file: %v", err)
 	}
 
-	preset, ok := presets["custom"]
-	if !ok {
-		t.Fatalf("expected custom preset to be loaded, got %v", presets)
-	}
-	if preset.NetworkPolicy == nil || preset.NetworkPolicy.Egress.Default != PolicyAllow {
-		t.Fatalf("unexpected preset content: %#v", preset)
+	_, err := LoadPresetFile(path)
+	if err == nil || !strings.Contains(err.Error(), "legacy preset lists are no longer supported") {
+		t.Fatalf("expected legacy preset list error, got %v", err)
 	}
 }
 
-func TestLoadPresetsFromFSRejectsUnknownFields(t *testing.T) {
-	_, err := loadPresetsFromFS(fstest.MapFS{
-		"presets/custom.yaml": {
-			Data: []byte(`presets:
-  - name: custom
-    networkPolicy:
-      version: 1
-      loopback:
-        default: allow
-      ingress:
-        default: allow
-        rules: []
-      egress:
-        default: allow
-        rules: []
-    unknown_field: true
-`),
-		},
-	}, "presets")
-	if err == nil {
-		t.Fatal("expected unknown field to fail")
+func TestLoadPresetFileRejectsUnknownFields(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "preset.yaml")
+	if err := os.WriteFile(path, []byte(`networkPolicy:
+  version: 1
+  loopback:
+    default: allow
+  ingress:
+    default: deny
+    rules: []
+  egress:
+    default: deny
+    rules: []
+unknownField: true
+`), 0o644); err != nil {
+		t.Fatalf("write preset file: %v", err)
 	}
-	if !strings.Contains(err.Error(), "unknown_field") {
-		t.Fatalf("unexpected error: %v", err)
+
+	_, err := LoadPresetFile(path)
+	if err == nil || !strings.Contains(err.Error(), "unknownField") {
+		t.Fatalf("expected unknown field error, got %v", err)
 	}
 }
 
-func TestLoadBuiltInPresetsFromEmbed(t *testing.T) {
-	presets, err := loadPresetsFromFS(builtInPresetFiles, "presets")
-	if err != nil {
-		t.Fatalf("loadPresetsFromFS returned error: %v", err)
+func TestLoadPresetFileRejectsInlineAndReferencedPolicy(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "preset.yaml")
+	if err := os.WriteFile(path, []byte(`networkPolicyFile: ./offline.yaml
+networkPolicy:
+  version: 1
+  loopback:
+    default: allow
+  ingress:
+    default: deny
+    rules: []
+  egress:
+    default: deny
+    rules: []
+`), 0o644); err != nil {
+		t.Fatalf("write preset file: %v", err)
 	}
-	if len(presets) != len(BuiltInPresets) {
-		t.Fatalf("unexpected built-in preset count: got %d want %d", len(presets), len(BuiltInPresets))
-	}
-	for _, name := range []string{"allow-all", "offline", "openclaw-offline"} {
-		if _, ok := presets[name]; !ok {
-			t.Fatalf("expected built-in embedded preset %q, got %v", name, PresetNames())
-		}
+
+	_, err := LoadPresetFile(path)
+	if err == nil || !strings.Contains(err.Error(), "either networkPolicy or networkPolicyFile") {
+		t.Fatalf("expected mutual exclusion error, got %v", err)
 	}
 }

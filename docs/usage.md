@@ -57,24 +57,17 @@ Validate a rootfs before running inside it:
 ./bin/mirage doctor --rootfs /srv/mirage/basic-rootfs --command /bin/ls
 ```
 
-Inspect the current built-in preset set:
-
-```bash
-./bin/mirage preset list
-```
-
 Preview a run without executing it:
 
 ```bash
-./bin/mirage run --dry-run --rootfs / --preset offline -- /bin/echo hello
+./bin/mirage run --dry-run --preset-file ./examples/presets/openclaw-offline.yaml -- /bin/echo hello
 ```
 
 Preview an init-oriented run where the guest entrypoint must become PID 1:
 
 ```bash
 ./bin/mirage run \
-  --rootfs /srv/mirage/systemd-rootfs \
-  --preset allow-all \
+  --preset-file ./examples/presets/openclaw-allow-all.yaml \
   --runtime-mode init \
   -- /usr/lib/systemd/systemd
 ```
@@ -85,6 +78,7 @@ Start a tracked guest-systemd sandbox with host-visible logs:
 ./bin/mirage sandbox start \
   --name openclaw \
   --rootfs /srv/mirage/systemd-rootfs \
+  --network-policy-file ./examples/network-policies/allow-all.yaml \
   --service-unit openclaw.service
 ```
 
@@ -109,7 +103,8 @@ mirage run [sandbox options...] -- command [args...]
 Common options include:
 
 - `--rootfs`: root filesystem for the sandbox
-- `--preset`: built-in or file-backed preset name
+- `--preset-file`: single preset YAML file that can bundle rootfs, network
+  policy, bind mounts, cwd, hostname, memory, and PID limits
 - `--network-policy-file`: standalone `networkPolicy` YAML file
 - `--runtime-mode`: `direct` (default) or `init`
 - `--ro-bind`: read-only `host:guest` bind mount
@@ -123,8 +118,8 @@ Common options include:
 workload becomes sandbox PID 1. `--runtime-mode init` is for guest init systems
 such as `systemd`; the requested init binary becomes sandbox PID 1 directly
 instead of being wrapped by Mirage. Network behavior is resolved from either a
-preset or `--network-policy-file`. The current backend supports two concrete
-policy shapes:
+preset file or `--network-policy-file`. The current backend supports two
+concrete policy shapes:
 
 - allow-all policy -> host namespace passthrough
 - isolated deny-only policy -> dedicated network namespace
@@ -244,69 +239,53 @@ Example:
 
 ```bash
 ./bin/mirage run \
-  --rootfs /srv/mirage/rootfs \
-  --ro-bind /home/gigo/project:/workspace \
-  --rw-bind /home/gigo/project-tmp:/workspace/.tmp \
-  --cwd /workspace \
-  --preset offline \
+  --preset-file ./examples/presets/openclaw-offline.yaml \
   -- /bin/sh
 ```
 
 ## Presets
 
-`mirage` supports:
-
-- built-in presets such as `allow-all`, `offline`, and `openclaw-offline`
-- local YAML preset files merged with the built-ins
+`mirage` accepts a single preset document through `--preset-file`. The preset
+file can bundle the same configuration you would otherwise pass with several
+flags, including rootfs path, bind mounts, working directory, hostname, memory,
+PID limits, and network policy.
 
 Example preset file:
 
 ```yaml
-presets:
-  - name: team-offline
-    networkPolicy:
-      version: 1
-      loopback:
-        default: allow
-      ingress:
-        default: deny
-        rules: []
-      egress:
-        default: deny
-        rules: []
-    rootfs:
-      template: openclaw-developer
-      required_commands:
-        - node
-      recommended_cwd: /workspace
-    description: Team preset for local-only agent work
+rootfs:
+  path: /srv/mirage/openclaw-rootfs
+  template: openclaw-developer
+  required_commands:
+    - node
+networkPolicyFile: ../network-policies/offline.yaml
+cwd: /workspace
+description: Team preset for local-only agent work
 ```
 
 Use it with:
 
 ```bash
-./bin/mirage preset list --preset-file ./presets.yaml
-./bin/mirage run --rootfs /srv/rootfs --preset-file ./presets.yaml --preset team-offline -- app
+./bin/mirage run --preset-file ./examples/presets/openclaw-offline.yaml -- app
 ```
 
-Presets are a convenience surface on top of the same `networkPolicy` object
-model. Prefer `--network-policy-file` when you want the policy document itself
-to be the reviewable artifact; prefer presets when you also want rootfs hints or
-working-directory defaults.
+Inside a preset file, use exactly one of:
 
-For the exact isolation behavior of each built-in preset, see
-[isolation.md](isolation.md).
+- `networkPolicy`: inline policy details
+- `networkPolicyFile`: reference a standalone policy YAML file
 
-Rootfs expectation metadata stays optional and separate from the actual rootfs
-path. A preset can recommend a rootfs template or required commands, while
-`--rootfs` still selects the concrete filesystem tree to validate or execute.
+When `--preset-file` is used, Mirage rejects overlapping direct flags such as
+`--rootfs`, `--network-policy-file`, `--cwd`, bind mounts, hostname, memory,
+and PID limits. Move that configuration into the preset file instead.
 
 ## Network Usage
 
 The current network philosophy is intentionally narrow and policy-first:
 
-- use `--preset offline` when the workload should not reach non-loopback network
-- use `--preset allow-all` when the workload truly needs the host network stack
+- use `./examples/network-policies/offline.yaml` when the workload should not
+  reach non-loopback network
+- use `./examples/network-policies/allow-all.yaml` when the workload truly
+  needs the host network stack
 - use `--network-policy-file` for a reviewable standalone policy document
 - expect richer allow rules, ingress allow defaults, and domain-backed egress to
   fail explicitly until a stronger enforcement backend exists
@@ -316,7 +295,7 @@ Example:
 ```bash
 ./bin/mirage run \
   --rootfs /srv/mirage/rootfs \
-  --preset allow-all \
+  --network-policy-file ./examples/network-policies/allow-all.yaml \
   -- app
 ```
 
@@ -328,7 +307,7 @@ output:
 ```bash
 ./bin/mirage run \
   --rootfs / \
-  --preset allow-all \
+  --network-policy-file ./examples/network-policies/allow-all.yaml \
   --stdout-log /tmp/app.out \
   --stderr-log /tmp/app.err \
   -- /bin/sh -c "printf 'out'; printf 'err' >&2"

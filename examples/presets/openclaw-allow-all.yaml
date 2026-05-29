@@ -1,0 +1,8 @@
+rootfs:
+  path: /srv/mirage/openclaw-rootfs
+  template: openclaw-developer
+  required_commands:
+    - node
+networkPolicyFile: ../network-policies/allow-all.yaml
+cwd: /workspace
+description: OpenClaw workflow preset with host-network passthrough

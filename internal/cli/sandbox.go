@@ -75,6 +75,10 @@ func runSandboxCommand(args []string, stdout, stderr io.Writer) error {
 }
 
 func runSandboxStart(args []string, stdout, stderr io.Writer) error {
+	if err := rejectRemovedPresetFlag(args); err != nil {
+		return err
+	}
+
 	fs := flag.NewFlagSet("sandbox start", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 
@@ -91,8 +95,7 @@ func runSandboxStart(args []string, stdout, stderr io.Writer) error {
 	fs.Var(stringSliceValue{target: &cfg.RWBind}, "rw-bind", "Writable bind mount host:guest")
 	fs.Var(stringSliceValue{target: &cfg.Env}, "env", "Environment variable in KEY=VALUE form")
 	fs.StringVar(&cfg.NetworkPolicyFile, "network-policy-file", "", "Path to a standalone networkPolicy YAML file")
-	fs.StringVar(&cfg.Preset, "preset", "", "Named preset to apply before inline overrides")
-	fs.StringVar(&cfg.PresetFile, "preset-file", "", "Path to a local preset YAML file")
+	fs.StringVar(&cfg.PresetFile, "preset-file", "", "Path to a preset YAML file")
 	fs.StringVar(&cfg.StdoutLog, "stdout-log", "", "Write guest init stdout to a host-side log file")
 	fs.StringVar(&cfg.StderrLog, "stderr-log", "", "Write guest init stderr to a host-side log file")
 	fs.StringVar(&cfg.Cwd, "cwd", "", "Working directory inside the sandbox")
@@ -103,10 +106,15 @@ func runSandboxStart(args []string, stdout, stderr io.Writer) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	setFlags := collectSetFlags(fs)
+	if err := rejectPresetFileConflicts("sandbox start", cfg.PresetFile, setFlags, []string{
+		"rootfs", "ro-bind", "rw-bind", "env", "network-policy-file", "cwd", "hostname", "memory", "pids",
+	}); err != nil {
+		return err
+	}
 	if !sandboxNamePattern.MatchString(name) {
 		return errors.New("sandbox start requires --name matching [A-Za-z0-9][A-Za-z0-9_-]*")
 	}
-	cfg.RuntimeMode = spec.RuntimeModeInit
 	cfg.Command = fs.Args()
 	cfg.ScopeName = sandboxScopeUnit(name)
 	if err := loadConfigNetworkPolicy(&cfg); err != nil {
@@ -141,18 +149,25 @@ func runSandboxStart(args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 
-	resolved, err := spec.ApplyPreset(cfg)
+	resolved, preset, err := spec.ApplyPresetFile(cfg)
 	if err != nil {
 		_ = os.Remove(statePath)
 		return err
 	}
-	if resolved.NetworkPolicy == nil {
-		resolved.Preset = "allow-all"
-		resolved.PresetFile = ""
-		policy := spec.AllowAllNetworkPolicy()
-		resolved.NetworkPolicy = &policy
+	if resolved.RuntimeMode == "" {
+		resolved.RuntimeMode = spec.RuntimeModeInit
 	}
-	if err := ensurePresetRootfs(resolved, stderr); err != nil {
+	if spec.NormalizeRuntimeMode(resolved.RuntimeMode) != spec.RuntimeModeInit {
+		_ = os.Remove(statePath)
+		return fmt.Errorf("sandbox start requires runtime-mode %q", spec.RuntimeModeInit)
+	}
+	if resolved.StdoutLog == "" {
+		resolved.StdoutLog = filepath.Join(sandboxDir, "stdout.log")
+	}
+	if resolved.StderrLog == "" {
+		resolved.StderrLog = filepath.Join(sandboxDir, "stderr.log")
+	}
+	if err := ensurePresetRootfs(resolved, preset, stderr); err != nil {
 		_ = os.Remove(statePath)
 		return err
 	}
@@ -449,45 +464,43 @@ func writeSandboxState(path string, state sandboxState) error {
 func buildSandboxRunArgs(cfg spec.Config) []string {
 	args := []string{
 		"run",
-		"--rootfs", cfg.RootFS,
 		"--runtime-mode", string(spec.NormalizeRuntimeMode(cfg.RuntimeMode)),
 		"--scope-name", cfg.ScopeName,
 	}
-	if cfg.NetworkPolicyFile != "" {
-		args = append(args, "--network-policy-file", cfg.NetworkPolicyFile)
-	}
-	if cfg.Preset != "" {
-		args = append(args, "--preset", cfg.Preset)
-	}
 	if cfg.PresetFile != "" {
 		args = append(args, "--preset-file", cfg.PresetFile)
-	}
-	for _, item := range cfg.ROBind {
-		args = append(args, "--ro-bind", item)
-	}
-	for _, item := range cfg.RWBind {
-		args = append(args, "--rw-bind", item)
-	}
-	for _, item := range cfg.Env {
-		args = append(args, "--env", item)
+	} else {
+		args = append(args, "--rootfs", cfg.RootFS)
+		if cfg.NetworkPolicyFile != "" {
+			args = append(args, "--network-policy-file", cfg.NetworkPolicyFile)
+		}
+		for _, item := range cfg.ROBind {
+			args = append(args, "--ro-bind", item)
+		}
+		for _, item := range cfg.RWBind {
+			args = append(args, "--rw-bind", item)
+		}
+		for _, item := range cfg.Env {
+			args = append(args, "--env", item)
+		}
+		if cfg.Cwd != "" {
+			args = append(args, "--cwd", cfg.Cwd)
+		}
+		if cfg.Hostname != "" {
+			args = append(args, "--hostname", cfg.Hostname)
+		}
+		if cfg.Memory != "" {
+			args = append(args, "--memory", cfg.Memory)
+		}
+		if cfg.Pids > 0 {
+			args = append(args, "--pids", fmt.Sprintf("%d", cfg.Pids))
+		}
 	}
 	if cfg.StdoutLog != "" {
 		args = append(args, "--stdout-log", cfg.StdoutLog)
 	}
 	if cfg.StderrLog != "" {
 		args = append(args, "--stderr-log", cfg.StderrLog)
-	}
-	if cfg.Cwd != "" {
-		args = append(args, "--cwd", cfg.Cwd)
-	}
-	if cfg.Hostname != "" {
-		args = append(args, "--hostname", cfg.Hostname)
-	}
-	if cfg.Memory != "" {
-		args = append(args, "--memory", cfg.Memory)
-	}
-	if cfg.Pids > 0 {
-		args = append(args, "--pids", fmt.Sprintf("%d", cfg.Pids))
 	}
 	args = append(args, "--")
 	args = append(args, cfg.Command...)

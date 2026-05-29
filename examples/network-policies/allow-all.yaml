@@ -1,0 +1,10 @@
+networkPolicy:
+  version: 1
+  loopback:
+    default: allow
+  ingress:
+    default: allow
+    rules: []
+  egress:
+    default: allow
+    rules: []

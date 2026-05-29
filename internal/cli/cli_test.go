@@ -26,84 +26,35 @@ func installBuiltInTemplate(t *testing.T, template rootfs.Template) {
 	})
 }
 
-func TestPresetList(t *testing.T) {
+func TestPresetCommandRemoved(t *testing.T) {
 	var out bytes.Buffer
 	var errBuf bytes.Buffer
 
-	if err := Run([]string{"preset", "list"}, &out, &errBuf); err != nil {
-		t.Fatalf("Run returned error: %v", err)
-	}
-
-	got := out.String()
-	for _, name := range []string{"allow-all", "offline", "openclaw-offline"} {
-		if !strings.Contains(got, name) {
-			t.Fatalf("expected preset list to contain %q, got %q", name, got)
-		}
+	err := Run([]string{"preset", "list"}, &out, &errBuf)
+	if err == nil || !strings.Contains(err.Error(), `unknown command "preset"`) {
+		t.Fatalf("expected removed preset command error, got %v", err)
 	}
 }
 
-func TestPresetListWithPresetFile(t *testing.T) {
-	var out bytes.Buffer
-	var errBuf bytes.Buffer
-
-	presetFile := filepath.Join(t.TempDir(), "presets.yaml")
-	if err := os.WriteFile(presetFile, []byte(`presets:
-  - name: team-offline
-    networkPolicy:
-      version: 1
-      loopback:
-        default: allow
-      ingress:
-        default: deny
-        rules: []
-      egress:
-        default: deny
-        rules: []
-    description: Team preset
-`), 0o644); err != nil {
+func writePresetFile(t *testing.T, body string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "preset.yaml")
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatalf("write preset file: %v", err)
 	}
-
-	if err := Run([]string{"preset", "list", "--preset-file", presetFile}, &out, &errBuf); err != nil {
-		t.Fatalf("Run returned error: %v", err)
-	}
-
-	got := out.String()
-	if !strings.Contains(got, "team-offline") {
-		t.Fatalf("expected preset list to contain team preset, got %q", got)
-	}
+	return path
 }
 
-func TestPresetListShowsNetworkPolicyPreset(t *testing.T) {
-	var out bytes.Buffer
-	var errBuf bytes.Buffer
-
-	presetFile := filepath.Join(t.TempDir(), "presets.yaml")
-	if err := os.WriteFile(presetFile, []byte(`presets:
-  - name: team-policy
-    networkPolicy:
-      version: 1
-      loopback:
-        default: allow
-      ingress:
-        default: deny
-        rules: []
-      egress:
-        default: deny
-        rules: []
-    description: Team policy preset
-`), 0o644); err != nil {
-		t.Fatalf("write preset file: %v", err)
+func writePolicyPresetFile(t *testing.T, fixtureName string) string {
+	t.Helper()
+	policyPath, err := filepath.Abs(filepath.Join("..", "..", "testdata", "network-policies", fixtureName))
+	if err != nil {
+		t.Fatalf("resolve policy fixture path: %v", err)
 	}
-
-	if err := Run([]string{"preset", "list", "--preset-file", presetFile}, &out, &errBuf); err != nil {
-		t.Fatalf("Run returned error: %v", err)
-	}
-
-	got := out.String()
-	if !strings.Contains(got, "team-policy\tnetworkPolicy:v1") {
-		t.Fatalf("expected preset list to show policy networking, got %q", got)
-	}
+	return writePresetFile(t, `rootfs:
+  path: /srv/rootfs
+networkPolicyFile: `+policyPath+`
+`)
 }
 
 func TestRunDryRun(t *testing.T) {
@@ -113,7 +64,7 @@ func TestRunDryRun(t *testing.T) {
 	err := Run([]string{
 		"run",
 		"--rootfs", "/srv/rootfs",
-		"--preset", "offline",
+		"--network-policy-file", filepath.Join("..", "..", "testdata", "network-policies", "offline.yaml"),
 		"--dry-run",
 		"--",
 		"echo", "hello",
@@ -123,8 +74,8 @@ func TestRunDryRun(t *testing.T) {
 	}
 
 	got := out.String()
-	if !strings.Contains(got, "preset: offline") {
-		t.Fatalf("expected dry run output to mention preset, got %q", got)
+	if !strings.Contains(got, "network-policy-file: ../../testdata/network-policies/offline.yaml") {
+		t.Fatalf("expected dry run output to mention network policy file, got %q", got)
 	}
 	if !strings.Contains(got, "execution: skipped (--dry-run)") {
 		t.Fatalf("expected dry run output to mention skipped execution, got %q", got)
@@ -144,29 +95,24 @@ func TestRunDryRunWithPresetFile(t *testing.T) {
 	var out bytes.Buffer
 	var errBuf bytes.Buffer
 
-	presetFile := filepath.Join(t.TempDir(), "presets.yaml")
-	if err := os.WriteFile(presetFile, []byte(`presets:
-  - name: team-offline
-    networkPolicy:
-      version: 1
-      loopback:
-        default: allow
-      ingress:
-        default: deny
-        rules: []
-      egress:
-        default: deny
-        rules: []
-    description: Team preset
-`), 0o644); err != nil {
-		t.Fatalf("write preset file: %v", err)
-	}
+	presetFile := writePresetFile(t, `rootfs:
+  path: /srv/rootfs
+networkPolicy:
+  version: 1
+  loopback:
+    default: allow
+  ingress:
+    default: deny
+    rules: []
+  egress:
+    default: deny
+    rules: []
+description: Team preset
+`)
 
 	err := Run([]string{
 		"run",
-		"--rootfs", "/srv/rootfs",
 		"--preset-file", presetFile,
-		"--preset", "team-offline",
 		"--dry-run",
 		"--",
 		"echo", "hello",
@@ -179,7 +125,7 @@ func TestRunDryRunWithPresetFile(t *testing.T) {
 	if !strings.Contains(got, "preset-file: "+presetFile) {
 		t.Fatalf("expected dry run output to mention preset file, got %q", got)
 	}
-	if !strings.Contains(got, "preset: team-offline") || !strings.Contains(got, "network-policy-egress: default=deny rules=0") {
+	if !strings.Contains(got, "rootfs: /srv/rootfs") || !strings.Contains(got, "network-policy-egress: default=deny rules=0") {
 		t.Fatalf("expected dry run output to mention preset policy, got %q", got)
 	}
 }
@@ -188,34 +134,29 @@ func TestRunDryRunWithPolicyPresetFile(t *testing.T) {
 	var out bytes.Buffer
 	var errBuf bytes.Buffer
 
-	presetFile := filepath.Join(t.TempDir(), "presets.yaml")
-	if err := os.WriteFile(presetFile, []byte(`presets:
-  - name: team-policy
-    networkPolicy:
-      version: 1
-      loopback:
-        default: allow
-      ingress:
-        default: deny
-        rules: []
-      egress:
-        default: deny
-        rules:
-          - name: allow-lan
-            action: allow
-            destination:
-              cidr: 192.168.0.0/16
-            protocol: any
-    description: Team policy preset
-`), 0o644); err != nil {
-		t.Fatalf("write preset file: %v", err)
-	}
+	presetFile := writePresetFile(t, `rootfs:
+  path: /srv/rootfs
+networkPolicy:
+  version: 1
+  loopback:
+    default: allow
+  ingress:
+    default: deny
+    rules: []
+  egress:
+    default: deny
+    rules:
+      - name: allow-lan
+        action: allow
+        destination:
+          cidr: 192.168.0.0/16
+        protocol: any
+description: Team policy preset
+`)
 
 	err := Run([]string{
 		"run",
-		"--rootfs", "/srv/rootfs",
 		"--preset-file", presetFile,
-		"--preset", "team-policy",
 		"--dry-run",
 		"--",
 		"echo", "hello",
@@ -241,12 +182,10 @@ func TestRunDryRunWithOfflinePolicyFixture(t *testing.T) {
 	var out bytes.Buffer
 	var errBuf bytes.Buffer
 
-	presetFile := writePolicyPresetFile(t, "offline-fixture", "offline.yaml")
+	presetFile := writePolicyPresetFile(t, "offline.yaml")
 	err := Run([]string{
 		"run",
-		"--rootfs", "/srv/rootfs",
 		"--preset-file", presetFile,
-		"--preset", "offline-fixture",
 		"--dry-run",
 		"--",
 		"echo", "hello",
@@ -296,75 +235,52 @@ func TestRunDryRunWithNetworkPolicyFile(t *testing.T) {
 	}
 }
 
-func TestRunRejectsPolicyPresetCombinedWithPolicyFile(t *testing.T) {
+func TestRunRejectsPresetFileConflict(t *testing.T) {
 	var out bytes.Buffer
 	var errBuf bytes.Buffer
 
-	presetFile := filepath.Join(t.TempDir(), "presets.yaml")
-	if err := os.WriteFile(presetFile, []byte(`presets:
-  - name: team-policy
-    networkPolicy:
-      version: 1
-      loopback:
-        default: allow
-      ingress:
-        default: deny
-        rules: []
-      egress:
-        default: deny
-        rules: []
-`), 0o644); err != nil {
-		t.Fatalf("write preset file: %v", err)
-	}
+	presetFile := writePresetFile(t, `rootfs:
+  path: /srv/rootfs
+networkPolicy:
+  version: 1
+  loopback:
+    default: allow
+  ingress:
+    default: deny
+    rules: []
+  egress:
+    default: deny
+    rules: []
+`)
 
 	err := Run([]string{
 		"run",
-		"--rootfs", "/srv/rootfs",
 		"--preset-file", presetFile,
-		"--preset", "team-policy",
 		"--network-policy-file", filepath.Join("..", "..", "testdata", "network-policies", "offline.yaml"),
 		"--dry-run",
 		"--",
 		"echo", "hello",
 	}, &out, &errBuf)
-	if err == nil || !strings.Contains(err.Error(), "--network-policy-file cannot be combined") {
+	if err == nil || !strings.Contains(err.Error(), "does not allow --network-policy-file together with --preset-file") {
 		t.Fatalf("expected policy ambiguity error, got %v", err)
 	}
 }
 
-func writePolicyPresetFile(t *testing.T, presetName string, fixtureName string) string {
-	t.Helper()
-	data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "network-policies", fixtureName))
-	if err != nil {
-		t.Fatalf("read policy fixture %q: %v", fixtureName, err)
-	}
-	body := "presets:\n  - name: " + presetName + "\n" + indentYAML(string(data), "    ") + "    description: Policy fixture preset\n"
-	path := filepath.Join(t.TempDir(), "presets.yaml")
-	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
-		t.Fatalf("write preset file: %v", err)
-	}
-	return path
-}
+func TestRunRejectsRemovedPresetFlag(t *testing.T) {
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
 
-func TestIndentYAMLAddsTrailingNewlinePerLine(t *testing.T) {
-	got := indentYAML("a: 1\nb: 2", "    ")
-	want := "    a: 1\n    b: 2\n"
-	if got != want {
-		t.Fatalf("indentYAML returned %q, want %q", got, want)
+	err := Run([]string{
+		"run",
+		"--rootfs", "/srv/rootfs",
+		"--preset", "offline",
+		"--dry-run",
+		"--",
+		"echo", "hello",
+	}, &out, &errBuf)
+	if err == nil || !strings.Contains(err.Error(), "--preset has been removed") {
+		t.Fatalf("expected removed preset flag error, got %v", err)
 	}
-}
-
-func indentYAML(text string, prefix string) string {
-	if text == "" {
-		return ""
-	}
-	var b strings.Builder
-	for _, line := range strings.Split(strings.TrimSuffix(text, "\n"), "\n") {
-		b.WriteString(prefix)
-		b.WriteString(line)
-		b.WriteString("\n")
-	}
-	return b.String()
 }
 
 func TestRunRejectsLegacyNetFlag(t *testing.T) {
@@ -393,7 +309,7 @@ func TestRunRejectsInitModeWithHostRootfs(t *testing.T) {
 	err := Run([]string{
 		"run",
 		"--rootfs", "/",
-		"--preset", "allow-all",
+		"--network-policy-file", filepath.Join("..", "..", "testdata", "network-policies", "allow-all.yaml"),
 		"--runtime-mode", "init",
 		"--",
 		"/usr/lib/systemd/systemd",
@@ -413,7 +329,7 @@ func TestRunRejectsBindMountOverGuestCgroupTreeInInitMode(t *testing.T) {
 	err := Run([]string{
 		"run",
 		"--rootfs", "/srv/rootfs",
-		"--preset", "allow-all",
+		"--network-policy-file", filepath.Join("..", "..", "testdata", "network-policies", "allow-all.yaml"),
 		"--runtime-mode", "init",
 		"--rw-bind", "/host/path:/sys/fs/cgroup",
 		"--",
@@ -434,7 +350,7 @@ func TestRunRejectsManagedRuntimeMountTargetInInitMode(t *testing.T) {
 	err := Run([]string{
 		"run",
 		"--rootfs", "/srv/rootfs",
-		"--preset", "allow-all",
+		"--network-policy-file", filepath.Join("..", "..", "testdata", "network-policies", "allow-all.yaml"),
 		"--runtime-mode", "init",
 		"--ro-bind", "/host/path:/dev/null",
 		"--",
@@ -455,7 +371,7 @@ func TestRunDryRunWithInitMode(t *testing.T) {
 	err := Run([]string{
 		"run",
 		"--rootfs", "/srv/rootfs",
-		"--preset", "allow-all",
+		"--network-policy-file", filepath.Join("..", "..", "testdata", "network-policies", "allow-all.yaml"),
 		"--runtime-mode", "init",
 		"--dry-run",
 		"--",
@@ -486,7 +402,7 @@ func TestRunDryRunShowsLogExport(t *testing.T) {
 	err := Run([]string{
 		"run",
 		"--rootfs", "/srv/rootfs",
-		"--preset", "allow-all",
+		"--network-policy-file", filepath.Join("..", "..", "testdata", "network-policies", "allow-all.yaml"),
 		"--stdout-log", stdoutLog,
 		"--dry-run",
 		"--",
@@ -612,24 +528,33 @@ func TestRootfsInitReportsMissingAssets(t *testing.T) {
 	}
 }
 
-func TestEnsurePresetRootfsAutoGeneratesRecommendedTemplate(t *testing.T) {
-	for _, binary := range []string{"node", "npm", "bash", "git"} {
-		if _, err := exec.LookPath(binary); err != nil {
-			t.Skipf("host PATH does not contain %s", binary)
-		}
+func TestEnsurePresetRootfsAutoGeneratesTemplate(t *testing.T) {
+	const templateName = "test-preset-template"
+	installBuiltInTemplate(t, rootfs.Template{
+		Version:     rootfs.TemplateVersionV1,
+		Name:        templateName,
+		Description: "Test template for preset-generated rootfs",
+		Directories: []rootfs.Directory{{Path: "/workspace", Mode: 0o755}},
+		GeneratedFiles: []rootfs.GeneratedFile{
+			{TargetPath: "/etc/demo.conf", Content: "demo=yes\n", Mode: 0o644},
+		},
+	})
+
+	rootfsPath := filepath.Join(t.TempDir(), "preset-rootfs")
+	cfg := spec.Config{
+		RootFS:     rootfsPath,
+		PresetFile: "preset.yaml",
+	}
+	preset := spec.Preset{
+		Rootfs: spec.RootfsPreset{Template: templateName},
 	}
 
-	rootfsPath := filepath.Join(t.TempDir(), "openclaw-rootfs")
-	cfg := spec.Config{
-		RootFS: rootfsPath,
-		Preset: "openclaw-offline",
-	}
 	var errBuf bytes.Buffer
-	if err := ensurePresetRootfs(cfg, &errBuf); err != nil {
+	if err := ensurePresetRootfs(cfg, preset, &errBuf); err != nil {
 		t.Fatalf("ensurePresetRootfs returned error: %v", err)
 	}
 
-	for _, target := range []string{"usr/bin/node", "usr/bin/npm", "workspace", "home"} {
+	for _, target := range []string{"workspace", "etc/demo.conf"} {
 		if _, err := os.Stat(filepath.Join(rootfsPath, target)); err != nil {
 			t.Fatalf("expected generated target %q to exist: %v", target, err)
 		}
@@ -651,34 +576,17 @@ func TestEnsurePresetRootfsReportsMissingAssets(t *testing.T) {
 		},
 	})
 
-	presetFile := filepath.Join(t.TempDir(), "presets.yaml")
-	if err := os.WriteFile(presetFile, []byte(`presets:
-  - name: team-missing
-    networkPolicy:
-      version: 1
-      loopback:
-        default: allow
-      ingress:
-        default: deny
-        rules: []
-      egress:
-        default: deny
-        rules: []
-    rootfs:
-      template: `+templateName+`
-`), 0o644); err != nil {
-		t.Fatalf("write preset file: %v", err)
-	}
-
 	rootfsPath := filepath.Join(t.TempDir(), "preset-rootfs")
 	cfg := spec.Config{
 		RootFS:     rootfsPath,
-		Preset:     "team-missing",
-		PresetFile: presetFile,
+		PresetFile: "preset.yaml",
+	}
+	preset := spec.Preset{
+		Rootfs: spec.RootfsPreset{Template: templateName},
 	}
 
 	var errBuf bytes.Buffer
-	if err := ensurePresetRootfs(cfg, &errBuf); err != nil {
+	if err := ensurePresetRootfs(cfg, preset, &errBuf); err != nil {
 		t.Fatalf("ensurePresetRootfs returned error: %v", err)
 	}
 
@@ -700,7 +608,7 @@ func TestDoctorReportsPolicyFirstNetworking(t *testing.T) {
 	}
 
 	got := out.String()
-	if !strings.Contains(got, "rule-first network policy config: available via presets and --network-policy-file") {
+	if !strings.Contains(got, "rule-first network policy config: available via preset files and --network-policy-file") {
 		t.Fatalf("expected doctor output to report policy-first networking, got %q", got)
 	}
 }
@@ -764,35 +672,29 @@ func TestDoctorPrintsDeduplicatedPresetCommands(t *testing.T) {
 		t.Fatalf("Generate returned error: %v", err)
 	}
 
-	presetFile := filepath.Join(t.TempDir(), "presets.yaml")
-	if err := os.WriteFile(presetFile, []byte(`presets:
-  - name: team-basic
-    networkPolicy:
-      version: 1
-      loopback:
-        default: allow
-      ingress:
-        default: deny
-        rules: []
-      egress:
-        default: deny
-        rules: []
-    rootfs:
-      required_commands:
-        - " /bin/ls "
-        - /bin/sh
-        - /bin/ls
-        - ""
-    description: Basic rootfs validation preset.
-`), 0o644); err != nil {
-		t.Fatalf("WriteFile returned error: %v", err)
-	}
+	presetFile := writePresetFile(t, `rootfs:
+  path: `+rootfsPath+`
+  required_commands:
+    - " /bin/ls "
+    - /bin/sh
+    - /bin/ls
+    - ""
+networkPolicy:
+  version: 1
+  loopback:
+    default: allow
+  ingress:
+    default: deny
+    rules: []
+  egress:
+    default: deny
+    rules: []
+description: Basic rootfs validation preset.
+`)
 
 	err := Run([]string{
 		"doctor",
-		"--rootfs", rootfsPath,
 		"--preset-file", presetFile,
-		"--preset", "team-basic",
 	}, &out, &errBuf)
 	if err != nil {
 		t.Fatalf("Run returned error: %v", err)
@@ -930,15 +832,29 @@ func TestDoctorUsesPresetRootfsRequirements(t *testing.T) {
 
 	err := Run([]string{
 		"doctor",
-		"--rootfs", rootfsPath,
-		"--preset", "openclaw-offline",
+		"--preset-file", writePresetFile(t, `rootfs:
+  path: `+rootfsPath+`
+  template: openclaw-developer
+  required_commands:
+    - node
+networkPolicy:
+  version: 1
+  loopback:
+    default: allow
+  ingress:
+    default: deny
+    rules: []
+  egress:
+    default: deny
+    rules: []
+`),
 	}, &out, &errBuf)
 	if err == nil {
 		t.Fatal("expected preset rootfs validation to fail on missing node")
 	}
 
 	got := out.String()
-	if !strings.Contains(got, "preset recommended rootfs template: openclaw-developer") {
+	if !strings.Contains(got, "preset rootfs template: openclaw-developer") {
 		t.Fatalf("expected preset template hint, got %q", got)
 	}
 	if !strings.Contains(err.Error(), `command "node"`) {

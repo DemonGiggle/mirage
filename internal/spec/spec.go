@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
-	"sort"
 	"strings"
 )
 
@@ -15,17 +14,24 @@ const (
 	RuntimeModeInit   RuntimeMode = "init"
 )
 
-type RootfsExpectations struct {
-	RecommendedTemplate string   `json:"template,omitempty" yaml:"template,omitempty"`
-	RequiredCommands    []string `json:"required_commands,omitempty" yaml:"required_commands,omitempty"`
-	RecommendedCwd      string   `json:"recommended_cwd,omitempty" yaml:"recommended_cwd,omitempty"`
+type RootfsPreset struct {
+	Path             string   `json:"path,omitempty" yaml:"path,omitempty"`
+	Template         string   `json:"template,omitempty" yaml:"template,omitempty"`
+	RequiredCommands []string `json:"required_commands,omitempty" yaml:"required_commands,omitempty"`
 }
 
 type Preset struct {
-	Name          string             `json:"name" yaml:"name"`
-	NetworkPolicy *NetworkPolicy     `json:"networkPolicy,omitempty" yaml:"networkPolicy,omitempty"`
-	Rootfs        RootfsExpectations `json:"rootfs,omitempty" yaml:"rootfs,omitempty"`
-	Description   string             `json:"description" yaml:"description"`
+	Rootfs            RootfsPreset   `json:"rootfs,omitempty" yaml:"rootfs,omitempty"`
+	NetworkPolicy     *NetworkPolicy `json:"networkPolicy,omitempty" yaml:"networkPolicy,omitempty"`
+	NetworkPolicyFile string         `json:"networkPolicyFile,omitempty" yaml:"networkPolicyFile,omitempty"`
+	ROBind            []string       `json:"roBind,omitempty" yaml:"roBind,omitempty"`
+	RWBind            []string       `json:"rwBind,omitempty" yaml:"rwBind,omitempty"`
+	Env               []string       `json:"env,omitempty" yaml:"env,omitempty"`
+	Cwd               string         `json:"cwd,omitempty" yaml:"cwd,omitempty"`
+	Hostname          string         `json:"hostname,omitempty" yaml:"hostname,omitempty"`
+	Memory            string         `json:"memory,omitempty" yaml:"memory,omitempty"`
+	Pids              int            `json:"pids,omitempty" yaml:"pids,omitempty"`
+	Description       string         `json:"description,omitempty" yaml:"description,omitempty"`
 }
 
 type Config struct {
@@ -34,7 +40,6 @@ type Config struct {
 	NetworkPolicy     *NetworkPolicy
 	RuntimeMode       RuntimeMode
 	ScopeName         string
-	Preset            string
 	PresetFile        string
 	ROBind            []string
 	RWBind            []string
@@ -49,54 +54,48 @@ type Config struct {
 	Command           []string
 }
 
-func PresetNames() []string {
-	names := make([]string, 0, len(BuiltInPresets))
-	for name := range BuiltInPresets {
-		names = append(names, name)
+func ApplyPresetFile(cfg Config) (Config, Preset, error) {
+	if cfg.PresetFile == "" {
+		return cfg, Preset{}, nil
 	}
-	sort.Strings(names)
-	return names
-}
 
-func ApplyPreset(cfg Config) (Config, error) {
-	if cfg.Preset == "" {
-		return cfg, nil
-	}
-	presets, err := AvailablePresets(cfg.PresetFile)
+	preset, err := LoadPresetFile(cfg.PresetFile)
 	if err != nil {
-		return cfg, err
+		return Config{}, Preset{}, err
 	}
-	preset, ok := presets[cfg.Preset]
-	if !ok {
-		return cfg, fmt.Errorf("unknown preset %q", cfg.Preset)
+
+	if preset.Rootfs.Path != "" {
+		cfg.RootFS = preset.Rootfs.Path
 	}
-	if cfg.NetworkPolicy == nil {
+	if preset.NetworkPolicy != nil {
 		cfg.NetworkPolicy = preset.NetworkPolicy
-		return cfg, nil
 	}
-	return cfg, fmt.Errorf("preset %q defines networkPolicy; --network-policy-file cannot be combined with that preset", cfg.Preset)
+	if len(preset.ROBind) > 0 {
+		cfg.ROBind = append([]string(nil), preset.ROBind...)
+	}
+	if len(preset.RWBind) > 0 {
+		cfg.RWBind = append([]string(nil), preset.RWBind...)
+	}
+	if len(preset.Env) > 0 {
+		cfg.Env = append([]string(nil), preset.Env...)
+	}
+	if preset.Cwd != "" {
+		cfg.Cwd = preset.Cwd
+	}
+	if preset.Hostname != "" {
+		cfg.Hostname = preset.Hostname
+	}
+	if preset.Memory != "" {
+		cfg.Memory = preset.Memory
+	}
+	if preset.Pids > 0 {
+		cfg.Pids = preset.Pids
+	}
+
+	return cfg, preset, nil
 }
 
-func AvailablePresets(presetFile string) (map[string]Preset, error) {
-	presets := make(map[string]Preset, len(BuiltInPresets))
-	for name, preset := range BuiltInPresets {
-		presets[name] = preset
-	}
-	if presetFile == "" {
-		return presets, nil
-	}
-
-	loaded, err := LoadPresetFile(presetFile)
-	if err != nil {
-		return nil, err
-	}
-	for name, preset := range loaded {
-		presets[name] = preset
-	}
-	return presets, nil
-}
-
-func normalizeCommands(commands []string) []string {
+func normalizeRequiredCommands(commands []string) []string {
 	var out []string
 	for _, command := range commands {
 		command = strings.TrimSpace(command)
@@ -178,9 +177,6 @@ func Summary(cfg Config) string {
 		fmt.Fprintf(&b, "network-policy-file: %s\n", cfg.NetworkPolicyFile)
 	}
 	fmt.Fprintf(&b, "runtime-mode: %s\n", NormalizeRuntimeMode(cfg.RuntimeMode))
-	if cfg.Preset != "" {
-		fmt.Fprintf(&b, "preset: %s\n", cfg.Preset)
-	}
 	if cfg.PresetFile != "" {
 		fmt.Fprintf(&b, "preset-file: %s\n", cfg.PresetFile)
 	}

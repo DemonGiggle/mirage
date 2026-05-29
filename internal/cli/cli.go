@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"sort"
 	"strings"
 
 	"github.com/DemonGiggle/mirage/internal/rootfs"
@@ -32,8 +31,6 @@ func Run(args []string, stdout, stderr io.Writer) error {
 		return runner.RunBackendHelper(args[1:], stdout, stderr)
 	case "__cgroup-exec":
 		return runner.RunCgroupHelper(args[1:], stdout, stderr)
-	case "preset":
-		return runPreset(args[1:], stdout)
 	case "rootfs":
 		return runRootfs(args[1:], stdout, stderr)
 	case "doctor":
@@ -55,43 +52,15 @@ Usage:
   mirage doctor [flags]
   mirage sandbox <start|status|stop|logs> [flags]
   mirage run [flags] -- <command> [args...]
-  mirage preset list
   mirage version
 
 Examples:
   mirage rootfs init --template basic --output /srv/mirage/basic-rootfs
   mirage doctor --rootfs /srv/mirage/basic-rootfs --command /bin/ls
-  mirage sandbox start --name openclaw --rootfs /srv/systemd-rootfs --service-unit openclaw.service
-  mirage run --rootfs / --preset offline -- echo hello
-  mirage run --rootfs /srv/systemd-rootfs --preset allow-all --runtime-mode init -- /usr/lib/systemd/systemd
-  mirage run --rootfs /srv/rootfs --preset offline -- app
+  mirage sandbox start --name openclaw --rootfs /srv/systemd-rootfs --network-policy-file ./examples/network-policies/allow-all.yaml --service-unit openclaw.service
   mirage run --rootfs /srv/rootfs --network-policy-file ./network-policy.yaml -- app
-  mirage run --rootfs /srv/rootfs --preset-file ./presets.yaml --preset team-offline -- app
+  mirage run --preset-file ./examples/presets/openclaw-offline.yaml -- app
 `)
-}
-
-func runPreset(args []string, stdout io.Writer) error {
-	if len(args) == 0 || args[0] == "list" {
-		fs := flag.NewFlagSet("preset list", flag.ContinueOnError)
-		fs.SetOutput(io.Discard)
-
-		var presetFile string
-		fs.StringVar(&presetFile, "preset-file", "", "Path to a local preset YAML file")
-		if err := fs.Parse(args[1:]); err != nil {
-			return err
-		}
-
-		presets, err := spec.AvailablePresets(presetFile)
-		if err != nil {
-			return err
-		}
-		for _, name := range presetNames(presets) {
-			preset := presets[name]
-			_, _ = fmt.Fprintf(stdout, "%s\t%s\t%s\n", preset.Name, presetNetworkSummary(preset), preset.Description)
-		}
-		return nil
-	}
-	return fmt.Errorf("unknown preset subcommand %q", args[0])
 }
 
 func runRootfs(args []string, stdout, stderr io.Writer) error {
@@ -154,13 +123,16 @@ func runRootfsInit(args []string, stdout, stderr io.Writer) error {
 }
 
 func runDoctor(args []string, stdout, stderr io.Writer) error {
+	if err := rejectRemovedPresetFlag(args); err != nil {
+		return err
+	}
+
 	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 
 	var rootfsPath string
 	var command string
 	var cwd string
-	var preset string
 	var presetFile string
 	var runtimeMode string
 	var serviceUnit string
@@ -168,8 +140,7 @@ func runDoctor(args []string, stdout, stderr io.Writer) error {
 	fs.StringVar(&rootfsPath, "rootfs", "", "Path to the rootfs to validate")
 	fs.StringVar(&command, "command", "", "Command to resolve and validate inside the rootfs")
 	fs.StringVar(&cwd, "cwd", "", "Working directory to validate inside the rootfs")
-	fs.StringVar(&preset, "preset", "", "Named preset to resolve while validating")
-	fs.StringVar(&presetFile, "preset-file", "", "Path to a local preset YAML file")
+	fs.StringVar(&presetFile, "preset-file", "", "Path to a preset YAML file")
 	fs.StringVar(&runtimeMode, "runtime-mode", string(spec.RuntimeModeDirect), "Runtime mode to validate against: direct, init")
 	fs.StringVar(&serviceUnit, "service-unit", "", "Systemd unit to validate inside the rootfs when runtime-mode=init")
 
@@ -183,92 +154,56 @@ func runDoctor(args []string, stdout, stderr io.Writer) error {
 		return fmt.Errorf("invalid runtime-mode %q; must be %q or %q", runtimeMode, spec.RuntimeModeDirect, spec.RuntimeModeInit)
 	}
 
+	setFlags := collectSetFlags(fs)
+	if err := rejectPresetFileConflicts("doctor", presetFile, setFlags, []string{"rootfs", "cwd"}); err != nil {
+		return err
+	}
+
 	_, _ = fmt.Fprintln(stdout, "mirage doctor")
 	_, _ = fmt.Fprintln(stdout, "- namespace backend: available (linux, initial)")
 	_, _ = fmt.Fprintln(stdout, "- rootfs isolation: available via mounted runtime layout plus chroot handoff")
-	_, _ = fmt.Fprintln(stdout, "- rule-first network policy config: available via presets and --network-policy-file")
+	_, _ = fmt.Fprintln(stdout, "- rule-first network policy config: available via preset files and --network-policy-file")
 	_, _ = fmt.Fprintln(stdout, "- policy backend coverage: allow-all host passthrough, isolated deny-only policies, explicit errors for unsupported rules")
 	_, _ = fmt.Fprintln(stdout, "- cgroup v2 resource controls: available via delegated systemd user scopes when systemd-run is present")
-	_, _ = fmt.Fprintln(stdout, "- policy-first preset loading: available")
+	_, _ = fmt.Fprintln(stdout, "- policy-first preset loading: available via --preset-file")
 	_, _ = fmt.Fprintln(stdout, "- host log export: available")
 
-	if rootfsPath == "" && command == "" && cwd == "" && preset == "" && presetFile == "" && serviceUnit == "" {
+	cfg := spec.Config{
+		RootFS:      rootfsPath,
+		Cwd:         cwd,
+		PresetFile:  presetFile,
+		RuntimeMode: spec.RuntimeMode(runtimeMode),
+	}
+	resolved, preset, err := spec.ApplyPresetFile(cfg)
+	if err != nil {
+		return err
+	}
+	rootfsPath = resolved.RootFS
+	cwd = resolved.Cwd
+
+	if rootfsPath == "" && command == "" && cwd == "" && presetFile == "" && serviceUnit == "" {
 		return nil
 	}
 	if rootfsPath == "" {
 		return errors.New("rootfs-aware doctor checks require --rootfs")
 	}
 
-	if preset != "" {
-		presets, err := spec.AvailablePresets(presetFile)
-		if err != nil {
-			return err
+	presetRequiredCommands := uniqueStrings(preset.Rootfs.RequiredCommands)
+	if presetFile != "" {
+		_, _ = fmt.Fprintf(stdout, "- preset-file: %s\n", presetFile)
+		if preset.Rootfs.Template != "" {
+			_, _ = fmt.Fprintf(stdout, "- preset rootfs template: %s\n", preset.Rootfs.Template)
 		}
-		resolvedPreset, ok := presets[preset]
-		if !ok {
-			return fmt.Errorf("unknown preset %q", preset)
-		}
-		_, _ = fmt.Fprintf(stdout, "- preset: %s (%s)\n", resolvedPreset.Name, presetNetworkSummary(resolvedPreset))
-		if resolvedPreset.Rootfs.RecommendedTemplate != "" {
-			_, _ = fmt.Fprintf(stdout, "- preset recommended rootfs template: %s\n", resolvedPreset.Rootfs.RecommendedTemplate)
-		}
-		if resolvedPreset.Rootfs.RecommendedCwd != "" {
-			_, _ = fmt.Fprintf(stdout, "- preset recommended working directory: %s\n", resolvedPreset.Rootfs.RecommendedCwd)
-		}
-		presetRequiredCommands := uniqueStrings(resolvedPreset.Rootfs.RequiredCommands)
 		if len(presetRequiredCommands) > 0 {
 			_, _ = fmt.Fprintf(stdout, "- preset required rootfs commands: %s\n", strings.Join(presetRequiredCommands, ", "))
 		}
-		if runtimeMode == string(spec.RuntimeModeInit) {
-			return runInitDoctor(stdout, rootfsPath, command, serviceUnit, presetRequiredCommands)
-		}
-		report, err := rootfs.ValidateRootfs(rootfsPath, "", cwd)
-		_, _ = fmt.Fprintf(stdout, "- rootfs path: %s\n", report.Rootfs)
-		for _, status := range report.RuntimePaths {
-			_, _ = fmt.Fprintf(stdout, "- runtime path %s: %s\n", status.Path, status.Status)
-		}
-		if report.WorkingDir != "" {
-			_, _ = fmt.Fprintf(stdout, "- working directory: %s\n", report.WorkingDir)
-		}
-		var problems []error
-		if err != nil {
-			problems = append(problems, err)
-		}
-
-		commandsToValidate := uniqueStrings(append([]string{command}, presetRequiredCommands...))
-		for _, commandToValidate := range commandsToValidate {
-			if commandToValidate == "" {
-				continue
-			}
-			commandReport, err := rootfs.ValidateRootfs(rootfsPath, commandToValidate, "")
-			if err != nil {
-				problems = append(problems, err)
-				continue
-			}
-			if commandToValidate == command {
-				_, _ = fmt.Fprintf(stdout, "- resolved command: %s\n", commandReport.ResolvedCommand)
-				if commandReport.Interpreter != "" {
-					_, _ = fmt.Fprintf(stdout, "- ELF interpreter: %s\n", commandReport.Interpreter)
-				}
-				if commandReport.DependencyCount > 0 {
-					_, _ = fmt.Fprintf(stdout, "- shared libraries: ok (%d resolved)\n", commandReport.DependencyCount)
-				}
-				continue
-			}
-			_, _ = fmt.Fprintf(stdout, "- preset required command %s: ok (%s)\n", commandToValidate, commandReport.ResolvedCommand)
-		}
-		if len(problems) > 0 {
-			_, _ = fmt.Fprintln(stdout, "- rootfs validation: failed")
-			return errors.Join(problems...)
-		}
-		_, _ = fmt.Fprintln(stdout, "- rootfs validation: ok")
-		return nil
 	}
+
 	if runtimeMode == string(spec.RuntimeModeInit) {
-		return runInitDoctor(stdout, rootfsPath, command, serviceUnit, nil)
+		return runInitDoctor(stdout, rootfsPath, command, serviceUnit, presetRequiredCommands)
 	}
 
-	report, err := rootfs.ValidateRootfs(rootfsPath, command, cwd)
+	report, err := rootfs.ValidateRootfs(rootfsPath, "", cwd)
 	_, _ = fmt.Fprintf(stdout, "- rootfs path: %s\n", report.Rootfs)
 	for _, status := range report.RuntimePaths {
 		_, _ = fmt.Fprintf(stdout, "- runtime path %s: %s\n", status.Path, status.Status)
@@ -276,18 +211,38 @@ func runDoctor(args []string, stdout, stderr io.Writer) error {
 	if report.WorkingDir != "" {
 		_, _ = fmt.Fprintf(stdout, "- working directory: %s\n", report.WorkingDir)
 	}
-	if report.ResolvedCommand != "" {
-		_, _ = fmt.Fprintf(stdout, "- resolved command: %s\n", report.ResolvedCommand)
-	}
-	if report.Interpreter != "" {
-		_, _ = fmt.Fprintf(stdout, "- ELF interpreter: %s\n", report.Interpreter)
-	}
-	if report.DependencyCount > 0 {
-		_, _ = fmt.Fprintf(stdout, "- shared libraries: ok (%d resolved)\n", report.DependencyCount)
-	}
+
+	var problems []error
 	if err != nil {
+		problems = append(problems, err)
+	}
+
+	commandsToValidate := uniqueStrings(append([]string{command}, presetRequiredCommands...))
+	for _, commandToValidate := range commandsToValidate {
+		if commandToValidate == "" {
+			continue
+		}
+		commandReport, err := rootfs.ValidateRootfs(rootfsPath, commandToValidate, "")
+		if err != nil {
+			problems = append(problems, err)
+			continue
+		}
+		if commandToValidate == command {
+			_, _ = fmt.Fprintf(stdout, "- resolved command: %s\n", commandReport.ResolvedCommand)
+			if commandReport.Interpreter != "" {
+				_, _ = fmt.Fprintf(stdout, "- ELF interpreter: %s\n", commandReport.Interpreter)
+			}
+			if commandReport.DependencyCount > 0 {
+				_, _ = fmt.Fprintf(stdout, "- shared libraries: ok (%d resolved)\n", commandReport.DependencyCount)
+			}
+			continue
+		}
+		_, _ = fmt.Fprintf(stdout, "- preset required command %s: ok (%s)\n", commandToValidate, commandReport.ResolvedCommand)
+	}
+
+	if len(problems) > 0 {
 		_, _ = fmt.Fprintln(stdout, "- rootfs validation: failed")
-		return err
+		return errors.Join(problems...)
 	}
 	_, _ = fmt.Fprintln(stdout, "- rootfs validation: ok")
 	return nil
@@ -354,6 +309,10 @@ func slicesContainsString(items []string, want string) bool {
 }
 
 func runSandbox(args []string, stdout, stderr io.Writer) error {
+	if err := rejectRemovedPresetFlag(args); err != nil {
+		return err
+	}
+
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 
@@ -366,8 +325,7 @@ func runSandbox(args []string, stdout, stderr io.Writer) error {
 	fs.StringVar(&cfg.NetworkPolicyFile, "network-policy-file", "", "Path to a standalone networkPolicy YAML file")
 	fs.StringVar((*string)(&cfg.RuntimeMode), "runtime-mode", string(spec.RuntimeModeDirect), "Runtime mode: direct, init")
 	fs.StringVar(&cfg.ScopeName, "scope-name", "", "Internal: explicit systemd user scope unit name")
-	fs.StringVar(&cfg.Preset, "preset", "", "Named preset to apply before inline overrides")
-	fs.StringVar(&cfg.PresetFile, "preset-file", "", "Path to a local preset YAML file")
+	fs.StringVar(&cfg.PresetFile, "preset-file", "", "Path to a preset YAML file")
 	fs.StringVar(&cfg.StdoutLog, "stdout-log", "", "Write workload stdout to a host-side log file")
 	fs.StringVar(&cfg.StderrLog, "stderr-log", "", "Write workload stderr to a host-side log file")
 	fs.StringVar(&cfg.Cwd, "cwd", "", "Working directory inside the sandbox")
@@ -379,16 +337,22 @@ func runSandbox(args []string, stdout, stderr io.Writer) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	setFlags := collectSetFlags(fs)
+	if err := rejectPresetFileConflicts("run", cfg.PresetFile, setFlags, []string{
+		"rootfs", "ro-bind", "rw-bind", "env", "network-policy-file", "cwd", "hostname", "memory", "pids",
+	}); err != nil {
+		return err
+	}
 	cfg.Command = fs.Args()
 	if err := loadConfigNetworkPolicy(&cfg); err != nil {
 		return err
 	}
 
-	resolved, err := spec.ApplyPreset(cfg)
+	resolved, preset, err := spec.ApplyPresetFile(cfg)
 	if err != nil {
 		return err
 	}
-	if err := ensurePresetRootfs(resolved, stderr); err != nil {
+	if err := ensurePresetRootfs(resolved, preset, stderr); err != nil {
 		return err
 	}
 	if err := spec.Validate(resolved); err != nil {
@@ -410,24 +374,11 @@ func runSandbox(args []string, stdout, stderr io.Writer) error {
 	return runner.Execute(resolved, stdout, stderr)
 }
 
-func presetNetworkSummary(preset spec.Preset) string {
-	return fmt.Sprintf("networkPolicy:v%d", preset.NetworkPolicy.Version)
-}
-
-func ensurePresetRootfs(cfg spec.Config, stderr io.Writer) error {
-	if cfg.RootFS == "" || cfg.Preset == "" {
+func ensurePresetRootfs(cfg spec.Config, preset spec.Preset, stderr io.Writer) error {
+	if cfg.RootFS == "" {
 		return nil
 	}
-
-	presets, err := spec.AvailablePresets(cfg.PresetFile)
-	if err != nil {
-		return err
-	}
-	preset, ok := presets[cfg.Preset]
-	if !ok {
-		return fmt.Errorf("unknown preset %q", cfg.Preset)
-	}
-	templateName := preset.Rootfs.RecommendedTemplate
+	templateName := preset.Rootfs.Template
 	if templateName == "" {
 		return nil
 	}
@@ -461,7 +412,7 @@ func ensurePresetRootfs(cfg spec.Config, stderr io.Writer) error {
 	}
 	report, err := rootfs.GenerateWithReport(cfg.RootFS, template)
 	if err != nil {
-		return fmt.Errorf("prepare rootfs %q from preset %q template %q: %w", cfg.RootFS, cfg.Preset, templateName, err)
+		return fmt.Errorf("prepare rootfs %q from preset file %q template %q: %w", cfg.RootFS, cfg.PresetFile, templateName, err)
 	}
 	printGenerateWarnings(stderr, report, "preset rootfs ")
 	return nil
@@ -489,15 +440,6 @@ func loadConfigNetworkPolicy(cfg *spec.Config) error {
 	return nil
 }
 
-func presetNames(presets map[string]spec.Preset) []string {
-	names := make([]string, 0, len(presets))
-	for name := range presets {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
-}
-
 type stringSliceValue struct {
 	target *[]string
 }
@@ -512,4 +454,39 @@ func (s stringSliceValue) String() string {
 func (s stringSliceValue) Set(value string) error {
 	*s.target = append(*s.target, value)
 	return nil
+}
+
+func collectSetFlags(fs *flag.FlagSet) map[string]bool {
+	setFlags := make(map[string]bool)
+	fs.Visit(func(f *flag.Flag) {
+		setFlags[f.Name] = true
+	})
+	return setFlags
+}
+
+func rejectRemovedPresetFlag(args []string) error {
+	for _, arg := range args {
+		if arg == "--preset" || strings.HasPrefix(arg, "--preset=") {
+			return errors.New("--preset has been removed; use --preset-file with a single preset YAML file instead")
+		}
+	}
+	return nil
+}
+
+func rejectPresetFileConflicts(command string, presetFile string, setFlags map[string]bool, conflicts []string) error {
+	if presetFile == "" {
+		return nil
+	}
+
+	var used []string
+	for _, name := range conflicts {
+		if setFlags[name] {
+			used = append(used, "--"+name)
+		}
+	}
+	if len(used) == 0 {
+		return nil
+	}
+
+	return fmt.Errorf("%s does not allow %s together with --preset-file; move that configuration into the preset file", command, strings.Join(used, ", "))
 }

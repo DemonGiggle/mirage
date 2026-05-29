@@ -8,204 +8,172 @@ import (
 )
 
 func TestLoadPresetFile(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "presets.yaml")
-	if err := os.WriteFile(path, []byte(`presets:
-  - name: team-offline
-    networkPolicy:
-      version: 1
-      loopback:
-        default: allow
-      ingress:
-        default: deny
-        rules: []
-      egress:
-        default: deny
-        rules: []
-    rootfs:
-      template: openclaw-developer
-      required_commands:
-        - node
-      recommended_cwd: /workspace
-    description: Team preset
+	path := filepath.Join(t.TempDir(), "preset.yaml")
+	if err := os.WriteFile(path, []byte(`rootfs:
+  path: /srv/rootfs
+  template: openclaw-developer
+  required_commands:
+    - node
+networkPolicy:
+  version: 1
+  loopback:
+    default: allow
+  ingress:
+    default: deny
+    rules: []
+  egress:
+    default: deny
+    rules: []
+cwd: /workspace
+hostname: demo
+memory: 512M
+pids: 64
+description: Team preset
 `), 0o644); err != nil {
 		t.Fatalf("write preset file: %v", err)
 	}
 
-	presets, err := LoadPresetFile(path)
+	preset, err := LoadPresetFile(path)
 	if err != nil {
 		t.Fatalf("LoadPresetFile returned error: %v", err)
 	}
 
-	got, ok := presets["team-offline"]
-	if !ok {
-		t.Fatalf("expected team-offline preset, got %#v", presets)
-	}
-	if got.NetworkPolicy == nil || got.NetworkPolicy.Egress.Default != PolicyDeny {
-		t.Fatalf("unexpected network policy: %#v", got.NetworkPolicy)
-	}
-	if got.Rootfs.RecommendedTemplate != "openclaw-developer" {
-		t.Fatalf("unexpected recommended template: %#v", got.Rootfs)
-	}
-	if len(got.Rootfs.RequiredCommands) != 1 || got.Rootfs.RequiredCommands[0] != "node" {
-		t.Fatalf("unexpected required commands: %#v", got.Rootfs)
-	}
-	if got.Rootfs.RecommendedCwd != "/workspace" {
-		t.Fatalf("unexpected recommended cwd: %#v", got.Rootfs)
-	}
-}
-
-func TestLoadPresetFileWithNetworkPolicy(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "presets.yaml")
-	if err := os.WriteFile(path, []byte(`presets:
-  - name: team-policy
-    networkPolicy:
-      version: 1
-      loopback:
-        default: allow
-      ingress:
-        default: deny
-        rules: []
-      egress:
-        default: deny
-        rules:
-          - name: allow-lan
-            action: allow
-            destination:
-              cidr: 192.168.1.10/16
-            protocol: any
-    description: Team policy preset
-`), 0o644); err != nil {
-		t.Fatalf("write preset file: %v", err)
-	}
-
-	presets, err := LoadPresetFile(path)
-	if err != nil {
-		t.Fatalf("LoadPresetFile returned error: %v", err)
-	}
-
-	got := presets["team-policy"]
-	if got.NetworkPolicy == nil {
-		t.Fatal("expected network policy to be loaded")
-	}
-	if got.NetworkPolicy.Egress.Rules[0].Destination.CIDR != "192.168.0.0/16" {
-		t.Fatalf("expected normalized policy selector, got %#v", got.NetworkPolicy.Egress.Rules[0].Destination)
-	}
-}
-
-func TestLoadPresetFileRejectsLegacyNetworkField(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "presets.yaml")
-	if err := os.WriteFile(path, []byte(`presets:
-  - name: legacy
-    network: none
-    description: Legacy preset
-`), 0o644); err != nil {
-		t.Fatalf("write preset file: %v", err)
-	}
-
-	_, err := LoadPresetFile(path)
-	if err == nil || !strings.Contains(err.Error(), "field network not found") {
-		t.Fatalf("expected legacy network field error, got %v", err)
-	}
-}
-
-func TestLoadPresetFileRejectsDuplicatePresetNames(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "presets.yaml")
-	if err := os.WriteFile(path, []byte(`presets:
-  - name: dup
-    networkPolicy:
-      version: 1
-      loopback:
-        default: allow
-      ingress:
-        default: allow
-        rules: []
-      egress:
-        default: allow
-        rules: []
-    description: first
-  - name: dup
-    networkPolicy:
-      version: 1
-      loopback:
-        default: allow
-      ingress:
-        default: deny
-        rules: []
-      egress:
-        default: deny
-        rules: []
-    description: second
-`), 0o644); err != nil {
-		t.Fatalf("write preset file: %v", err)
-	}
-
-	_, err := LoadPresetFile(path)
-	if err == nil || !strings.Contains(err.Error(), `duplicate preset "dup"`) {
-		t.Fatalf("expected duplicate preset error, got %v", err)
-	}
-}
-
-func TestLoadPresetFileRejectsJSONExtension(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "presets.json")
-	if err := os.WriteFile(path, []byte(`{"presets":[]}`), 0o644); err != nil {
-		t.Fatalf("write preset file: %v", err)
-	}
-
-	_, err := LoadPresetFile(path)
-	if err == nil || !strings.Contains(err.Error(), "must use a .yaml or .yml extension") {
-		t.Fatalf("expected YAML extension error, got %v", err)
-	}
-}
-
-func TestBuiltInOpenclawPresetIncludesRootfsExpectations(t *testing.T) {
-	preset := BuiltInPresets["openclaw-offline"]
 	if preset.NetworkPolicy == nil || preset.NetworkPolicy.Egress.Default != PolicyDeny {
 		t.Fatalf("unexpected network policy: %#v", preset.NetworkPolicy)
 	}
-	if preset.Rootfs.RecommendedTemplate != "openclaw-developer" {
-		t.Fatalf("unexpected recommended template: %#v", preset.Rootfs)
+	if preset.Rootfs.Path != "/srv/rootfs" {
+		t.Fatalf("unexpected rootfs path: %#v", preset.Rootfs)
+	}
+	if preset.Rootfs.Template != "openclaw-developer" {
+		t.Fatalf("unexpected rootfs template: %#v", preset.Rootfs)
 	}
 	if len(preset.Rootfs.RequiredCommands) != 1 || preset.Rootfs.RequiredCommands[0] != "node" {
 		t.Fatalf("unexpected required commands: %#v", preset.Rootfs)
 	}
-	if preset.Rootfs.RecommendedCwd != "/workspace" {
-		t.Fatalf("unexpected recommended cwd: %#v", preset.Rootfs)
+	if preset.Cwd != "/workspace" {
+		t.Fatalf("unexpected cwd: %#v", preset)
+	}
+	if preset.Hostname != "demo" || preset.Memory != "512M" || preset.Pids != 64 {
+		t.Fatalf("unexpected preset runtime fields: %#v", preset)
 	}
 }
 
-func TestAvailablePresetsMergesLocalYAMLOverBuiltIns(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "presets.yaml")
-	if err := os.WriteFile(path, []byte(`presets:
-  - name: offline
-    networkPolicy:
-      version: 1
-      loopback:
-        default: allow
-      ingress:
-        default: allow
-        rules: []
-      egress:
-        default: allow
-        rules: []
-    description: Override built-in offline preset
+func TestLoadPresetFileWithNetworkPolicyReference(t *testing.T) {
+	dir := t.TempDir()
+	policyPath := filepath.Join(dir, "offline.yaml")
+	if err := os.WriteFile(policyPath, []byte(`networkPolicy:
+  version: 1
+  loopback:
+    default: allow
+  ingress:
+    default: deny
+    rules: []
+  egress:
+    default: deny
+    rules:
+      - name: allow-lan
+        action: allow
+        destination:
+          cidr: 192.168.1.10/16
+        protocol: any
+`), 0o644); err != nil {
+		t.Fatalf("write network policy file: %v", err)
+	}
+
+	presetPath := filepath.Join(dir, "preset.yaml")
+	if err := os.WriteFile(presetPath, []byte(`rootfs:
+  path: /srv/rootfs
+networkPolicyFile: ./offline.yaml
 `), 0o644); err != nil {
 		t.Fatalf("write preset file: %v", err)
 	}
 
-	presets, err := AvailablePresets(path)
+	preset, err := LoadPresetFile(presetPath)
 	if err != nil {
-		t.Fatalf("AvailablePresets returned error: %v", err)
+		t.Fatalf("LoadPresetFile returned error: %v", err)
 	}
 
-	got, ok := presets["offline"]
-	if !ok {
-		t.Fatalf("expected offline preset, got %#v", presets)
+	if preset.NetworkPolicy == nil {
+		t.Fatal("expected referenced network policy to be loaded")
 	}
-	if got.NetworkPolicy == nil || got.NetworkPolicy.Egress.Default != PolicyAllow {
-		t.Fatalf("expected local preset to override built-in, got %#v", got)
+	if preset.NetworkPolicy.Egress.Rules[0].Destination.CIDR != "192.168.0.0/16" {
+		t.Fatalf("expected normalized policy selector, got %#v", preset.NetworkPolicy.Egress.Rules[0].Destination)
 	}
-	if got.Description != "Override built-in offline preset" {
-		t.Fatalf("unexpected preset description: %#v", got)
+}
+
+func TestLoadPresetFileRejectsRelativeCwd(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "preset.yaml")
+	if err := os.WriteFile(path, []byte(`rootfs:
+  path: /srv/rootfs
+networkPolicy:
+  version: 1
+  loopback:
+    default: allow
+  ingress:
+    default: deny
+    rules: []
+  egress:
+    default: deny
+    rules: []
+cwd: workspace
+`), 0o644); err != nil {
+		t.Fatalf("write preset file: %v", err)
+	}
+
+	_, err := LoadPresetFile(path)
+	if err == nil || !strings.Contains(err.Error(), "cwd must be an absolute path") {
+		t.Fatalf("expected relative cwd error, got %v", err)
+	}
+}
+
+func TestApplyPresetFileMergesConfig(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "preset.yaml")
+	if err := os.WriteFile(path, []byte(`rootfs:
+  path: /srv/rootfs
+  template: basic
+  required_commands:
+    - /bin/sh
+networkPolicy:
+  version: 1
+  loopback:
+    default: allow
+  ingress:
+    default: deny
+    rules: []
+  egress:
+    default: deny
+    rules: []
+roBind:
+  - /host:/guest
+env:
+  - FOO=bar
+cwd: /workspace
+hostname: demo
+memory: 256M
+pids: 32
+`), 0o644); err != nil {
+		t.Fatalf("write preset file: %v", err)
+	}
+
+	cfg, preset, err := ApplyPresetFile(Config{PresetFile: path})
+	if err != nil {
+		t.Fatalf("ApplyPresetFile returned error: %v", err)
+	}
+
+	if cfg.RootFS != "/srv/rootfs" || cfg.Cwd != "/workspace" || cfg.Hostname != "demo" {
+		t.Fatalf("unexpected merged config: %#v", cfg)
+	}
+	if cfg.Memory != "256M" || cfg.Pids != 32 {
+		t.Fatalf("unexpected merged limits: %#v", cfg)
+	}
+	if len(cfg.ROBind) != 1 || cfg.ROBind[0] != "/host:/guest" {
+		t.Fatalf("unexpected bind mounts: %#v", cfg)
+	}
+	if len(cfg.Env) != 1 || cfg.Env[0] != "FOO=bar" {
+		t.Fatalf("unexpected env: %#v", cfg)
+	}
+	if preset.Rootfs.Template != "basic" || len(preset.Rootfs.RequiredCommands) != 1 {
+		t.Fatalf("unexpected preset metadata: %#v", preset)
 	}
 }
 
