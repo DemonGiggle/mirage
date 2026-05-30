@@ -23,6 +23,11 @@ networkPolicy:
         destination:
           cidr: 192.168.0.0/16
         protocol: any
+      - name: deny-shared-address-space
+        action: deny
+        destination:
+          cidr: 100.64.0.0/10
+        protocol: any
       - name: deny-link-local-v4
         action: deny
         destination:
