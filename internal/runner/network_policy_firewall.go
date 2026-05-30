@@ -3,6 +3,7 @@ package runner
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/DemonGiggle/mirage/internal/netpolicy"
 )
@@ -32,7 +33,11 @@ func configurePolicyNetworkBackend(encodedPolicy string) error {
 		return err
 	}
 	for _, command := range commands {
-		if err := policyNetworkCommand(command.Name, command.Args...).Run(); err != nil {
+		output, err := policyNetworkCommand(command.Name, command.Args...).CombinedOutput()
+		if err != nil {
+			if trimmed := strings.TrimSpace(string(output)); trimmed != "" {
+				return fmt.Errorf("apply networkPolicy backend command %s %v: %w: %s", command.Name, command.Args, err, trimmed)
+			}
 			return fmt.Errorf("apply networkPolicy backend command %s %v: %w", command.Name, command.Args, err)
 		}
 	}
