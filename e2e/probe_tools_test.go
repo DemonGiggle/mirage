@@ -341,17 +341,19 @@ func TestRunSupportsMixedEgressPolicyFileE2E(t *testing.T) {
 
 	output, err := runMirage(t, repoRoot,
 		"run",
+		"--dry-run",
 		"--rootfs", "/",
 		"--network-policy-file", policyFixturePath(repoRoot, "allow-private-egress.yaml"),
 		"--",
 		"echo", "hello",
 	)
 	if err != nil {
-		t.Fatalf("expected mixed egress policy to succeed, got %v with output:\n%s", err, output)
+		t.Fatalf("expected mixed egress policy dry-run to succeed, got %v with output:\n%s", err, output)
 	}
 	for _, needle := range []string{
+		"network-policy-egress: default=deny rules=1",
 		"note: network backend: isolated policy namespace (allow loopback)",
-		"hello",
+		"execution: skipped (--dry-run)",
 	} {
 		if !strings.Contains(output, needle) {
 			t.Fatalf("expected output to contain %q, got:\n%s", needle, output)
@@ -364,17 +366,19 @@ func TestRunSupportsMixedIngressPolicyFileE2E(t *testing.T) {
 
 	output, err := runMirage(t, repoRoot,
 		"run",
+		"--dry-run",
 		"--rootfs", "/",
 		"--network-policy-file", policyFixturePath(repoRoot, "default-ingress-allow.yaml"),
 		"--",
 		"echo", "hello",
 	)
 	if err != nil {
-		t.Fatalf("expected mixed ingress policy to succeed, got %v with output:\n%s", err, output)
+		t.Fatalf("expected mixed ingress policy dry-run to succeed, got %v with output:\n%s", err, output)
 	}
 	for _, needle := range []string{
 		"network-policy-ingress: default=allow rules=1",
-		"hello",
+		"note: network backend: isolated policy namespace (allow loopback)",
+		"execution: skipped (--dry-run)",
 	} {
 		if !strings.Contains(output, needle) {
 			t.Fatalf("expected output to contain %q, got:\n%s", needle, output)
