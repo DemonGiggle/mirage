@@ -14,6 +14,7 @@ import (
 const (
 	backendNetworkPolicyHost     = "host"
 	backendNetworkPolicyIsolated = "isolated"
+	backendNetworkPolicyRouted   = "routed"
 )
 
 var policyNetworkCommand = exec.Command
@@ -45,9 +46,13 @@ func planNetworkPolicyBackend(cfg spec.Config) (networkPolicyBackendPlan, error)
 	if err != nil {
 		return networkPolicyBackendPlan{}, err
 	}
+	backendMode := backendNetworkPolicyIsolated
+	if policyNeedsRoutedUplink(policy) {
+		backendMode = backendNetworkPolicyRouted
+	}
 	return networkPolicyBackendPlan{
 		Policy:           policy,
-		BackendMode:      backendNetworkPolicyIsolated,
+		BackendMode:      backendMode,
 		LoopbackAction:   policy.Loopback,
 		SerializedPolicy: serializedPolicy,
 	}, nil
@@ -59,6 +64,18 @@ func policyIsHostPassthrough(policy netpolicy.Policy) bool {
 		policy.Egress.Default == netpolicy.ActionAllow &&
 		len(policy.Ingress.Rules) == 0 &&
 		len(policy.Egress.Rules) == 0
+}
+
+func policyNeedsRoutedUplink(policy netpolicy.Policy) bool {
+	if policy.Egress.Default == netpolicy.ActionAllow {
+		return true
+	}
+	for _, rule := range policy.Egress.Rules {
+		if rule.Action == netpolicy.ActionAllow {
+			return true
+		}
+	}
+	return false
 }
 
 func encodeNetworkPolicyBackend(policy netpolicy.Policy) (string, error) {

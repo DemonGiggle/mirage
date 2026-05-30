@@ -352,7 +352,7 @@ func TestRunSupportsMixedEgressPolicyFileE2E(t *testing.T) {
 	}
 	for _, needle := range []string{
 		"network-policy-egress: default=deny rules=1",
-		"note: network backend: isolated policy namespace (allow loopback)",
+		"note: network backend: routed policy namespace (allow loopback, host NAT uplink)",
 		"execution: skipped (--dry-run)",
 	} {
 		if !strings.Contains(output, needle) {

@@ -52,11 +52,36 @@ func TestPlanNetworkPolicyBackendSupportsAllowDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("planNetworkPolicyBackend returned error: %v", err)
 	}
-	if plan.BackendMode != backendNetworkPolicyIsolated {
-		t.Fatalf("expected isolated backend, got %#v", plan)
+	if plan.BackendMode != backendNetworkPolicyRouted {
+		t.Fatalf("expected routed backend, got %#v", plan)
 	}
 	if plan.SerializedPolicy == "" {
 		t.Fatalf("expected serialized policy config, got %#v", plan)
+	}
+}
+
+func TestPlanNetworkPolicyBackendAllowRuleNeedsRoutedUplink(t *testing.T) {
+	plan, err := planNetworkPolicyBackend(spec.Config{
+		NetworkPolicy: &spec.NetworkPolicy{
+			Version:  1,
+			Loopback: spec.LoopbackPolicy{Default: spec.PolicyAllow},
+			Ingress:  spec.IngressPolicy{Default: spec.PolicyDeny, Rules: []spec.IngressRule{}},
+			Egress: spec.EgressPolicy{
+				Default: spec.PolicyDeny,
+				Rules: []spec.EgressRule{{
+					Name:        "allow-gateway",
+					Action:      spec.PolicyAllow,
+					Destination: spec.NetworkSelector{IP: "192.168.0.1"},
+					Protocol:    spec.ProtocolAny,
+				}},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("planNetworkPolicyBackend returned error: %v", err)
+	}
+	if plan.BackendMode != backendNetworkPolicyRouted {
+		t.Fatalf("expected routed backend, got %#v", plan)
 	}
 }
 
@@ -127,7 +152,6 @@ func TestBuildPolicyNetworkCommandsAllowRuleBeforeBroaderDeny(t *testing.T) {
 	}
 	got := flattenPolicyCommands(commands)
 	want := []string{
-		"ip link set lo up",
 		"iptables -w -P OUTPUT DROP",
 		"iptables -w -A OUTPUT -o lo -j ACCEPT",
 		"iptables -w -A OUTPUT -d 192.168.0.1 -j ACCEPT",

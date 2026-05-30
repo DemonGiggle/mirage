@@ -166,7 +166,7 @@ description: Team policy preset
 		"network-policy: v1",
 		"network-policy-loopback-default: allow",
 		"network-policy-egress: default=deny rules=1",
-		"note: network backend: isolated policy namespace (allow loopback)",
+		"note: network backend: routed policy namespace (allow loopback, host NAT uplink)",
 	} {
 		if !strings.Contains(got, needle) {
 			t.Fatalf("expected dry run output to contain %q, got %q", needle, got)

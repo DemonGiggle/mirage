@@ -124,11 +124,20 @@ func TestPlanNotesNetworkPolicy(t *testing.T) {
 			Version:  1,
 			Loopback: spec.LoopbackPolicy{Default: spec.PolicyAllow},
 			Ingress:  spec.IngressPolicy{Default: spec.PolicyDeny, Rules: []spec.IngressRule{}},
-			Egress:   spec.EgressPolicy{Default: spec.PolicyDeny, Rules: []spec.EgressRule{}},
+			Egress: spec.EgressPolicy{
+				Default: spec.PolicyDeny,
+				Rules: []spec.EgressRule{{
+					Name:        "allow-api",
+					Action:      spec.PolicyAllow,
+					Destination: spec.NetworkSelector{IP: "203.0.113.10"},
+					Protocol:    spec.ProtocolTCP,
+					Ports:       []int{443},
+				}},
+			},
 		},
 	})
 	got := strings.Join(notes, "\n")
-	if !strings.Contains(got, "network backend: isolated policy namespace (allow loopback)") {
+	if !strings.Contains(got, "network backend: routed policy namespace (allow loopback, host NAT uplink)") {
 		t.Fatalf("expected policy network note, got %q", got)
 	}
 }

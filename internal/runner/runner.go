@@ -43,6 +43,9 @@ func execute(cfg spec.Config, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
+	if policyPlan.BackendMode == backendNetworkPolicyRouted && requiresCgroupScope(cfg) {
+		return errors.New("routed network policy backend does not yet support delegated cgroup execution")
+	}
 	unshareArgs, err := buildUnshareArgs(cfg)
 	if err != nil {
 		return err
@@ -56,6 +59,19 @@ func execute(cfg spec.Config, stdout, stderr io.Writer) error {
 	backendArgs := []string{self, "__backend-exec", "--rootfs", cfg.RootFS, "--network-backend", policyPlan.BackendMode}
 	if policyPlan.SerializedPolicy != "" {
 		backendArgs = append(backendArgs, "--policy-config", policyPlan.SerializedPolicy)
+	}
+	var routedConfig routedNetworkConfig
+	if policyPlan.BackendMode == backendNetworkPolicyRouted {
+		routedConfig, err = newRoutedNetworkConfig()
+		if err != nil {
+			return err
+		}
+		backendArgs = append(backendArgs,
+			"--routed-interface", routedConfig.GuestIfName,
+			"--routed-address", routedConfig.GuestCIDR,
+			"--routed-gateway", routedConfig.HostAddress,
+			"--network-ready-fd", "3",
+		)
 	}
 	if cfg.Cwd != "" {
 		backendArgs = append(backendArgs, "--cwd", cfg.Cwd)
@@ -77,24 +93,6 @@ func execute(cfg spec.Config, stdout, stderr io.Writer) error {
 
 	commandName := "unshare"
 	commandArgs := append(unshareArgs, backendArgs...)
-	var cmd *exec.Cmd
-	if requiresCgroupScope(cfg) {
-		cgroupArgs := []string{self, "__cgroup-exec"}
-		if cfg.Memory != "" {
-			cgroupArgs = append(cgroupArgs, "--memory", cfg.Memory)
-		}
-		if cfg.Pids > 0 {
-			cgroupArgs = append(cgroupArgs, "--pids", strconv.Itoa(cfg.Pids))
-		}
-		cgroupArgs = append(cgroupArgs, "--", commandName)
-		cgroupArgs = append(cgroupArgs, commandArgs...)
-		cmd, err = buildDelegatedScopeCommand(cfg.ScopeName, cgroupArgs...)
-		if err != nil {
-			return err
-		}
-	} else {
-		cmd = exec.Command(commandName, commandArgs...)
-	}
 
 	stdoutCloser, stdoutTarget, err := prepareLogWriter(cfg.StdoutLog, stdout)
 	if err != nil {
@@ -108,12 +106,84 @@ func execute(cfg spec.Config, stdout, stderr io.Writer) error {
 	}
 	defer closeQuietly(stderrCloser)
 
+	buildSandboxCommand := func(extraFiles []*os.File) (*exec.Cmd, error) {
+		if requiresCgroupScope(cfg) {
+			cgroupArgs := []string{self, "__cgroup-exec"}
+			if cfg.Memory != "" {
+				cgroupArgs = append(cgroupArgs, "--memory", cfg.Memory)
+			}
+			if cfg.Pids > 0 {
+				cgroupArgs = append(cgroupArgs, "--pids", strconv.Itoa(cfg.Pids))
+			}
+			cgroupArgs = append(cgroupArgs, "--", commandName)
+			cgroupArgs = append(cgroupArgs, commandArgs...)
+			cmd, err := buildDelegatedScopeCommand(cfg.ScopeName, cgroupArgs...)
+			if err != nil {
+				return nil, err
+			}
+			cmd.ExtraFiles = extraFiles
+			return cmd, nil
+		}
+
+		cmd := exec.Command(commandName, commandArgs...)
+		cmd.ExtraFiles = extraFiles
+		return cmd, nil
+	}
+
+	if policyPlan.BackendMode != backendNetworkPolicyRouted {
+		cmd, err := buildSandboxCommand(nil)
+		if err != nil {
+			return err
+		}
+		cmd.Stdout = stdoutTarget
+		cmd.Stderr = stderrTarget
+		cmd.Stdin = os.Stdin
+		cmd.Env = os.Environ()
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("backend command failed: %w", err)
+		}
+		return nil
+	}
+
+	syncRead, syncWrite, err := os.Pipe()
+	if err != nil {
+		return fmt.Errorf("create routed network sync pipe: %w", err)
+	}
+	defer closeQuietly(syncRead)
+	defer closeQuietly(syncWrite)
+
+	cmd, err := buildSandboxCommand([]*os.File{syncRead})
+	if err != nil {
+		return err
+	}
 	cmd.Stdout = stdoutTarget
 	cmd.Stderr = stderrTarget
 	cmd.Stdin = os.Stdin
 	cmd.Env = os.Environ()
 
-	if err := cmd.Run(); err != nil {
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("start backend command: %w", err)
+	}
+	closeQuietly(syncRead)
+	syncRead = nil
+
+	cleanupNetwork, err := setupRoutedNetworkHost(cmd.Process.Pid, routedConfig)
+	if err != nil {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		return err
+	}
+	defer cleanupNetwork()
+
+	if _, err := syncWrite.Write([]byte{1}); err != nil {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		return fmt.Errorf("signal routed network readiness: %w", err)
+	}
+	closeQuietly(syncWrite)
+	syncWrite = nil
+
+	if err := cmd.Wait(); err != nil {
 		return fmt.Errorf("backend command failed: %w", err)
 	}
 	return nil
@@ -166,6 +236,10 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 	var hostname string
 	var networkBackend string
 	var policyConfig string
+	var routedInterface string
+	var routedAddress string
+	var routedGateway string
+	var networkReadyFD int
 	var roBind []string
 	var rwBind []string
 	var envItems []string
@@ -175,6 +249,10 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 	fs.StringVar(&hostname, "hostname", "", "backend hostname")
 	fs.StringVar(&networkBackend, "network-backend", "", "backend network mode")
 	fs.StringVar(&policyConfig, "policy-config", "", "backend policy configuration")
+	fs.StringVar(&routedInterface, "routed-interface", "", "backend routed interface name")
+	fs.StringVar(&routedAddress, "routed-address", "", "backend routed interface address")
+	fs.StringVar(&routedGateway, "routed-gateway", "", "backend routed default gateway")
+	fs.IntVar(&networkReadyFD, "network-ready-fd", -1, "backend sync fd for host-side routed network setup")
 	fs.Var(stringSliceValue{target: &roBind}, "ro-bind", "backend read-only bind mount")
 	fs.Var(stringSliceValue{target: &rwBind}, "rw-bind", "backend read-write bind mount")
 	fs.Var(stringSliceValue{target: &envItems}, "env", "backend environment variable")
@@ -186,11 +264,19 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 	if len(command) == 0 {
 		return errors.New("backend helper requires a command")
 	}
-	if networkBackend != backendNetworkPolicyHost && networkBackend != backendNetworkPolicyIsolated {
+	if networkBackend != backendNetworkPolicyHost && networkBackend != backendNetworkPolicyIsolated && networkBackend != backendNetworkPolicyRouted {
 		return fmt.Errorf("unsupported backend network mode %q", networkBackend)
 	}
 	if networkBackend == backendNetworkPolicyIsolated {
 		if err := configurePolicyNetworkBackend(policyConfig); err != nil {
+			return err
+		}
+	}
+	if networkBackend == backendNetworkPolicyRouted {
+		if err := waitForRoutedNetworkReady(networkReadyFD); err != nil {
+			return err
+		}
+		if err := configureRoutedPolicyNetworkBackend(policyConfig, routedInterface, routedAddress, routedGateway); err != nil {
 			return err
 		}
 	}
@@ -397,7 +483,7 @@ func buildUnshareArgs(cfg spec.Config) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	if plan.BackendMode == backendNetworkPolicyIsolated {
+	if plan.BackendMode != backendNetworkPolicyHost {
 		args = append(args, "--net")
 	}
 	return args, nil
@@ -848,6 +934,8 @@ func PlanNotes(cfg spec.Config) []string {
 				notes = append(notes, "network backend: allow-all policy via host namespace passthrough")
 			case backendNetworkPolicyIsolated:
 				notes = append(notes, fmt.Sprintf("network backend: isolated policy namespace (%s loopback)", plan.LoopbackAction))
+			case backendNetworkPolicyRouted:
+				notes = append(notes, fmt.Sprintf("network backend: routed policy namespace (%s loopback, host NAT uplink)", plan.LoopbackAction))
 			}
 		} else {
 			notes = append(notes, fmt.Sprintf("network backend: networkPolicy unsupported by current backend (%v)", err))
