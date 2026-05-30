@@ -3,6 +3,7 @@ package runner
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -221,8 +222,8 @@ func TestBuildUnshareArgsSkipsNetNamespaceForAllowAllNetworkPolicy(t *testing.T)
 	}
 }
 
-func TestBuildUnshareArgsRejectsUnsupportedPolicyAllows(t *testing.T) {
-	_, err := buildUnshareArgs(spec.Config{
+func TestBuildUnshareArgsSupportsPolicyAllows(t *testing.T) {
+	args, err := buildUnshareArgs(spec.Config{
 		NetworkPolicy: &spec.NetworkPolicy{
 			Version:  1,
 			Loopback: spec.LoopbackPolicy{Default: spec.PolicyAllow},
@@ -241,8 +242,11 @@ func TestBuildUnshareArgsRejectsUnsupportedPolicyAllows(t *testing.T) {
 			},
 		},
 	})
-	if err == nil || !strings.Contains(err.Error(), "allow semantics this backend cannot enforce yet") {
-		t.Fatalf("expected unsupported allow policy error, got %v", err)
+	if err != nil {
+		t.Fatalf("expected allow rule policy to succeed, got %v", err)
+	}
+	if !slices.Contains(args, "--net") {
+		t.Fatalf("expected isolated policy to require --net, got %#v", args)
 	}
 }
 

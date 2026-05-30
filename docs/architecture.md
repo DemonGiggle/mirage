@@ -118,10 +118,9 @@ The current network backend intentionally supports only a narrow subset of the
 full policy model:
 
 - allow-all policy: host namespace passthrough
-- isolated deny-only policy: separate network namespace with loopback controlled
-  by policy
-- richer allow rules, ingress allow defaults, and domain-backed selectors:
-  explicit unsupported errors
+- isolated IP/CIDR policy: separate network namespace with loopback, ingress,
+  and egress enforced by ordered packet-filter rules
+- domain-backed selectors: explicit unsupported errors
 
 This keeps the public surface policy-first while still failing closed when the
 current backend cannot enforce a requested rule shape.

@@ -23,12 +23,12 @@ Mirage now exposes only policy-first network inputs:
 | Surface | Network behavior |
 | --- | --- |
 | `--network-policy-file ./examples/network-policies/allow-all.yaml` or allow-all `networkPolicy` | No network namespace isolation; the workload uses the host network stack |
-| `--network-policy-file ./examples/network-policies/offline.yaml` or isolated deny-only `networkPolicy` | Dedicated network namespace with no non-loopback network access |
-| richer allow rules or deferred selectors | Explicit unsupported error |
+| any other IP/CIDR-only `networkPolicy`, including `./examples/network-policies/offline.yaml` and `./examples/network-policies/block-local-egress.yaml` | Dedicated network namespace with loopback, ingress, and egress enforced through ordered allow/deny rules |
+| deferred selectors such as `destination.domain` | Explicit unsupported error |
 
-That should still be read as a narrow implementation slice, not as the complete
-rule-engine target. Anything more granular than those currently-supported policy
-shapes remains intentionally deferred.
+That should still be read as a conservative implementation slice, not as the
+complete rule-engine target. Domain-backed selectors and other deferred shapes
+remain intentionally unsupported until Mirage can enforce them safely.
 
 ## What Mirage Isolates Today
 
@@ -77,8 +77,8 @@ Today you should assume:
 - `--rootfs /` exposes the host root as the sandbox root
 - `--rootfs /` does not provide a fresh procfs view
 - rootfs handoff still ends with `chroot`, not `pivot_root`
-- the current network backend only supports allow-all host passthrough and
-  isolated deny-only policies; richer policy enforcement is not implemented yet
+- domain-backed selectors such as `destination.domain` are still deferred and
+  fail closed rather than bypassing the packet filter backend
 
 ## Practical Guidance
 

@@ -28,12 +28,13 @@ Mirage now accepts:
 ## Current Backend Coverage
 
 The public surface is now policy-first, but the runtime backend still enforces
-only a narrow subset of the full rule model:
+only a conservative subset of the full rule model:
 
 - **allow-all policy**: host namespace passthrough
-- **isolated deny-only policy**: dedicated network namespace, with loopback
-  controlled by policy
-- **richer allow rules or deferred selectors**: explicit unsupported error
+- **IP/CIDR-based isolated policy**: dedicated network namespace with ordered
+  loopback, ingress, and egress allow/deny enforcement
+- **deferred selectors** such as `destination.domain`: explicit unsupported
+  error
 
 That means Mirage now fails closed for unsupported rule shapes instead of
 accepting a coarse mode that bypasses the policy model.
@@ -75,7 +76,6 @@ description: Team preset for local-only work
 The rule model in [network-rule-model.md](network-rule-model.md) is broader than
 today's backend coverage. Future work still needs to implement:
 
-- richer ingress and egress allow-rule enforcement
 - domain-backed policy materialization
 - stronger packet-filter and diagnostics support
 
