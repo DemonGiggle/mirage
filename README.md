@@ -34,7 +34,7 @@ Today the project includes:
 - a shared V1 rootfs template schema with curated built-in templates
 - read-only and read-write bind mounts
 - file-backed preset loading and standalone network policy files
-- current backend coverage for allow-all host passthrough and isolated deny-only policies
+- current backend coverage for allow-all host passthrough and isolated namespace policy enforcement with ordered allow/deny rules
 - stdout and stderr export to host-visible log files
 - delegated cgroup v2 memory and PID limits
 
@@ -110,9 +110,9 @@ preset-file workflows, use the docs linked below.
 The current backend is useful, but still transitional:
 
 - rootfs handoff still ends with `chroot`, not `pivot_root`
-- the CLI now exposes only policy-first networking inputs, but richer allow-rule
-  enforcement beyond allow-all host passthrough and isolated deny-only policies
-  is still intentionally incomplete
+- the CLI now exposes only policy-first networking inputs; the isolated backend
+  enforces mixed allow/deny ingress and egress rules, while domain-backed
+  selectors remain intentionally incomplete
 - proc and mount hardening around `--rootfs /` is intentionally documented as a
   current limitation rather than a solved property
 

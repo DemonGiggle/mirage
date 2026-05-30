@@ -88,13 +88,14 @@ Common options include:
 `mirage run` always uses the direct one-command model: the requested workload
 becomes sandbox PID 1. Network behavior is resolved from either a preset file
 or `--network-policy-file`. The current backend supports two
-concrete policy shapes:
+runtime paths:
 
 - allow-all policy -> host namespace passthrough
-- isolated deny-only policy -> dedicated network namespace
+- non-host policy -> dedicated network namespace with ordered loopback, ingress,
+  and egress allow/deny enforcement
 
-Richer allow rules or deferred selectors such as domain-based egress fail
-explicitly instead of silently degrading.
+Deferred selectors such as domain-based egress still fail explicitly instead of
+silently degrading.
 
 Mirage does not inherit arbitrary host environment variables into the sandboxed
 workload. The managed sandbox environment starts from an explicit `PATH` and
@@ -181,9 +182,11 @@ The current network philosophy is intentionally narrow and policy-first:
   reach non-loopback network
 - use `./examples/network-policies/allow-all.yaml` when the workload truly
   needs the host network stack
+- use `./examples/network-policies/block-local-egress.yaml` when the workload
+  should keep public egress while denying common local-network ranges
 - use `--network-policy-file` for a reviewable standalone policy document
-- expect richer allow rules, ingress allow defaults, and domain-backed egress to
-  fail explicitly until a stronger enforcement backend exists
+- expect domain-backed egress selectors to fail explicitly until the runtime can
+  materialize them safely
 
 Example:
 

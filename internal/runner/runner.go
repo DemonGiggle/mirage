@@ -59,7 +59,9 @@ func execute(cfg spec.Config, stdout, stderr io.Writer) error {
 	}
 
 	backendArgs := []string{self, "__backend-exec", "--rootfs", cfg.RootFS, "--network-backend", policyPlan.BackendMode}
-	backendArgs = append(backendArgs, "--policy-loopback", string(policyPlan.LoopbackAction))
+	if policyPlan.SerializedPolicy != "" {
+		backendArgs = append(backendArgs, "--policy-config", policyPlan.SerializedPolicy)
+	}
 	if cfg.Cwd != "" {
 		backendArgs = append(backendArgs, "--cwd", cfg.Cwd)
 	}
@@ -168,7 +170,7 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 	var cwd string
 	var hostname string
 	var networkBackend string
-	var policyLoopback string
+	var policyConfig string
 	var roBind []string
 	var rwBind []string
 	var envItems []string
@@ -177,7 +179,7 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 	fs.StringVar(&cwd, "cwd", "", "backend cwd")
 	fs.StringVar(&hostname, "hostname", "", "backend hostname")
 	fs.StringVar(&networkBackend, "network-backend", "", "backend network mode")
-	fs.StringVar(&policyLoopback, "policy-loopback", "", "backend policy loopback action")
+	fs.StringVar(&policyConfig, "policy-config", "", "backend policy configuration")
 	fs.Var(stringSliceValue{target: &roBind}, "ro-bind", "backend read-only bind mount")
 	fs.Var(stringSliceValue{target: &rwBind}, "rw-bind", "backend read-write bind mount")
 	fs.Var(stringSliceValue{target: &envItems}, "env", "backend environment variable")
@@ -193,7 +195,7 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 		return fmt.Errorf("unsupported backend network mode %q", networkBackend)
 	}
 	if networkBackend == backendNetworkPolicyIsolated {
-		if err := configurePolicyNetworkBackend(policyLoopback); err != nil {
+		if err := configurePolicyNetworkBackend(policyConfig); err != nil {
 			return err
 		}
 	}

@@ -18,6 +18,8 @@ func TestRuntimePolicyFixtureDecisions(t *testing.T) {
 	}{
 		{name: "offline.yaml", desc: "deny_external", traffic: tcp("203.0.113.10", 443), want: ActionDeny},
 		{name: "offline.yaml", desc: "allow_loopback", traffic: tcp("127.0.0.1", 5432), want: ActionAllow},
+		{name: "block-local-egress.yaml", desc: "deny_lan", traffic: tcp("192.168.1.10", 443), want: ActionDeny},
+		{name: "block-local-egress.yaml", desc: "allow_public", traffic: tcp("203.0.113.10", 443), want: ActionAllow},
 		{name: "first-match-deny.yaml", desc: "deny_matched", traffic: tcp("10.0.0.5", 443), want: ActionDeny},
 		{name: "first-match-allow.yaml", desc: "allow_matched", traffic: tcp("192.168.1.10", 443), want: ActionAllow},
 		{name: "loopback-deny-egress-allow.yaml", desc: "deny_loopback", traffic: tcp("::1", 8080), want: ActionDeny},

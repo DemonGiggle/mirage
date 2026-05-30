@@ -336,7 +336,7 @@ func TestProbeTCPConnectRejectsLoopbackWhenPolicyDeniesIt(t *testing.T) {
 	}
 }
 
-func TestRunRejectsUnsupportedEgressPolicyFileE2E(t *testing.T) {
+func TestRunSupportsMixedEgressPolicyFileE2E(t *testing.T) {
 	repoRoot := projectRoot(t)
 
 	output, err := runMirage(t, repoRoot,
@@ -346,15 +346,20 @@ func TestRunRejectsUnsupportedEgressPolicyFileE2E(t *testing.T) {
 		"--",
 		"echo", "hello",
 	)
-	if err == nil {
-		t.Fatalf("expected unsupported egress policy to fail, got output:\n%s", output)
+	if err != nil {
+		t.Fatalf("expected mixed egress policy to succeed, got %v with output:\n%s", err, output)
 	}
-	if !strings.Contains(output, "allow semantics this backend cannot enforce yet") {
-		t.Fatalf("expected unsupported egress policy error, got:\n%s", output)
+	for _, needle := range []string{
+		"note: network backend: isolated policy namespace (allow loopback)",
+		"hello",
+	} {
+		if !strings.Contains(output, needle) {
+			t.Fatalf("expected output to contain %q, got:\n%s", needle, output)
+		}
 	}
 }
 
-func TestRunRejectsUnsupportedIngressPolicyFileE2E(t *testing.T) {
+func TestRunSupportsMixedIngressPolicyFileE2E(t *testing.T) {
 	repoRoot := projectRoot(t)
 
 	output, err := runMirage(t, repoRoot,
@@ -364,11 +369,16 @@ func TestRunRejectsUnsupportedIngressPolicyFileE2E(t *testing.T) {
 		"--",
 		"echo", "hello",
 	)
-	if err == nil {
-		t.Fatalf("expected unsupported ingress policy to fail, got output:\n%s", output)
+	if err != nil {
+		t.Fatalf("expected mixed ingress policy to succeed, got %v with output:\n%s", err, output)
 	}
-	if !strings.Contains(output, "ingress.default=allow") {
-		t.Fatalf("expected unsupported ingress policy error, got:\n%s", output)
+	for _, needle := range []string{
+		"network-policy-ingress: default=allow rules=1",
+		"hello",
+	} {
+		if !strings.Contains(output, needle) {
+			t.Fatalf("expected output to contain %q, got:\n%s", needle, output)
+		}
 	}
 }
 

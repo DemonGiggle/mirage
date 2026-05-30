@@ -1,6 +1,8 @@
 package runner
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os/exec"
@@ -17,9 +19,10 @@ const (
 var policyNetworkCommand = exec.Command
 
 type networkPolicyBackendPlan struct {
-	Policy         netpolicy.Policy
-	BackendMode    string
-	LoopbackAction netpolicy.Action
+	Policy           netpolicy.Policy
+	BackendMode      string
+	LoopbackAction   netpolicy.Action
+	SerializedPolicy string
 }
 
 func planNetworkPolicyBackend(cfg spec.Config) (networkPolicyBackendPlan, error) {
@@ -32,18 +35,21 @@ func planNetworkPolicyBackend(cfg spec.Config) (networkPolicyBackendPlan, error)
 	}
 	if policyIsHostPassthrough(policy) {
 		return networkPolicyBackendPlan{
-			Policy:         policy,
-			BackendMode:    backendNetworkPolicyHost,
-			LoopbackAction: policy.Loopback,
+			Policy:           policy,
+			BackendMode:      backendNetworkPolicyHost,
+			LoopbackAction:   policy.Loopback,
+			SerializedPolicy: "",
 		}, nil
 	}
-	if err := validateIsolatedPolicyBackendSupport(policy); err != nil {
+	serializedPolicy, err := encodeNetworkPolicyBackend(policy)
+	if err != nil {
 		return networkPolicyBackendPlan{}, err
 	}
 	return networkPolicyBackendPlan{
-		Policy:         policy,
-		BackendMode:    backendNetworkPolicyIsolated,
-		LoopbackAction: policy.Loopback,
+		Policy:           policy,
+		BackendMode:      backendNetworkPolicyIsolated,
+		LoopbackAction:   policy.Loopback,
+		SerializedPolicy: serializedPolicy,
 	}, nil
 }
 
@@ -55,47 +61,25 @@ func policyIsHostPassthrough(policy netpolicy.Policy) bool {
 		len(policy.Egress.Rules) == 0
 }
 
-func validateIsolatedPolicyBackendSupport(policy netpolicy.Policy) error {
-	var unsupported []string
-	if policy.Ingress.Default == netpolicy.ActionAllow {
-		unsupported = append(unsupported, "ingress.default=allow")
+func encodeNetworkPolicyBackend(policy netpolicy.Policy) (string, error) {
+	data, err := json.Marshal(policy)
+	if err != nil {
+		return "", fmt.Errorf("marshal network policy backend config: %w", err)
 	}
-	if policy.Egress.Default == netpolicy.ActionAllow {
-		unsupported = append(unsupported, "egress.default=allow")
-	}
-	for _, rule := range policy.Ingress.Rules {
-		if rule.Action == netpolicy.ActionAllow {
-			unsupported = append(unsupported, fmt.Sprintf("ingress allow rule %s", ruleIdentifier(rule)))
-		}
-	}
-	for _, rule := range policy.Egress.Rules {
-		if rule.Action == netpolicy.ActionAllow {
-			unsupported = append(unsupported, fmt.Sprintf("egress allow rule %s", ruleIdentifier(rule)))
-		}
-	}
-	if len(unsupported) > 0 {
-		return fmt.Errorf("networkPolicy requires allow semantics this backend cannot enforce yet: %v", unsupported)
-	}
-	return nil
+	return base64.StdEncoding.EncodeToString(data), nil
 }
 
-func ruleIdentifier(rule netpolicy.Rule) string {
-	if rule.Name == "" {
-		return fmt.Sprintf("index %d", rule.Order)
+func decodeNetworkPolicyBackend(encoded string) (netpolicy.Policy, error) {
+	if encoded == "" {
+		return netpolicy.Policy{}, errors.New("networkPolicy backend config is missing")
 	}
-	return fmt.Sprintf("%q", rule.Name)
-}
-
-func configurePolicyNetworkBackend(loopbackAction string) error {
-	switch netpolicy.Action(loopbackAction) {
-	case netpolicy.ActionAllow:
-		if err := policyNetworkCommand("ip", "link", "set", "lo", "up").Run(); err != nil {
-			return fmt.Errorf("enable loopback for networkPolicy backend: %w", err)
-		}
-	case netpolicy.ActionDeny:
-		return nil
-	default:
-		return errors.New("networkPolicy backend loopback action must be allow or deny")
+	data, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return netpolicy.Policy{}, fmt.Errorf("decode network policy backend config: %w", err)
 	}
-	return nil
+	var policy netpolicy.Policy
+	if err := json.Unmarshal(data, &policy); err != nil {
+		return netpolicy.Policy{}, fmt.Errorf("unmarshal network policy backend config: %w", err)
+	}
+	return policy, nil
 }
