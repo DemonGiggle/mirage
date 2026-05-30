@@ -11,6 +11,7 @@ func TestNetworkPolicyFixturesValidate(t *testing.T) {
 	for _, name := range []string{
 		"offline.yaml",
 		"allow-private-egress.yaml",
+		"block-local-egress.yaml",
 		"first-match-deny.yaml",
 		"first-match-allow.yaml",
 		"default-ingress-allow.yaml",
