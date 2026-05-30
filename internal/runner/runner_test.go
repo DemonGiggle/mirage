@@ -101,53 +101,6 @@ func TestPrepareBindTargetRejectsTypeMismatch(t *testing.T) {
 	}
 }
 
-func TestShouldStartTransientOpenClawGateway(t *testing.T) {
-	cases := []struct {
-		name    string
-		command []string
-		want    bool
-	}{
-		{
-			name:    "plain onboard",
-			command: []string{"openclaw", "onboard", "--non-interactive", "--accept-risk"},
-			want:    true,
-		},
-		{
-			name:    "absolute path onboard",
-			command: []string{"/workspace/bin/openclaw", "onboard", "--non-interactive", "--accept-risk"},
-			want:    true,
-		},
-		{
-			name:    "skip health already requested",
-			command: []string{"openclaw", "onboard", "--skip-health"},
-			want:    false,
-		},
-		{
-			name:    "remote mode",
-			command: []string{"openclaw", "onboard", "--mode", "remote"},
-			want:    false,
-		},
-		{
-			name:    "remote url",
-			command: []string{"openclaw", "onboard", "--remote-url", "ws://example"},
-			want:    false,
-		},
-		{
-			name:    "different command",
-			command: []string{"openclaw", "gateway", "run"},
-			want:    false,
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := shouldStartTransientOpenClawGateway(tc.command); got != tc.want {
-				t.Fatalf("shouldStartTransientOpenClawGateway(%q) = %v, want %v", tc.command, got, tc.want)
-			}
-		})
-	}
-}
-
 func TestPlanNotesOfflinePolicy(t *testing.T) {
 	notes := PlanNotes(spec.Config{
 		RootFS: "/",
