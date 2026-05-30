@@ -16,6 +16,7 @@ func TestNetworkPolicyBackendFixtureSupportMatrix(t *testing.T) {
 	}{
 		{name: "offline.yaml"},
 		{name: "allow-private-egress.yaml", wantErrPart: "allow semantics"},
+		{name: "block-local-egress.yaml", wantErrPart: "egress.default=allow"},
 		{name: "first-match-deny.yaml", wantErrPart: "allow semantics"},
 		{name: "loopback-deny-egress-allow.yaml", wantErrPart: "egress.default=allow"},
 		{name: "domain-egress.yaml", wantErrPart: "destination.domain is documented but not enforceable"},

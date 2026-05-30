@@ -1,0 +1,40 @@
+networkPolicy:
+  version: 1
+  loopback:
+    default: allow
+  ingress:
+    default: deny
+    rules: []
+  egress:
+    default: allow
+    rules:
+      - name: deny-rfc1918-10
+        action: deny
+        destination:
+          cidr: 10.0.0.0/8
+        protocol: any
+      - name: deny-rfc1918-172
+        action: deny
+        destination:
+          cidr: 172.16.0.0/12
+        protocol: any
+      - name: deny-rfc1918-192
+        action: deny
+        destination:
+          cidr: 192.168.0.0/16
+        protocol: any
+      - name: deny-link-local-v4
+        action: deny
+        destination:
+          cidr: 169.254.0.0/16
+        protocol: any
+      - name: deny-ula-v6
+        action: deny
+        destination:
+          cidr: fc00::/7
+        protocol: any
+      - name: deny-link-local-v6
+        action: deny
+        destination:
+          cidr: fe80::/10
+        protocol: any

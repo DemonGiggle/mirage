@@ -424,6 +424,27 @@ contract should be conservative and explicit:
 This section defines the expected direction, but it is still **deferred
 design**, not a v1 enforcement promise.
 
+### Interaction with local-network blocking
+
+Mirage should not create a hidden DNS escape hatch for policies that block local
+network ranges.
+
+If an operator expresses "block the local network" with explicit deny rules such
+as `192.168.0.0/16` or `fe80::/10`, then domain-based policy must preserve that
+intent:
+
+- DNS lookup traffic must not get an implicit allow that bypasses normal egress
+  matching
+- if Mirage depends on a resolver whose address falls inside a denied local
+  range, domain-backed startup resolution must fail explicitly rather than
+  quietly bypassing the deny
+- operators that need domain rules together with local-network blocking must
+  either use a resolver reachable through allowed addresses or add a narrow
+  explicit exception for the resolver itself
+
+This keeps "block local network" honest. Mirage should not claim to block LAN
+access while silently permitting DNS to a local resolver behind the scenes.
+
 ## V1 scope
 
 This document is intended to be specific enough for parser, validation, and
@@ -661,6 +682,55 @@ networkPolicy:
           cidr: 192.168.0.0/16
         protocol: any
 ```
+
+### Block local egress, allow everything else
+
+```yaml
+networkPolicy:
+  version: 1
+  loopback:
+    default: allow
+  ingress:
+    default: deny
+    rules: []
+  egress:
+    default: allow
+    rules:
+      - name: deny-rfc1918-10
+        action: deny
+        destination:
+          cidr: 10.0.0.0/8
+        protocol: any
+      - name: deny-rfc1918-172
+        action: deny
+        destination:
+          cidr: 172.16.0.0/12
+        protocol: any
+      - name: deny-rfc1918-192
+        action: deny
+        destination:
+          cidr: 192.168.0.0/16
+        protocol: any
+      - name: deny-link-local-v4
+        action: deny
+        destination:
+          cidr: 169.254.0.0/16
+        protocol: any
+      - name: deny-ula-v6
+        action: deny
+        destination:
+          cidr: fc00::/7
+        protocol: any
+      - name: deny-link-local-v6
+        action: deny
+        destination:
+          cidr: fe80::/10
+        protocol: any
+```
+
+This is the intended rule-model shape for "allow public egress, block local
+network ranges." If the resolver itself lives inside one of those denied
+prefixes, Mirage should not bypass that deny implicitly for DNS.
 
 ### Domain-based egress with explicit ports
 
