@@ -85,6 +85,20 @@ Run a simple local-only command:
 For the full template catalog, dedicated-rootfs guidance, bind mounts, and
 preset-file workflows, use the docs linked below.
 
+## Host Requirements
+
+Mirage expects a few host-side tools to already be installed. The exact package
+names vary by distribution, but the required binaries are:
+
+- `unshare` for namespace-backed execution
+- `ip` for isolated network namespace setup
+- `iptables` and `ip6tables` for non-host `networkPolicy` enforcement
+- `systemd-run` if you use delegated `--memory` or `--pids` limits
+
+`./bin/mirage doctor` is the quickest way to check the current environment, but
+you should install those host tools yourself before relying on namespace and
+network-policy features.
+
 ## Documentation Map
 
 - [docs/applications.md](docs/applications.md): application-oriented setup flows

@@ -10,8 +10,14 @@ validation guidance, see [rootfs.md](rootfs.md).
 - Linux
 - Go 1.24.4 or newer if building from source
 - `unshare` on `PATH` for namespace-backed execution
+- `ip` on `PATH` for isolated network namespace setup
+- `iptables` and `ip6tables` on `PATH` for non-host `networkPolicy`
+  enforcement
 - `systemd-run` with a working user manager session for delegated `--memory`
   and `--pids`
+
+The exact package names vary by distribution. Run `./bin/mirage doctor` after
+installing them to confirm the local environment.
 
 ## Build
 
