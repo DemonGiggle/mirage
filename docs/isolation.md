@@ -23,7 +23,8 @@ Mirage now exposes only policy-first network inputs:
 | Surface | Network behavior |
 | --- | --- |
 | `--network-policy-file ./examples/network-policies/allow-all.yaml` or allow-all `networkPolicy` | No network namespace isolation; the workload uses the host network stack |
-| any other IP/CIDR-only `networkPolicy`, including `./examples/network-policies/offline.yaml` and `./examples/network-policies/block-local-egress.yaml` | Dedicated network namespace with loopback, ingress, and egress enforced through ordered allow/deny rules |
+| deny-only IP/CIDR `networkPolicy`, including `./examples/network-policies/offline.yaml` | Dedicated network namespace with loopback, ingress, and egress enforced through ordered allow/deny rules |
+| IP/CIDR `networkPolicy` with egress allow semantics, including `./examples/network-policies/block-local-egress.yaml` | Dedicated network namespace plus a routed host uplink; Mirage programs a veth pair, host-side forwarding/NAT, and ordered packet-filter rules |
 | deferred selectors such as `destination.domain` | Explicit unsupported error |
 
 That should still be read as a conservative implementation slice, not as the

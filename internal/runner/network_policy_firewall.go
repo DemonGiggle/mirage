@@ -3,7 +3,6 @@ package runner
 import (
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/DemonGiggle/mirage/internal/netpolicy"
 )
@@ -23,27 +22,6 @@ var packetFilterFamilies = []packetFilterFamily{
 	{command: "ip6tables", icmpProtocol: "ipv6-icmp"},
 }
 
-func configurePolicyNetworkBackend(encodedPolicy string) error {
-	policy, err := decodeNetworkPolicyBackend(encodedPolicy)
-	if err != nil {
-		return err
-	}
-	commands, err := buildPolicyNetworkCommands(policy)
-	if err != nil {
-		return err
-	}
-	for _, command := range commands {
-		output, err := policyNetworkCommand(command.Name, command.Args...).CombinedOutput()
-		if err != nil {
-			if trimmed := strings.TrimSpace(string(output)); trimmed != "" {
-				return fmt.Errorf("apply networkPolicy backend command %s %v: %w: %s", command.Name, command.Args, err, trimmed)
-			}
-			return fmt.Errorf("apply networkPolicy backend command %s %v: %w", command.Name, command.Args, err)
-		}
-	}
-	return nil
-}
-
 func buildPolicyNetworkCommands(policy netpolicy.Policy) ([]packetFilterCommand, error) {
 	switch policy.Loopback {
 	case netpolicy.ActionAllow, netpolicy.ActionDeny:
@@ -51,9 +29,7 @@ func buildPolicyNetworkCommands(policy netpolicy.Policy) ([]packetFilterCommand,
 		return nil, errors.New("networkPolicy backend loopback action must be allow or deny")
 	}
 
-	commands := []packetFilterCommand{
-		{Name: "ip", Args: []string{"link", "set", "lo", "up"}},
-	}
+	var commands []packetFilterCommand
 	for _, family := range packetFilterFamilies {
 		commands = append(commands, buildPolicyChainCommands(policy, family)...)
 	}

@@ -98,12 +98,14 @@ cgroup and writes the real cgroup v2 limit files there. See
 
 `mirage run` always uses the direct one-command model: the requested workload
 becomes sandbox PID 1. Network behavior is resolved from either a preset file
-or `--network-policy-file`. The current backend supports two
+or `--network-policy-file`. The current backend supports three
 runtime paths:
 
 - allow-all policy -> host namespace passthrough
-- non-host policy -> dedicated network namespace with ordered loopback, ingress,
-  and egress allow/deny enforcement
+- deny-only policy -> dedicated network namespace with ordered loopback,
+  ingress, and egress allow/deny enforcement
+- policy with egress allow semantics -> dedicated network namespace plus a
+  routed host uplink with ordered rule enforcement
 
 Deferred selectors such as domain-based egress still fail explicitly instead of
 silently degrading.

@@ -118,8 +118,11 @@ The current network backend intentionally supports only a narrow subset of the
 full policy model:
 
 - allow-all policy: host namespace passthrough
-- isolated IP/CIDR policy: separate network namespace with loopback, ingress,
+- deny-only IP/CIDR policy: separate network namespace with loopback, ingress,
   and egress enforced by ordered packet-filter rules
+- routed IP/CIDR policy with egress allow semantics: separate network
+  namespace plus a host-managed veth uplink, forwarding/NAT, and ordered
+  packet-filter rules
 - domain-backed selectors: explicit unsupported errors
 
 This keeps the public surface policy-first while still failing closed when the
