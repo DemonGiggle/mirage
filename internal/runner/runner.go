@@ -489,7 +489,7 @@ func preflightUnsupportedPing(binary string) error {
 			_ = syscall.Close(fd)
 			return nil
 		}
-		if !errors.Is(err, syscall.EPERM) && !errors.Is(err, syscall.EACCES) && !errors.Is(err, syscall.EAFNOSUPPORT) {
+		if !errors.Is(err, syscall.EPERM) && !errors.Is(err, syscall.EACCES) && !errors.Is(err, syscall.EAFNOSUPPORT) && !errors.Is(err, syscall.EPROTONOSUPPORT) {
 			return nil
 		}
 	}
@@ -511,9 +511,17 @@ func pingSocketProbes(binary string) []pingSocketProbe {
 			{domain: syscall.AF_INET6, typ: syscall.SOCK_RAW, protocol: syscall.IPPROTO_ICMPV6},
 		}
 	}
+	if name == "ping4" {
+		return []pingSocketProbe{
+			{domain: syscall.AF_INET, typ: syscall.SOCK_DGRAM, protocol: syscall.IPPROTO_ICMP},
+			{domain: syscall.AF_INET, typ: syscall.SOCK_RAW, protocol: syscall.IPPROTO_ICMP},
+		}
+	}
 	return []pingSocketProbe{
 		{domain: syscall.AF_INET, typ: syscall.SOCK_DGRAM, protocol: syscall.IPPROTO_ICMP},
 		{domain: syscall.AF_INET, typ: syscall.SOCK_RAW, protocol: syscall.IPPROTO_ICMP},
+		{domain: syscall.AF_INET6, typ: syscall.SOCK_DGRAM, protocol: syscall.IPPROTO_ICMPV6},
+		{domain: syscall.AF_INET6, typ: syscall.SOCK_RAW, protocol: syscall.IPPROTO_ICMPV6},
 	}
 }
 

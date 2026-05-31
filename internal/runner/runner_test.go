@@ -354,3 +354,10 @@ func TestIsLikelyPingBinary(t *testing.T) {
 		t.Fatal("did not expect non-ping binary to be treated as ping")
 	}
 }
+
+func TestPingSocketProbesUsesDualStackForUnifiedPing(t *testing.T) {
+	probes := pingSocketProbes("/usr/bin/ping")
+	if len(probes) != 4 {
+		t.Fatalf("expected unified ping to probe both IPv4 and IPv6 socket variants, got %#v", probes)
+	}
+}

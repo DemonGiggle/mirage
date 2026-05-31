@@ -119,7 +119,7 @@ func TestRunReportsUnsupportedPing(t *testing.T) {
 		"--rootfs", "/",
 		"--network-policy-file", policyFixturePath(repoRoot, "allow-all.yaml"),
 		"--",
-		"/usr/bin/ping", "-c", "1", "-W", "1", "127.0.0.1",
+		"ping", "-c", "1", "-W", "1", "127.0.0.1",
 	)
 	cmd.Dir = repoRoot
 
