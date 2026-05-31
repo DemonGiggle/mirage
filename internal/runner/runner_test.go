@@ -223,6 +223,36 @@ func TestWriteOptionalCgroupFileIgnoresMissingFile(t *testing.T) {
 	}
 }
 
+func TestCgroupLeafCleanupRemovesLeafBeforeEntry(t *testing.T) {
+	leafPath := filepath.Join(t.TempDir(), "mirage-leaf")
+	if err := os.Mkdir(leafPath, 0o755); err != nil {
+		t.Fatalf("create leaf dir: %v", err)
+	}
+
+	selfInLeaf := false
+	cleanup := cgroupLeafCleanup(leafPath, &selfInLeaf)
+	cleanup()
+
+	if _, err := os.Stat(leafPath); !os.IsNotExist(err) {
+		t.Fatalf("expected cleanup to remove leaf before entry, got err=%v", err)
+	}
+}
+
+func TestCgroupLeafCleanupSkipsRemovalAfterEntry(t *testing.T) {
+	leafPath := filepath.Join(t.TempDir(), "mirage-leaf")
+	if err := os.Mkdir(leafPath, 0o755); err != nil {
+		t.Fatalf("create leaf dir: %v", err)
+	}
+
+	selfInLeaf := true
+	cleanup := cgroupLeafCleanup(leafPath, &selfInLeaf)
+	cleanup()
+
+	if _, err := os.Stat(leafPath); err != nil {
+		t.Fatalf("expected cleanup to leave leaf for systemd scope teardown, got %v", err)
+	}
+}
+
 func slicesContains(items []string, want string) bool {
 	for _, item := range items {
 		if item == want {

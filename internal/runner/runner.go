@@ -280,19 +280,9 @@ func enterCgroupLeaf(memory string, pids int) (cleanup func(), err error) {
 		return nil, fmt.Errorf("create cgroup leaf %q: %w", leafPath, err)
 	}
 
-	selfPID := strconv.Itoa(os.Getpid())
 	selfInLeaf := false
-	cleanup = func() {
-		if selfInLeaf {
-			if err := os.WriteFile(filepath.Join(parentPath, "cgroup.procs"), []byte(selfPID), 0o644); err == nil {
-				selfInLeaf = false
-			}
-		}
-		if err := os.Remove(leafPath); err != nil && !os.IsNotExist(err) && !selfInLeaf {
-			_ = killCgroup(leafPath)
-			_ = os.Remove(leafPath)
-		}
-	}
+	selfPID := strconv.Itoa(os.Getpid())
+	cleanup = cgroupLeafCleanup(leafPath, &selfInLeaf)
 	defer func() {
 		if err != nil && cleanup != nil {
 			cleanup()
@@ -331,6 +321,19 @@ func enterCgroupLeaf(memory string, pids int) (cleanup func(), err error) {
 	}
 
 	return cleanup, nil
+}
+
+func cgroupLeafCleanup(leafPath string, selfInLeaf *bool) func() {
+	return func() {
+		if *selfInLeaf {
+			// Once the helper has entered the leaf and enabled controllers on the
+			// parent, cgroup v2's no-internal-process rule prevents moving the
+			// helper back to the parent for in-process cleanup. The surrounding
+			// systemd scope is responsible for tearing down the delegated subtree.
+			return
+		}
+		_ = os.Remove(leafPath)
+	}
 }
 
 func writeOptionalCgroupFile(path string, value string) error {

@@ -120,10 +120,15 @@ The cgroup helper has four main responsibilities:
 
 Cleanup matters too:
 
-- on normal exit, Mirage tries to move the helper back to the parent and remove
-  the leaf
-- if removal fails because descendant processes are still present, Mirage tries
-  `cgroup.kill` before removing the directory again
+- before the helper enters the leaf, Mirage can remove the newly created leaf if
+  setup fails early
+- after the helper has entered the leaf and enabled controllers on the parent,
+  Mirage relies on the surrounding systemd scope to clean up the delegated
+  subtree when the scope unit exits
+
+That behavior follows cgroup v2's no-internal-process rule: once the parent is
+distributing domain controllers such as `memory`, the helper cannot move itself
+back into that parent cgroup for in-process teardown.
 
 ## Why The User Manager Requirement Exists
 
