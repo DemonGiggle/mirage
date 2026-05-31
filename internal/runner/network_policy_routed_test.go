@@ -34,6 +34,8 @@ func TestConfigureRoutedPolicyNetworkBackendProgramsInterfaceAndFilters(t *testi
 		"ip route replace default via 198.19.0.1 dev mrgg0",
 		"iptables -w -A OUTPUT -d 192.168.0.1 -j ACCEPT",
 		"iptables -w -A OUTPUT -d 192.168.0.0/16 -j DROP",
+		"iptables -w -I INPUT 1 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT",
+		"ip6tables -w -I INPUT 1 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT",
 	} {
 		if !strings.Contains(got, needle) {
 			t.Fatalf("expected routed backend command %q in %s", needle, got)

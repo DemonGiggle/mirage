@@ -149,8 +149,12 @@ func execute(cfg spec.Config, stdout, stderr io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("create routed network sync pipe: %w", err)
 	}
-	defer closeQuietly(syncRead)
-	defer closeQuietly(syncWrite)
+	defer func() {
+		closeQuietly(syncRead)
+	}()
+	defer func() {
+		closeQuietly(syncWrite)
+	}()
 
 	cmd, err := buildSandboxCommand([]*os.File{syncRead})
 	if err != nil {

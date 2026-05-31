@@ -125,6 +125,10 @@ func configureRoutedPolicyNetworkBackend(encodedPolicy string, ifaceName string,
 		{Name: "ip", Args: []string{"addr", "add", guestCIDR, "dev", ifaceName}},
 		{Name: "ip", Args: []string{"route", "replace", "default", "via", gateway, "dev", ifaceName}},
 	}, commands...)
+	commands = append(commands,
+		packetFilterCommand{Name: "iptables", Args: []string{"-w", "-I", "INPUT", "1", "-m", "conntrack", "--ctstate", "ESTABLISHED,RELATED", "-j", "ACCEPT"}},
+		packetFilterCommand{Name: "ip6tables", Args: []string{"-w", "-I", "INPUT", "1", "-m", "conntrack", "--ctstate", "ESTABLISHED,RELATED", "-j", "ACCEPT"}},
+	)
 	return runPacketFilterCommands(commands)
 }
 
