@@ -311,6 +311,11 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 			return err
 		}
 	}
+	if networkBackend == backendNetworkPolicyRouted {
+		if err := prepareRoutedResolverOverride(rootfs); err != nil {
+			return err
+		}
+	}
 	if rootfs != "" && rootfs != "/" {
 		if err := syscall.Chroot(rootfs); err != nil {
 			return fmt.Errorf("chroot to %q: %w", rootfs, err)
