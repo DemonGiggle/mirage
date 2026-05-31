@@ -110,13 +110,13 @@ func TestNetworkPolicyListFilesShowsExamples(t *testing.T) {
 	var out bytes.Buffer
 	var errBuf bytes.Buffer
 
-	if err := Run([]string{"network-policy", "list-files"}, &out, &errBuf); err != nil {
+	if err := Run([]string{"network-policy", "list"}, &out, &errBuf); err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
 
 	got := out.String()
 	for _, needle := range []string{
-		"mirage network-policy list-files",
+		"mirage network-policy list",
 		"examples/network-policies/allow-all.yaml",
 		"examples/network-policies/offline.yaml",
 		"examples/network-policies/block-local-egress.yaml",
@@ -124,6 +124,44 @@ func TestNetworkPolicyListFilesShowsExamples(t *testing.T) {
 		if !strings.Contains(got, needle) {
 			t.Fatalf("expected network policy list output to contain %q, got %q", needle, got)
 		}
+	}
+}
+
+func TestSubcommandHelpTopics(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "rootfs_init_help_topic",
+			args: []string{"rootfs", "help", "init"},
+			want: "Generate a rootfs from a built-in template.",
+		},
+		{
+			name: "network_policy_list_help_topic",
+			args: []string{"network-policy", "help", "list"},
+			want: "List bundled example network policy files.",
+		},
+		{
+			name: "network_policy_list_files_alias_help_topic",
+			args: []string{"network-policy", "help", "list-files"},
+			want: "List bundled example network policy files.",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var out bytes.Buffer
+			var errBuf bytes.Buffer
+
+			if err := Run(tc.args, &out, &errBuf); err != nil {
+				t.Fatalf("Run returned error: %v", err)
+			}
+
+			got := out.String()
+			if !strings.Contains(got, tc.want) {
+				t.Fatalf("expected help output to contain %q, got %q", tc.want, got)
+			}
+		})
 	}
 }
 
@@ -605,7 +643,7 @@ func TestDoctorReportsNetworkPolicyInputs(t *testing.T) {
 	}
 
 	got := out.String()
-	if !strings.Contains(got, "network policy inputs: --preset-file, --network-policy-file, and mirage network-policy list-files") {
+	if !strings.Contains(got, "network policy inputs: --preset-file, --network-policy-file, and mirage network-policy list") {
 		t.Fatalf("expected doctor output to report network policy inputs, got %q", got)
 	}
 }

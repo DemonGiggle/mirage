@@ -109,7 +109,7 @@ Help:
 Examples:
   mirage rootfs list-template
   mirage rootfs init --template basic --output /srv/mirage/basic-rootfs
-  mirage network-policy list-files
+  mirage network-policy list
   mirage doctor --rootfs /srv/mirage/basic-rootfs --command /bin/ls
   mirage run --rootfs /srv/rootfs --network-policy-file ./examples/network-policies/offline.yaml -- app
   mirage run --preset-file ./examples/presets/openclaw-offline.yaml -- app
@@ -117,7 +117,7 @@ Examples:
 }
 
 func runRootfs(args []string, stdout, stderr io.Writer) error {
-	if len(args) == 0 || isHelpToken(args[0]) {
+	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
 		printRootfsHelp(stdout)
 		return nil
 	}
@@ -310,7 +310,7 @@ func runDoctor(args []string, stdout, stderr io.Writer) error {
 	_, _ = fmt.Fprintln(stdout, "- namespace backend: available (linux, initial)")
 	_, _ = fmt.Fprintf(stdout, "- systemd-run: %s\n", hostToolStatus("systemd-run"))
 	_, _ = fmt.Fprintln(stdout, "- rootfs isolation: available via mounted runtime layout plus chroot handoff")
-	_, _ = fmt.Fprintln(stdout, "- network policy inputs: --preset-file, --network-policy-file, and mirage network-policy list-files")
+	_, _ = fmt.Fprintln(stdout, "- network policy inputs: --preset-file, --network-policy-file, and mirage network-policy list")
 	_, _ = fmt.Fprintln(stdout, "- policy backend coverage: allow-all host passthrough, isolated ordered allow/deny rules for IP/CIDR selectors, routed uplink for egress allow semantics, explicit errors for deferred selectors")
 	_, _ = fmt.Fprintln(stdout, "- cgroup v2 resource controls: available via delegated systemd user scopes when systemd-run is present")
 	_, _ = fmt.Fprintln(stdout, "- preset-file loading: available")
@@ -453,7 +453,7 @@ func runSandbox(args []string, stdout, stderr io.Writer) error {
 	fs.Var(stringSliceValue{target: &cfg.ROBind}, "ro-bind", "Read-only bind mount in host:guest form.")
 	fs.Var(stringSliceValue{target: &cfg.RWBind}, "rw-bind", "Writable bind mount in host:guest form.")
 	fs.Var(stringSliceValue{target: &cfg.Env}, "env", "Environment variable in KEY=VALUE form.")
-	fs.StringVar(&cfg.NetworkPolicyFile, "network-policy-file", "", "Path to a standalone networkPolicy YAML file. Use `mirage network-policy list-files` for bundled examples.")
+	fs.StringVar(&cfg.NetworkPolicyFile, "network-policy-file", "", "Path to a standalone networkPolicy YAML file. Use `mirage network-policy list` for bundled examples.")
 	fs.StringVar(&cfg.ScopeName, "scope-name", "", "Internal: explicit systemd user scope unit name.")
 	fs.StringVar(&cfg.PresetFile, "preset-file", "", "Path to a preset YAML file.")
 	fs.StringVar(&cfg.StdoutLog, "stdout-log", "", "Write workload stdout to a host-side log file.")
@@ -524,7 +524,7 @@ Examples:
 
 func runNetworkPolicy(args []string, stdout, stderr io.Writer) error {
 	_ = stderr
-	if len(args) == 0 || isHelpToken(args[0]) {
+	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
 		printNetworkPolicyHelp(stdout)
 		return nil
 	}
@@ -532,6 +532,8 @@ func runNetworkPolicy(args []string, stdout, stderr io.Writer) error {
 		return runNetworkPolicyHelp(args[1:], stdout)
 	}
 	switch args[0] {
+	case "list":
+		return runNetworkPolicyListFiles(args[1:], stdout)
 	case "list-files":
 		return runNetworkPolicyListFiles(args[1:], stdout)
 	default:
@@ -545,6 +547,9 @@ func runNetworkPolicyHelp(args []string, stdout io.Writer) error {
 		return nil
 	}
 	switch args[0] {
+	case "list":
+		printNetworkPolicyListFilesHelp(stdout)
+		return nil
 	case "list-files":
 		printNetworkPolicyListFilesHelp(stdout)
 		return nil
@@ -560,10 +565,10 @@ Usage:
   mirage network-policy <subcommand>
 
 Subcommands:
-  list-files   list bundled example network policy files and their intent
+  list        list bundled example network policy files and their intent
 
 Examples:
-  mirage network-policy list-files
+  mirage network-policy list
 `)
 }
 
@@ -573,10 +578,10 @@ func runNetworkPolicyListFiles(args []string, stdout io.Writer) error {
 		return nil
 	}
 	if len(args) > 0 {
-		return fmt.Errorf("network-policy list-files does not accept positional arguments: %s", strings.Join(args, " "))
+		return fmt.Errorf("network-policy list does not accept positional arguments: %s", strings.Join(args, " "))
 	}
 
-	_, _ = fmt.Fprintln(stdout, "mirage network-policy list-files")
+	_, _ = fmt.Fprintln(stdout, "mirage network-policy list")
 	for _, entry := range bundledNetworkPolicyFiles {
 		_, _ = fmt.Fprintf(stdout, "- %s: %s\n", entry.Path, entry.Description)
 	}
@@ -587,10 +592,10 @@ func printNetworkPolicyListFilesHelp(w io.Writer) {
 	_, _ = fmt.Fprint(w, `List bundled example network policy files.
 
 Usage:
-  mirage network-policy list-files
+  mirage network-policy list
 
 Examples:
-  mirage network-policy list-files
+  mirage network-policy list
 `)
 }
 
