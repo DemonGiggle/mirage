@@ -38,10 +38,10 @@ At a high level:
     | Host process                                                |
     |                                                             |
     |  setupRoutedNetworkHost(pid, cfg)                           |
-    |    ip link add mrghX type veth peer name mrggX             |
-    |    ip addr add 198.19.X.1/30 dev mrghX                     |
-    |    ip link set mrghX up                                    |
-    |    ip link set mrggX netns <sandbox-pid>                   |
+    |    ip link add <host-veth> type veth peer name <guest-veth>|
+    |    ip addr add 198.19.X.1/30 dev <host-veth>               |
+    |    ip link set <host-veth> up                              |
+    |    ip link set <guest-veth> netns <sandbox-pid>            |
     |    iptables -A FORWARD ...                                 |
     |    iptables -t nat -A POSTROUTING ... -j MASQUERADE        |
     +--------------------------+----------------------------------+
@@ -54,9 +54,9 @@ At a high level:
     |  waitForRoutedNetworkReady(fd=3)                            |
     |  configureRoutedPolicyNetworkBackend(...)                   |
     |    ip link set lo up                                        |
-    |    ip link set mrggX up                                     |
-    |    ip addr add 198.19.X.2/30 dev mrggX                     |
-    |    ip route replace default via 198.19.X.1 dev mrggX       |
+    |    ip link set <guest-veth> up                              |
+    |    ip addr add 198.19.X.2/30 dev <guest-veth>              |
+    |    ip route replace default via 198.19.X.1 dev <guest-veth>|
     |    iptables/ip6tables policy rules                          |
     |                                                             |
     |  workload process                                            |
@@ -92,8 +92,8 @@ forwarding/NAT on the host.
 
 Actual packet traffic moves over a Linux `veth` pair.
 
-- `mrghX` stays on the host
-- `mrggX` moves into the sandbox namespace
+- `<host-veth>` stays on the host
+- `<guest-veth>` moves into the sandbox namespace
 - the host-side IP becomes the sandbox gateway
 - the sandbox-side IP becomes the workload-facing interface
 
@@ -108,23 +108,30 @@ Because the subnet is `/30`, the link is point-to-point in practice:
 The routed backend is small enough that the important behavior can be described
 directly in terms of Linux commands.
 
+In the real implementation, Mirage generates interface names like these:
+
+- `<host-veth>`: the host-side interface, with a prefix such as `mrgh...`
+- `<guest-veth>`: the sandbox-side interface, with a prefix such as `mrgg...`
+
+This document uses `<host-veth>` and `<guest-veth>` for readability.
+
 ### Host-side setup
 
 Mirage programs the host side with commands equivalent to:
 
 ```bash
-ip link add mrghX type veth peer name mrggX
-ip addr add 198.19.N.1/30 dev mrghX
-ip link set mrghX up
-ip link set mrggX netns <sandbox-pid>
+ip link add <host-veth> type veth peer name <guest-veth>
+ip addr add 198.19.N.1/30 dev <host-veth>
+ip link set <host-veth> up
+ip link set <guest-veth> netns <sandbox-pid>
 ```
 
 Meaning:
 
 - `ip link add ... type veth peer name ...` creates a connected virtual cable
-- `ip addr add ... dev mrghX` assigns the host-side gateway address
-- `ip link set mrghX up` makes the host-side interface active
-- `ip link set mrggX netns <sandbox-pid>` hands the peer interface to the
+- `ip addr add ... dev <host-veth>` assigns the host-side gateway address
+- `ip link set <host-veth> up` makes the host-side interface active
+- `ip link set <guest-veth> netns <sandbox-pid>` hands the peer interface to the
   sandbox network namespace
 
 ### Host-side packet forwarding and NAT
@@ -132,8 +139,8 @@ Meaning:
 Mirage then installs rules equivalent to:
 
 ```bash
-iptables -w -A FORWARD -i mrghX -s 198.19.N.0/30 -j ACCEPT
-iptables -w -A FORWARD -o mrghX -d 198.19.N.0/30 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+iptables -w -A FORWARD -i <host-veth> -s 198.19.N.0/30 -j ACCEPT
+iptables -w -A FORWARD -o <host-veth> -d 198.19.N.0/30 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 iptables -w -t nat -A POSTROUTING -s 198.19.N.0/30 ! -d 198.19.N.0/30 -j MASQUERADE
 ```
 
@@ -160,9 +167,9 @@ After the host signals readiness, the sandbox runs commands equivalent to:
 
 ```bash
 ip link set lo up
-ip link set mrggX up
-ip addr add 198.19.N.2/30 dev mrggX
-ip route replace default via 198.19.N.1 dev mrggX
+ip link set <guest-veth> up
+ip addr add 198.19.N.2/30 dev <guest-veth>
+ip route replace default via 198.19.N.1 dev <guest-veth>
 ```
 
 Meaning:
@@ -182,16 +189,16 @@ For a typical outbound TCP connection:
 
 1. the workload opens a socket inside the sandbox
 2. the sandbox routing table sends the packet to default gateway `198.19.N.1`
-3. the packet exits via `mrggX`
-4. the host receives the packet on `mrghX`
+3. the packet exits via `<guest-veth>`
+4. the host receives the packet on `<host-veth>`
 5. the host `FORWARD` rule accepts the packet because it came from the sandbox
    subnet
 6. the host `POSTROUTING` NAT rule rewrites the source address
 7. the packet leaves through the host's normal uplink
 8. the reply packet returns to the host
 9. conntrack marks it as `ESTABLISHED`
-10. the return `FORWARD` rule accepts it back toward `mrghX`
-11. the packet crosses the `veth` pair and reaches `mrggX`
+10. the return `FORWARD` rule accepts it back toward `<host-veth>`
+11. the packet crosses the `veth` pair and reaches `<guest-veth>`
 12. the sandbox packet-filter rules allow the return traffic into the workload
 
 The key point is that the sandbox does not directly own a physical uplink. It
