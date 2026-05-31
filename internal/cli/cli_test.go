@@ -35,6 +35,131 @@ func TestPresetCommandRemoved(t *testing.T) {
 	}
 }
 
+func TestRootHelpMentionsCommandSurface(t *testing.T) {
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+
+	if err := Run(nil, &out, &errBuf); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	got := out.String()
+	for _, needle := range []string{
+		"mirage <command> [flags]",
+		"rootfs          generate or inspect built-in rootfs templates",
+		"network-policy  list bundled example network policy files",
+	} {
+		if !strings.Contains(got, needle) {
+			t.Fatalf("expected root help to contain %q, got %q", needle, got)
+		}
+	}
+}
+
+func TestRootfsHelpIncludesSubcommands(t *testing.T) {
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+
+	if err := Run([]string{"rootfs", "--help"}, &out, &errBuf); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	got := out.String()
+	for _, needle := range []string{
+		"mirage rootfs <subcommand> [flags]",
+		"init            generate a rootfs from a built-in template",
+		"list-template   list built-in template names and descriptions",
+	} {
+		if !strings.Contains(got, needle) {
+			t.Fatalf("expected rootfs help to contain %q, got %q", needle, got)
+		}
+	}
+}
+
+func TestRunHelpExplainsPids(t *testing.T) {
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+
+	if err := Run([]string{"run", "--help"}, &out, &errBuf); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	got := out.String()
+	if !strings.Contains(got, "--pids controls the maximum number of processes/threads in the sandbox process tree") {
+		t.Fatalf("expected run help to explain --pids, got %q", got)
+	}
+}
+
+func TestRootfsListTemplateShowsDescriptions(t *testing.T) {
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+
+	if err := Run([]string{"rootfs", "list-template"}, &out, &errBuf); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	got := out.String()
+	if !strings.Contains(got, "mirage rootfs list-template") {
+		t.Fatalf("expected list-template banner, got %q", got)
+	}
+	if !strings.Contains(got, "- basic: ") {
+		t.Fatalf("expected built-in template description, got %q", got)
+	}
+}
+
+func TestNetworkPolicyListFilesShowsExamples(t *testing.T) {
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+
+	if err := Run([]string{"network-policy", "list"}, &out, &errBuf); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	got := out.String()
+	for _, needle := range []string{
+		"mirage network-policy list",
+		"examples/network-policies/allow-all.yaml",
+		"examples/network-policies/offline.yaml",
+		"examples/network-policies/block-local-egress.yaml",
+	} {
+		if !strings.Contains(got, needle) {
+			t.Fatalf("expected network policy list output to contain %q, got %q", needle, got)
+		}
+	}
+}
+
+func TestSubcommandHelpTopics(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "rootfs_init_help_topic",
+			args: []string{"rootfs", "help", "init"},
+			want: "Generate a rootfs from a built-in template.",
+		},
+		{
+			name: "network_policy_list_help_topic",
+			args: []string{"network-policy", "help", "list"},
+			want: "List bundled example network policy files.",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var out bytes.Buffer
+			var errBuf bytes.Buffer
+
+			if err := Run(tc.args, &out, &errBuf); err != nil {
+				t.Fatalf("Run returned error: %v", err)
+			}
+
+			got := out.String()
+			if !strings.Contains(got, tc.want) {
+				t.Fatalf("expected help output to contain %q, got %q", tc.want, got)
+			}
+		})
+	}
+}
+
 func writePresetFile(t *testing.T, body string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "preset.yaml")
@@ -513,7 +638,7 @@ func TestDoctorReportsNetworkPolicyInputs(t *testing.T) {
 	}
 
 	got := out.String()
-	if !strings.Contains(got, "network policy config: available via --preset-file and --network-policy-file") {
+	if !strings.Contains(got, "network policy inputs: --preset-file, --network-policy-file, and mirage network-policy list") {
 		t.Fatalf("expected doctor output to report network policy inputs, got %q", got)
 	}
 }
