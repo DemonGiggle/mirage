@@ -336,6 +336,9 @@ func execCommandInSandbox(command []string, rootfs string, sandboxEnv []string) 
 	if err != nil {
 		return err
 	}
+	if err := preflightUnsupportedPing(binary); err != nil {
+		return err
+	}
 	return syscall.Exec(binary, command, sandboxEnv)
 }
 
@@ -473,6 +476,50 @@ func resolveCommandBinary(commandName string, rootfs string, sandboxEnv []string
 		)
 	}
 	return "", fmt.Errorf("resolve command %q: %w", commandName, err)
+}
+
+func preflightUnsupportedPing(binary string) error {
+	if !isLikelyPingBinary(binary) {
+		return nil
+	}
+
+	for _, probe := range pingSocketProbes(binary) {
+		fd, err := syscall.Socket(probe.domain, probe.typ, probe.protocol)
+		if err == nil {
+			_ = syscall.Close(fd)
+			return nil
+		}
+		if !errors.Is(err, syscall.EPERM) && !errors.Is(err, syscall.EACCES) && !errors.Is(err, syscall.EAFNOSUPPORT) {
+			return nil
+		}
+	}
+
+	return errors.New("ping is not supported in this Mirage sandbox on the current host/kernel because ICMP sockets are not available; use a TCP/HTTP probe instead")
+}
+
+type pingSocketProbe struct {
+	domain   int
+	typ      int
+	protocol int
+}
+
+func pingSocketProbes(binary string) []pingSocketProbe {
+	name := strings.ToLower(filepath.Base(binary))
+	if name == "ping6" {
+		return []pingSocketProbe{
+			{domain: syscall.AF_INET6, typ: syscall.SOCK_DGRAM, protocol: syscall.IPPROTO_ICMPV6},
+			{domain: syscall.AF_INET6, typ: syscall.SOCK_RAW, protocol: syscall.IPPROTO_ICMPV6},
+		}
+	}
+	return []pingSocketProbe{
+		{domain: syscall.AF_INET, typ: syscall.SOCK_DGRAM, protocol: syscall.IPPROTO_ICMP},
+		{domain: syscall.AF_INET, typ: syscall.SOCK_RAW, protocol: syscall.IPPROTO_ICMP},
+	}
+}
+
+func isLikelyPingBinary(binary string) bool {
+	name := strings.ToLower(filepath.Base(binary))
+	return name == "ping" || name == "ping4" || name == "ping6"
 }
 
 func buildUnshareArgs(cfg spec.Config) ([]string, error) {

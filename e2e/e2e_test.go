@@ -109,6 +109,34 @@ func TestRunPropagatesInteractiveStdin(t *testing.T) {
 	}
 }
 
+func TestRunReportsUnsupportedPing(t *testing.T) {
+	requireNamespaceBackend(t)
+
+	repoRoot := projectRoot(t)
+	cmd := exec.Command(
+		"go", "run", "./cmd/mirage",
+		"run",
+		"--rootfs", "/",
+		"--network-policy-file", policyFixturePath(repoRoot, "allow-all.yaml"),
+		"--",
+		"/usr/bin/ping", "-c", "1", "-W", "1", "127.0.0.1",
+	)
+	cmd.Dir = repoRoot
+
+	output, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("expected mirage ping run to fail, got output:\n%s", string(output))
+	}
+
+	got := string(output)
+	if !strings.Contains(got, "ping is not supported in this Mirage sandbox on the current host/kernel because ICMP sockets are not available") {
+		t.Fatalf("expected Mirage-owned ping guidance, got:\n%s", got)
+	}
+	if strings.Contains(got, "socktype: SOCK_RAW") {
+		t.Fatalf("expected Mirage to fail before ping emits the low-level socket error, got:\n%s", got)
+	}
+}
+
 func TestRootfsInitGeneratesRunnableBasicRootfs(t *testing.T) {
 	requireNamespaceBackend(t)
 

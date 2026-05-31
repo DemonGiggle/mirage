@@ -343,3 +343,14 @@ func TestResolveCommandBinaryUsesSandboxPath(t *testing.T) {
 		t.Fatalf("expected resolved path %q, got %q", binary, resolved)
 	}
 }
+
+func TestIsLikelyPingBinary(t *testing.T) {
+	for _, path := range []string{"/usr/bin/ping", "/bin/ping4", "/bin/ping6"} {
+		if !isLikelyPingBinary(path) {
+			t.Fatalf("expected %q to be treated as ping", path)
+		}
+	}
+	if isLikelyPingBinary("/usr/bin/curl") {
+		t.Fatal("did not expect non-ping binary to be treated as ping")
+	}
+}
