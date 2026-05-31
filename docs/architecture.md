@@ -151,6 +151,18 @@ The backend currently supports delegated cgroup v2 limits for:
 This keeps the resource model narrow and useful without introducing a full
 resource-management layer.
 
+Mirage reaches those limits in two steps:
+
+1. `systemd-run --user --scope -p Delegate=yes` creates a delegated systemd
+   scope that the current user is allowed to manage
+2. Mirage creates a child cgroup inside that scope and writes `memory.max`,
+   `memory.swap.max`, and `pids.max` directly
+
+That split is intentional: `systemd-run` provides delegated ownership of the
+subtree, while cgroup v2 file writes perform the actual kernel limit
+enforcement. For the detailed rationale and execution sketch, see
+[cgroups.md](cgroups.md).
+
 ## Run Flow
 
 ```mermaid
@@ -172,6 +184,8 @@ flowchart TD
 - [usage.md](usage.md) explains how to invoke the CLI
 - [isolation.md](isolation.md) explains what isolation properties users should
   expect today
+- [cgroups.md](cgroups.md) explains delegated systemd scopes, leaf cgroup
+  creation, and resource-limit enforcement
 - [network-rule-model.md](network-rule-model.md) defines the draft future
   rule-first network policy model
 - [roadmap.md](roadmap.md) tracks the remaining implementation work

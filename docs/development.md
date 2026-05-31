@@ -11,6 +11,10 @@ operation, see [usage.md](usage.md).
 - `systemd-run` with a working user manager session for delegated `--memory`
   and `--pids`, and for init-mode cgroup delegation
 
+Mirage does not rely on `systemd-run` alone for resource control. It uses
+`systemd-run` to obtain a delegated user scope, then creates and manages its
+own leaf cgroup inside that scope. See [cgroups.md](cgroups.md).
+
 ## Build
 
 Build the CLI:
@@ -52,6 +56,7 @@ gofmt -w $(find . -name '*.go' -print)
 - `docs/rootfs.md`: rootfs choice, template catalog, and generation details
 - `docs/usage.md`: user-facing command guide
 - `docs/isolation.md`: current isolation matrix and caveats
+- `docs/cgroups.md`: delegated scope and cgroup v2 resource-limit behavior
 - `docs/network-rule-model.md`: draft future rule-first network model
 - `docs/network-transition.md`: transition plan from current mode-first surfaces
 - `docs/architecture.md`: internal design and run flow

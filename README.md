@@ -95,6 +95,8 @@ preset-file workflows, use the docs linked below.
   current command surface, preset-file workflows, and common run examples
 - [docs/isolation.md](docs/isolation.md): current isolation matrix, guarantees,
   and known caveats
+- [docs/cgroups.md](docs/cgroups.md): delegated systemd scopes, cgroup v2
+  limits, and the runtime flow for `--memory` and `--pids`
 - [docs/network-rule-model.md](docs/network-rule-model.md): canonical draft
   design for the rule-first network policy model
 - [docs/network-transition.md](docs/network-transition.md): migration notes,

@@ -85,6 +85,11 @@ Common options include:
 - `--stdout-log` and `--stderr-log`: host-visible log export targets
 - `--memory` and `--pids`: delegated cgroup v2 limits
 
+`--memory` and `--pids` are not implemented as plain process ulimits. Mirage
+launches a delegated user scope through `systemd-run`, then creates a child
+cgroup and writes the real cgroup v2 limit files there. See
+[cgroups.md](cgroups.md) for the exact flow and the cgroup tree sketch.
+
 `mirage run` always uses the direct one-command model: the requested workload
 becomes sandbox PID 1. Network behavior is resolved from either a preset file
 or `--network-policy-file`. The current backend supports two
@@ -218,5 +223,7 @@ output:
 - [applications.md](applications.md): application-oriented setup flows such as
   OpenClaw installation and launch
 - [isolation.md](isolation.md): exact current behavior and caveats
+- [cgroups.md](cgroups.md): how delegated systemd scopes and cgroup v2 limits
+  are applied
 - [architecture.md](architecture.md): internal implementation model
 - [development.md](development.md): build, tests, and contributor workflow
