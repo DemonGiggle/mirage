@@ -143,11 +143,6 @@ func TestSubcommandHelpTopics(t *testing.T) {
 			args: []string{"network-policy", "help", "list"},
 			want: "List bundled example network policy files.",
 		},
-		{
-			name: "network_policy_list_files_alias_help_topic",
-			args: []string{"network-policy", "help", "list-files"},
-			want: "List bundled example network policy files.",
-		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var out bytes.Buffer

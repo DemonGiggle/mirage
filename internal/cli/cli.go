@@ -534,8 +534,6 @@ func runNetworkPolicy(args []string, stdout, stderr io.Writer) error {
 	switch args[0] {
 	case "list":
 		return runNetworkPolicyListFiles(args[1:], stdout)
-	case "list-files":
-		return runNetworkPolicyListFiles(args[1:], stdout)
 	default:
 		return fmt.Errorf("unknown network-policy subcommand %q", args[0])
 	}
@@ -548,9 +546,6 @@ func runNetworkPolicyHelp(args []string, stdout io.Writer) error {
 	}
 	switch args[0] {
 	case "list":
-		printNetworkPolicyListFilesHelp(stdout)
-		return nil
-	case "list-files":
 		printNetworkPolicyListFilesHelp(stdout)
 		return nil
 	default:
