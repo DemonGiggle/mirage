@@ -34,6 +34,7 @@ func (asset MissingAsset) Message() string {
 
 type GenerateReport struct {
 	MissingAssets []MissingAsset
+	Warnings      []string
 }
 
 type GenerateOptions struct {
@@ -44,8 +45,13 @@ func (report *GenerateReport) addMissing(asset MissingAsset) {
 	report.MissingAssets = append(report.MissingAssets, asset)
 }
 
+func (report *GenerateReport) addWarning(message string) {
+	report.Warnings = append(report.Warnings, message)
+}
+
 func (report *GenerateReport) merge(other GenerateReport) {
 	report.MissingAssets = append(report.MissingAssets, other.MissingAssets...)
+	report.Warnings = append(report.Warnings, other.Warnings...)
 }
 
 func Generate(outputRoot string, template Template) error {
@@ -812,6 +818,9 @@ func (g *generator) copyHostFile(sourcePath string, targetPath string, optional 
 	}
 	if err := os.Chmod(target, info.Mode().Perm()); err != nil {
 		return fmt.Errorf("set target mode for %q: %w", targetPath, err)
+	}
+	if warning := preserveFileCapabilitiesWarning(sourcePath, targetPath, target); warning != "" {
+		g.report.addWarning(warning)
 	}
 
 	g.copiedTargets[targetPath] = struct{}{}

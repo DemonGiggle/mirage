@@ -558,6 +558,21 @@ func TestRootfsInitReportsMissingAssets(t *testing.T) {
 	}
 }
 
+func TestPrintGenerateWarningsIncludesGenericWarnings(t *testing.T) {
+	var out bytes.Buffer
+	printGenerateWarnings(&out, rootfs.GenerateReport{
+		Warnings: []string{"file capability \"security.capability\" from \"/bin/ping\" could not be preserved on \"/bin/ping\""},
+	}, "")
+
+	got := out.String()
+	if !strings.Contains(got, "warnings: 1") {
+		t.Fatalf("expected warning count, got %q", got)
+	}
+	if !strings.Contains(got, `warning: file capability "security.capability" from "/bin/ping" could not be preserved on "/bin/ping"`) {
+		t.Fatalf("expected generic warning text, got %q", got)
+	}
+}
+
 func TestEnsurePresetRootfsAutoGeneratesTemplate(t *testing.T) {
 	const templateName = "test-preset-template"
 	installBuiltInTemplate(t, rootfs.Template{

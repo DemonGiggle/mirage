@@ -1,11 +1,15 @@
 package e2e
 
 import (
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestRunExportsLogsToHost(t *testing.T) {
@@ -223,6 +227,140 @@ func TestDoctorValidatesGeneratedBasicRootfs(t *testing.T) {
 		if !strings.Contains(got, needle) {
 			t.Fatalf("expected doctor output to contain %q, got:\n%s", needle, got)
 		}
+	}
+}
+
+func TestRootfsInitBashProbeSupportsCurrentExampleNetworkPolicies(t *testing.T) {
+	requireNamespaceBackend(t)
+	requireHostLoopbackListener(t)
+
+	repoRoot := projectRoot(t)
+	rootfs := filepath.Join(t.TempDir(), "openclaw-work-rootfs")
+
+	initCmd := exec.Command(
+		"go", "run", "./cmd/mirage",
+		"rootfs",
+		"init",
+		"--template", "openclaw-work",
+		"--output", rootfs,
+	)
+	initCmd.Dir = repoRoot
+
+	output, err := initCmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("mirage rootfs init failed: %v\noutput:\n%s", err, string(output))
+	}
+	for _, target := range []string{
+		filepath.Join(rootfs, "bin", "bash"),
+	} {
+		if _, err := os.Stat(target); err != nil {
+			t.Fatalf("expected generated rootfs to include %q: %v", target, err)
+		}
+	}
+
+	policyDir := filepath.Join(repoRoot, "examples", "network-policies")
+	entries, err := os.ReadDir(policyDir)
+	if err != nil {
+		t.Fatalf("read example network policies: %v", err)
+	}
+
+	var policyNames []string
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".yaml" {
+			continue
+		}
+		policyNames = append(policyNames, entry.Name())
+	}
+	sort.Strings(policyNames)
+	if len(policyNames) == 0 {
+		t.Fatalf("expected at least one example network policy in %q", policyDir)
+	}
+
+	for _, policyName := range policyNames {
+		policyName := policyName
+		t.Run(policyName, func(t *testing.T) {
+			listener, err := net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				t.Fatalf("listen on host loopback: %v", err)
+			}
+			defer listener.Close()
+
+			accepted := make(chan string, 1)
+			acceptErr := make(chan error, 1)
+			go func() {
+				conn, err := listener.Accept()
+				if err != nil {
+					acceptErr <- err
+					return
+				}
+				defer conn.Close()
+
+				_ = conn.SetDeadline(time.Now().Add(2 * time.Second))
+				buffer := make([]byte, 4)
+				count, err := conn.Read(buffer)
+				if err != nil {
+					acceptErr <- err
+					return
+				}
+				if _, err := conn.Write([]byte("pong")); err != nil {
+					acceptErr <- err
+					return
+				}
+				accepted <- string(buffer[:count])
+			}()
+
+			addr := listener.Addr().(*net.TCPAddr)
+			command := "exec 3<>/dev/tcp/127.0.0.1/" + strconv.Itoa(addr.Port) + " && printf ping >&3 && IFS= read -r -N 4 reply <&3 && printf %s \"$reply\""
+
+			output, err := runMirage(t, repoRoot,
+				"run",
+				"--rootfs", rootfs,
+				"--network-policy-file", filepath.Join(policyDir, policyName),
+				"--",
+				"/bin/bash", "-lc", command,
+			)
+
+			switch policyName {
+			case "allow-all.yaml":
+				if err != nil {
+					t.Fatalf("expected allow-all policy to reach the host loopback listener, got %v\noutput:\n%s", err, output)
+				}
+				if !strings.Contains(output, "pong") {
+					t.Fatalf("expected allow-all probe output to contain host reply, got:\n%s", output)
+				}
+				select {
+				case payload := <-accepted:
+					if payload != "ping" {
+						t.Fatalf("expected host listener payload %q, got %q", "ping", payload)
+					}
+				case err := <-acceptErr:
+					t.Fatalf("host listener accept failed: %v", err)
+				case <-time.After(2 * time.Second):
+					t.Fatal("expected host listener to accept a connection")
+				}
+			case "offline.yaml":
+				if err == nil {
+					t.Fatalf("expected offline policy to block the host loopback probe, got output:\n%s", output)
+				}
+				if !bashTCPConnectFailed(output) {
+					t.Fatalf("expected offline policy probe to fail due to blocked connectivity, got:\n%s", output)
+				}
+				assertNoUnexpectedListenerAccept(t, accepted, acceptErr)
+			case "block-local-egress.yaml":
+				if err != nil && routedPolicyBackendUnavailable(output) {
+					t.Skipf("routed network backend unavailable in this environment:\n%s", output)
+				}
+				if err == nil {
+					t.Fatalf("expected block-local-egress policy not to reach the host loopback listener, got output:\n%s", output)
+				}
+				if !bashTCPConnectFailed(output) {
+					t.Fatalf("expected block-local-egress probe to fail when targeting host loopback, got:\n%s", output)
+				}
+				assertNoUnexpectedListenerAccept(t, accepted, acceptErr)
+			default:
+				t.Fatalf("unexpected example network policy fixture %q; update the e2e expectation matrix", policyName)
+			}
+		})
 	}
 }
 
@@ -459,4 +597,49 @@ func requireNamespaceBackend(t *testing.T) {
 	}
 
 	t.Fatalf("namespace capability probe failed unexpectedly: %v\noutput:\n%s", err, msg)
+}
+
+func requireHostLoopbackListener(t *testing.T) {
+	t.Helper()
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err == nil {
+		_ = listener.Close()
+		return
+	}
+
+	msg := err.Error()
+	if strings.Contains(msg, "operation not permitted") || strings.Contains(msg, "permission denied") {
+		t.Skipf("host loopback listener unavailable in this test environment: %v", err)
+	}
+	t.Fatalf("host loopback listener probe failed unexpectedly: %v", err)
+}
+
+func bashTCPConnectFailed(output string) bool {
+	return strings.Contains(output, "Connection refused") ||
+		strings.Contains(output, "No route to host") ||
+		strings.Contains(output, "Network is unreachable") ||
+		strings.Contains(output, "Operation not permitted") ||
+		strings.Contains(output, "Connection timed out") ||
+		strings.Contains(output, "Invalid argument")
+}
+
+func routedPolicyBackendUnavailable(output string) bool {
+	return strings.Contains(output, "requires CAP_NET_ADMIN on the host") ||
+		strings.Contains(output, "requires IPv4 forwarding on the host") ||
+		strings.Contains(output, "Failed to initialize nft: Operation not permitted")
+}
+
+func assertNoUnexpectedListenerAccept(t *testing.T, accepted <-chan string, acceptErr <-chan error) {
+	t.Helper()
+
+	select {
+	case payload := <-accepted:
+		t.Fatalf("expected no host listener connection, but accepted payload %q", payload)
+	case err := <-acceptErr:
+		if err != nil && !strings.Contains(err.Error(), "use of closed network connection") {
+			t.Fatalf("host listener failed unexpectedly: %v", err)
+		}
+	case <-time.After(250 * time.Millisecond):
+	}
 }
