@@ -93,7 +93,7 @@ names vary by distribution, but the required binaries are:
 - `unshare` for namespace-backed execution
 - `ip` for isolated network namespace setup
 - `iptables` and `ip6tables` for non-host `networkPolicy` enforcement
-- `systemd-run` if you use delegated `--memory` or `--pids` limits
+- `systemd-run` with a working user manager session if you use delegated `--memory` or `--pids` limits
 
 `./bin/mirage doctor` is the quickest way to check the current environment, but
 you should install those host tools yourself before relying on namespace and
