@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -47,13 +48,18 @@ func TestSetupRoutedNetworkHostProgramsVethAndForwarding(t *testing.T) {
 	logPath := filepath.Join(t.TempDir(), "commands.log")
 	restoreHostCommand := routedHostCommand
 	restoreReadForwarding := readIPv4ForwardingFile
+	restoreStatusReader := readProcessStatusFile
 	routedHostCommand = helperCommand(t, logPath)
 	readIPv4ForwardingFile = func(string) ([]byte, error) {
 		return []byte("1\n"), nil
 	}
+	readProcessStatusFile = func(string) ([]byte, error) {
+		return []byte("Name:\ttest\nCapEff:\t0000000000001000\n"), nil
+	}
 	t.Cleanup(func() {
 		routedHostCommand = restoreHostCommand
 		readIPv4ForwardingFile = restoreReadForwarding
+		readProcessStatusFile = restoreStatusReader
 	})
 
 	cfg := routedNetworkConfig{
@@ -88,6 +94,52 @@ func TestSetupRoutedNetworkHostProgramsVethAndForwarding(t *testing.T) {
 		if !strings.Contains(got, needle) {
 			t.Fatalf("expected routed host command %q in %s", needle, got)
 		}
+	}
+}
+
+func TestRequireHostNetworkAdminRejectsMissingCapability(t *testing.T) {
+	restoreStatusReader := readProcessStatusFile
+	readProcessStatusFile = func(string) ([]byte, error) {
+		return []byte("Name:\ttest\nCapEff:\t0000000000000000\n"), nil
+	}
+	t.Cleanup(func() {
+		readProcessStatusFile = restoreStatusReader
+	})
+
+	err := requireHostNetworkAdmin()
+	if err == nil || !strings.Contains(err.Error(), "requires CAP_NET_ADMIN on the host") {
+		t.Fatalf("expected CAP_NET_ADMIN error, got %v", err)
+	}
+}
+
+func TestRequireHostNetworkAdminAcceptsCapability(t *testing.T) {
+	restoreStatusReader := readProcessStatusFile
+	readProcessStatusFile = func(string) ([]byte, error) {
+		return []byte("Name:\ttest\nCapEff:\t0000000000001000\n"), nil
+	}
+	t.Cleanup(func() {
+		readProcessStatusFile = restoreStatusReader
+	})
+
+	if err := requireHostNetworkAdmin(); err != nil {
+		t.Fatalf("requireHostNetworkAdmin returned error: %v", err)
+	}
+}
+
+func TestWaitForRoutedNetworkReadyTreatsEOFAsAbortedSetup(t *testing.T) {
+	readEnd, writeEnd, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe returned error: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = readEnd.Close()
+		_ = writeEnd.Close()
+	})
+	_ = writeEnd.Close()
+
+	err = waitForRoutedNetworkReady(int(readEnd.Fd()))
+	if !errors.Is(err, errRoutedNetworkSetupAborted) {
+		t.Fatalf("expected aborted setup sentinel, got %v", err)
 	}
 }
 

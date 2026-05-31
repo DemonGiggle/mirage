@@ -62,6 +62,9 @@ func execute(cfg spec.Config, stdout, stderr io.Writer) error {
 	}
 	var routedConfig routedNetworkConfig
 	if policyPlan.BackendMode == backendNetworkPolicyRouted {
+		if err := requireRoutedNetworkHostPrerequisites(); err != nil {
+			return err
+		}
 		routedConfig, err = newRoutedNetworkConfig()
 		if err != nil {
 			return err
@@ -278,6 +281,9 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 	}
 	if networkBackend == backendNetworkPolicyRouted {
 		if err := waitForRoutedNetworkReady(networkReadyFD); err != nil {
+			if errors.Is(err, errRoutedNetworkSetupAborted) {
+				return nil
+			}
 			return err
 		}
 		if err := configureRoutedPolicyNetworkBackend(policyConfig, routedInterface, routedAddress, routedGateway); err != nil {

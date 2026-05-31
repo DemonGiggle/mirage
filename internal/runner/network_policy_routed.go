@@ -15,10 +15,14 @@ import (
 )
 
 const routedNetworkPrefixBits = 30
+const linuxCapabilityNETADMIN = 12
 
 var routedNetworkBase = netip.MustParseAddr("198.19.0.0")
 var routedHostCommand = exec.Command
 var readIPv4ForwardingFile = os.ReadFile
+var readProcessStatusFile = os.ReadFile
+
+var errRoutedNetworkSetupAborted = errors.New("routed network setup aborted before readiness")
 
 type routedNetworkConfig struct {
 	HostIfName  string
@@ -102,6 +106,9 @@ func waitForRoutedNetworkReady(fd int) error {
 
 	var signal [1]byte
 	if _, err := file.Read(signal[:]); err != nil {
+		if errors.Is(err, io.EOF) {
+			return errRoutedNetworkSetupAborted
+		}
 		return fmt.Errorf("wait for routed network readiness: %w", err)
 	}
 	return nil
@@ -158,7 +165,7 @@ func runPacketFilterCommands(commands []packetFilterCommand) error {
 }
 
 func setupRoutedNetworkHost(pid int, cfg routedNetworkConfig) (func(), error) {
-	if err := requireIPv4Forwarding(); err != nil {
+	if err := requireRoutedNetworkHostPrerequisites(); err != nil {
 		return nil, err
 	}
 
@@ -228,6 +235,43 @@ func setupRoutedNetworkHost(pid int, cfg routedNetworkConfig) (func(), error) {
 	})
 
 	return rollback, nil
+}
+
+func requireRoutedNetworkHostPrerequisites() error {
+	if err := requireHostNetworkAdmin(); err != nil {
+		return err
+	}
+	if err := requireIPv4Forwarding(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func requireHostNetworkAdmin() error {
+	data, err := readProcessStatusFile("/proc/self/status")
+	if err != nil {
+		return fmt.Errorf("read /proc/self/status: %w", err)
+	}
+
+	for _, line := range strings.Split(string(data), "\n") {
+		if !strings.HasPrefix(line, "CapEff:") {
+			continue
+		}
+		raw := strings.TrimSpace(strings.TrimPrefix(line, "CapEff:"))
+		if raw == "" {
+			break
+		}
+		mask, err := strconv.ParseUint(raw, 16, 64)
+		if err != nil {
+			return fmt.Errorf("parse CapEff from /proc/self/status: %w", err)
+		}
+		if mask&(uint64(1)<<linuxCapabilityNETADMIN) == 0 {
+			return errors.New("routed network backend requires CAP_NET_ADMIN on the host; run mirage with sudo or grant the capability before using routed egress policies")
+		}
+		return nil
+	}
+
+	return errors.New("read /proc/self/status: missing CapEff entry")
 }
 
 func requireIPv4Forwarding() error {
