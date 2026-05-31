@@ -113,6 +113,8 @@ network-policy features.
   limits, and the runtime flow for `--memory` and `--pids`
 - [docs/network-rule-model.md](docs/network-rule-model.md): canonical draft
   design for the rule-first network policy model
+- [docs/routed-networking.md](docs/routed-networking.md): host-to-sandbox veth
+  routing, forwarding, NAT, and packet flow for routed network policies
 - [docs/network-transition.md](docs/network-transition.md): migration notes,
   replacements for removed `--net` usage, and current backend limits
 - [docs/architecture.md](docs/architecture.md): control-plane and backend
