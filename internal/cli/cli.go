@@ -639,12 +639,19 @@ func ensurePresetRootfs(cfg spec.Config, preset spec.Preset, stderr io.Writer) e
 }
 
 func printGenerateWarnings(w io.Writer, report rootfs.GenerateReport, prefix string) {
-	if w == nil || len(report.MissingAssets) == 0 {
+	if w == nil {
 		return
 	}
-	_, _ = fmt.Fprintf(w, "warnings: %d\n", len(report.MissingAssets))
+	totalWarnings := len(report.MissingAssets) + len(report.Warnings)
+	if totalWarnings == 0 {
+		return
+	}
+	_, _ = fmt.Fprintf(w, "warnings: %d\n", totalWarnings)
 	for _, asset := range report.MissingAssets {
 		_, _ = fmt.Fprintf(w, "warning: %s%s\n", prefix, asset.Message())
+	}
+	for _, warning := range report.Warnings {
+		_, _ = fmt.Fprintf(w, "warning: %s%s\n", prefix, warning)
 	}
 }
 
