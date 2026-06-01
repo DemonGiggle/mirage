@@ -19,6 +19,7 @@ type Preset struct {
 	ROBind            []string       `json:"roBind,omitempty" yaml:"roBind,omitempty"`
 	RWBind            []string       `json:"rwBind,omitempty" yaml:"rwBind,omitempty"`
 	Env               []string       `json:"env,omitempty" yaml:"env,omitempty"`
+	RunAsRoot         bool           `json:"runAsRoot,omitempty" yaml:"runAsRoot,omitempty"`
 	Cwd               string         `json:"cwd,omitempty" yaml:"cwd,omitempty"`
 	Hostname          string         `json:"hostname,omitempty" yaml:"hostname,omitempty"`
 	Memory            string         `json:"memory,omitempty" yaml:"memory,omitempty"`
@@ -35,6 +36,7 @@ type Config struct {
 	ROBind            []string
 	RWBind            []string
 	Env               []string
+	RunAsRoot         bool
 	StdoutLog         string
 	StderrLog         string
 	Cwd               string
@@ -69,6 +71,9 @@ func ApplyPresetFile(cfg Config) (Config, Preset, error) {
 	}
 	if len(preset.Env) > 0 {
 		cfg.Env = append([]string(nil), preset.Env...)
+	}
+	if preset.RunAsRoot {
+		cfg.RunAsRoot = true
 	}
 	if preset.Cwd != "" {
 		cfg.Cwd = preset.Cwd
@@ -146,6 +151,9 @@ func Summary(cfg Config) string {
 	}
 	if cfg.PresetFile != "" {
 		fmt.Fprintf(&b, "preset-file: %s\n", cfg.PresetFile)
+	}
+	if cfg.RunAsRoot {
+		fmt.Fprintf(&b, "run-as-root: true\n")
 	}
 	if cfg.Cwd != "" {
 		fmt.Fprintf(&b, "cwd: %s\n", cfg.Cwd)

@@ -7,11 +7,13 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"github.com/DemonGiggle/mirage/internal/spec"
@@ -24,7 +26,11 @@ const (
 	sysMountSetattr    = 442
 	defaultSandboxPath = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 	defaultSandboxUser = "mirage"
-	defaultSandboxHome = "/home/" + defaultSandboxUser
+	defaultSandboxHome = "/tmp/mirage-home"
+	defaultRootUser    = "root"
+	defaultRootHome    = "/root"
+	sandboxUID         = 1000
+	sandboxGID         = 1000
 )
 
 func Execute(cfg spec.Config, stdout, stderr io.Writer) error {
@@ -46,11 +52,6 @@ func execute(cfg spec.Config, stdout, stderr io.Writer) error {
 	if policyPlan.BackendMode == backendNetworkPolicyRouted && requiresCgroupScope(cfg) {
 		return errors.New("routed network policy backend does not yet support delegated cgroup execution")
 	}
-	unshareArgs, err := buildUnshareArgs(cfg)
-	if err != nil {
-		return err
-	}
-
 	self, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("resolve mirage executable: %w", err)
@@ -91,11 +92,33 @@ func execute(cfg spec.Config, stdout, stderr io.Writer) error {
 	for _, item := range cfg.Env {
 		backendArgs = append(backendArgs, "--env", item)
 	}
+	if cfg.RunAsRoot {
+		backendArgs = append(backendArgs, "--run-as-root")
+	}
 	backendArgs = append(backendArgs, "--")
 	backendArgs = append(backendArgs, cfg.Command...)
 
-	commandName := "unshare"
-	commandArgs := append(unshareArgs, backendArgs...)
+	commandName := self
+	commandArgs := backendArgs[1:]
+	launchSync, err := prepareSandboxLaunchSync(cfg.RunAsRoot, policyPlan.BackendMode)
+	if err != nil {
+		return err
+	}
+	defer launchSync.cleanup()
+	if launchSync.uidMapReadyFile != "" {
+		backendArgs = append(backendArgs[:2],
+			append([]string{
+				"--uid-map-ready-file", launchSync.uidMapReadyFile,
+			}, backendArgs[2:]...)...,
+		)
+		commandArgs = backendArgs[1:]
+	}
+	unshareArgs, err := buildUnshareArgs(cfg.RunAsRoot, policyPlan.BackendMode)
+	if err != nil {
+		return err
+	}
+	commandName = "unshare"
+	commandArgs = append(unshareArgs, backendArgs...)
 
 	stdoutCloser, stdoutTarget, err := prepareLogWriter(cfg.StdoutLog, stdout)
 	if err != nil {
@@ -142,7 +165,32 @@ func execute(cfg spec.Config, stdout, stderr io.Writer) error {
 		cmd.Stderr = stderrTarget
 		cmd.Stdin = os.Stdin
 		cmd.Env = os.Environ()
-		if err := cmd.Run(); err != nil {
+		if launchSync.uidMapReadyFile == "" {
+			if err := cmd.Run(); err != nil {
+				return fmt.Errorf("backend command failed: %w", err)
+			}
+			return nil
+		}
+		if err := cmd.Start(); err != nil {
+			return fmt.Errorf("start backend command: %w", err)
+		}
+		targetPID, err := waitForSandboxLeafPID(cmd.Process.Pid)
+		if err != nil {
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+			return err
+		}
+		if err := configureSandboxUIDMappings(targetPID, cfg.RunAsRoot); err != nil {
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+			return err
+		}
+		if err := launchSync.signalUIDMapReady(); err != nil {
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+			return err
+		}
+		if err := cmd.Wait(); err != nil {
 			return fmt.Errorf("backend command failed: %w", err)
 		}
 		return nil
@@ -174,7 +222,29 @@ func execute(cfg spec.Config, stdout, stderr io.Writer) error {
 	closeQuietly(syncRead)
 	syncRead = nil
 
-	cleanupNetwork, err := setupRoutedNetworkHost(cmd.Process.Pid, routedConfig)
+	targetPID := cmd.Process.Pid
+	if launchSync.uidMapReadyFile != "" || policyPlan.BackendMode == backendNetworkPolicyRouted {
+		targetPID, err = waitForSandboxLeafPID(cmd.Process.Pid)
+		if err != nil {
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+			return err
+		}
+		if launchSync.uidMapReadyFile != "" {
+			if err := configureSandboxUIDMappings(targetPID, cfg.RunAsRoot); err != nil {
+				_ = cmd.Process.Kill()
+				_ = cmd.Wait()
+				return err
+			}
+			if err := launchSync.signalUIDMapReady(); err != nil {
+				_ = cmd.Process.Kill()
+				_ = cmd.Wait()
+				return err
+			}
+		}
+	}
+
+	cleanupNetwork, err := setupRoutedNetworkHost(targetPID, routedConfig)
 	if err != nil {
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
@@ -250,6 +320,9 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 	var roBind []string
 	var rwBind []string
 	var envItems []string
+	var runAsRoot bool
+	var uidMapReadyFile string
+	var mappedRootReady bool
 
 	fs.StringVar(&rootfs, "rootfs", "", "backend rootfs")
 	fs.StringVar(&cwd, "cwd", "", "backend cwd")
@@ -263,6 +336,9 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 	fs.Var(stringSliceValue{target: &roBind}, "ro-bind", "backend read-only bind mount")
 	fs.Var(stringSliceValue{target: &rwBind}, "rw-bind", "backend read-write bind mount")
 	fs.Var(stringSliceValue{target: &envItems}, "env", "backend environment variable")
+	fs.BoolVar(&runAsRoot, "run-as-root", false, "backend workload identity")
+	fs.StringVar(&uidMapReadyFile, "uid-map-ready-file", "", "backend uid/gid mapping readiness file")
+	fs.BoolVar(&mappedRootReady, "mapped-root-ready", false, "backend privilege handoff completion marker")
 
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -273,6 +349,25 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 	}
 	if networkBackend != backendNetworkPolicyHost && networkBackend != backendNetworkPolicyIsolated && networkBackend != backendNetworkPolicyRouted {
 		return fmt.Errorf("unsupported backend network mode %q", networkBackend)
+	}
+	if uidMapReadyFile != "" && !mappedRootReady {
+		if err := waitForUIDMapReady(uidMapReadyFile); err != nil {
+			return err
+		}
+		if err := reexecBackendWithMappedRoot(rootfs, cwd, hostname, networkBackend, policyConfig, routedInterface, routedAddress, routedGateway, networkReadyFD, roBind, rwBind, envItems, runAsRoot, command); err != nil {
+			return err
+		}
+		return nil
+	}
+	if rootfs != "/" || len(roBind) > 0 || len(rwBind) > 0 || !runAsRoot {
+		if err := makeMountNamespacePrivate(); err != nil {
+			return err
+		}
+	}
+	if !runAsRoot {
+		if err := prepareHostRootRuntimeLayout(); err != nil {
+			return err
+		}
 	}
 	if networkBackend == backendNetworkPolicyIsolated {
 		if err := configurePolicyNetworkBackend(policyConfig); err != nil {
@@ -296,11 +391,6 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 		}
 	}
 
-	if rootfs != "/" || len(roBind) > 0 || len(rwBind) > 0 {
-		if err := makeMountNamespacePrivate(); err != nil {
-			return err
-		}
-	}
 	if rootfs != "" && rootfs != "/" {
 		if err := prepareRootfsMountLayout(rootfs); err != nil {
 			return err
@@ -316,6 +406,10 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 			return err
 		}
 	}
+	identity, err := prepareSandboxIdentity(rootfs, runAsRoot)
+	if err != nil {
+		return err
+	}
 	if rootfs != "" && rootfs != "/" {
 		if err := syscall.Chroot(rootfs); err != nil {
 			return fmt.Errorf("chroot to %q: %w", rootfs, err)
@@ -324,30 +418,36 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 			return fmt.Errorf("chdir after chroot: %w", err)
 		}
 	}
-
 	if cwd != "" {
 		if err := os.Chdir(cwd); err != nil {
 			return fmt.Errorf("chdir to %q: %w", cwd, err)
 		}
 	}
 
-	sandboxEnv, err := buildSandboxEnv(envItems, rootfs)
+	sandboxEnv, err := buildSandboxEnv(envItems, identity)
 	if err != nil {
 		return err
 	}
-	return runDirectCommand(command, rootfs, sandboxEnv)
+	command, err = stageSandboxCommand(command, rootfs, sandboxEnv, identity)
+	if err != nil {
+		return err
+	}
+	if err := applySandboxIdentity(identity); err != nil {
+		return err
+	}
+	return runDirectCommand(command, rootfs, sandboxEnv, identity)
 }
 
-func runDirectCommand(command []string, rootfs string, sandboxEnv []string) error {
-	return execCommandInSandbox(command, rootfs, sandboxEnv)
+func runDirectCommand(command []string, rootfs string, sandboxEnv []string, identity sandboxIdentity) error {
+	return execCommandInSandbox(command, rootfs, sandboxEnv, identity)
 }
 
-func execCommandInSandbox(command []string, rootfs string, sandboxEnv []string) error {
+func execCommandInSandbox(command []string, rootfs string, sandboxEnv []string, identity sandboxIdentity) error {
 	binary, err := resolveCommandBinary(command[0], rootfs, sandboxEnv)
 	if err != nil {
 		return err
 	}
-	if err := preflightUnsupportedPing(binary); err != nil {
+	if err := preflightUnsupportedPing(binary, identity); err != nil {
 		return err
 	}
 	return syscall.Exec(binary, command, sandboxEnv)
@@ -489,9 +589,12 @@ func resolveCommandBinary(commandName string, rootfs string, sandboxEnv []string
 	return "", fmt.Errorf("resolve command %q: %w", commandName, err)
 }
 
-func preflightUnsupportedPing(binary string) error {
+func preflightUnsupportedPing(binary string, identity sandboxIdentity) error {
 	if !isLikelyPingBinary(binary) {
 		return nil
+	}
+	if identity.UID != 0 {
+		return errors.New("ping is not supported in this Mirage sandbox on the current host/kernel because ICMP sockets are not available; use a TCP/HTTP probe instead")
 	}
 
 	for _, probe := range pingSocketProbes(binary) {
@@ -541,25 +644,241 @@ func isLikelyPingBinary(binary string) bool {
 	return name == "ping" || name == "ping4" || name == "ping6"
 }
 
-func buildUnshareArgs(cfg spec.Config) ([]string, error) {
+type sandboxLaunchSync struct {
+	uidMapReadyFile string
+	tempDir         string
+}
+
+func prepareSandboxLaunchSync(runAsRoot bool, networkBackend string) (sandboxLaunchSync, error) {
+	if runAsRoot {
+		return sandboxLaunchSync{}, nil
+	}
+	tempDir, err := os.MkdirTemp("", "mirage-launch-*")
+	if err != nil {
+		return sandboxLaunchSync{}, fmt.Errorf("create sandbox launch tempdir: %w", err)
+	}
+	sync := sandboxLaunchSync{
+		uidMapReadyFile: filepath.Join(tempDir, "uidmap.ready"),
+		tempDir:         tempDir,
+	}
+	return sync, nil
+}
+
+func (s sandboxLaunchSync) cleanup() {
+	if s.tempDir != "" {
+		_ = os.RemoveAll(s.tempDir)
+	}
+}
+
+func (s sandboxLaunchSync) signalUIDMapReady() error {
+	if s.uidMapReadyFile == "" {
+		return nil
+	}
+	return os.WriteFile(s.uidMapReadyFile, []byte("ready\n"), 0o600)
+}
+
+func buildUnshareArgs(runAsRoot bool, networkBackend string) ([]string, error) {
 	args := []string{
-		"--user",
-		"--map-root-user",
 		"--fork",
-		"--pid",
+		"--kill-child",
 		"--mount",
 		"--uts",
 		"--ipc",
+		"--pid",
 	}
-
-	plan, err := planNetworkPolicyBackend(cfg)
-	if err != nil {
-		return nil, err
-	}
-	if plan.BackendMode != backendNetworkPolicyHost {
+	switch networkBackend {
+	case "", backendNetworkPolicyHost:
+	case backendNetworkPolicyRouted, backendNetworkPolicyIsolated:
 		args = append(args, "--net")
+	default:
+		return nil, fmt.Errorf("unsupported backend network mode %q", networkBackend)
+	}
+	if runAsRoot {
+		args = append(args, "--map-root-user")
+	} else {
+		args = append(args, "--user", "--setgroups", "deny")
 	}
 	return args, nil
+}
+
+func waitForSandboxLeafPID(parentPID int) (int, error) {
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		pid, err := findLeafDescendantPID(parentPID)
+		if err == nil && pid > 0 && pid != parentPID {
+			return pid, nil
+		}
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return 0, err
+		}
+		if time.Now().After(deadline) {
+			return 0, fmt.Errorf("timed out waiting for sandbox descendant pid from parent %d", parentPID)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func findLeafDescendantPID(pid int) (int, error) {
+	childrenPath := fmt.Sprintf("/proc/%d/task/%d/children", pid, pid)
+	content, err := os.ReadFile(childrenPath)
+	if err != nil {
+		return 0, fmt.Errorf("read sandbox child pid list for %d: %w", pid, err)
+	}
+	fields := strings.Fields(string(content))
+	if len(fields) == 0 {
+		return pid, nil
+	}
+	lastField := fields[len(fields)-1]
+	childPID, err := strconv.Atoi(lastField)
+	if err != nil {
+		return 0, fmt.Errorf("parse sandbox child pid %q: %w", lastField, err)
+	}
+	if childPID <= 0 {
+		return 0, fmt.Errorf("sandbox child pid %d is invalid", childPID)
+	}
+	return findLeafDescendantPID(childPID)
+}
+
+func configureSandboxUIDMappings(pid int, runAsRoot bool) error {
+	if runAsRoot {
+		return nil
+	}
+	uidHostID, err := resolveHostSandboxID("/etc/subuid", sandboxUID)
+	if err != nil {
+		return err
+	}
+	gidHostID, err := resolveHostSandboxID("/etc/subgid", sandboxGID)
+	if err != nil {
+		return err
+	}
+	if err := runIDMapCommand("newuidmap", pid, 0, os.Getuid(), sandboxUID, uidHostID); err != nil {
+		return err
+	}
+	if err := runIDMapCommand("newgidmap", pid, 0, os.Getgid(), sandboxGID, gidHostID); err != nil {
+		return err
+	}
+	return nil
+}
+
+func runIDMapCommand(name string, pid int, rootContainerID int, rootHostID int, sandboxContainerID int, sandboxHostID int) error {
+	path, err := exec.LookPath(name)
+	if err != nil {
+		return fmt.Errorf("default non-root sandbox requires %s on PATH: %w", name, err)
+	}
+	cmd := exec.Command(
+		path,
+		strconv.Itoa(pid),
+		strconv.Itoa(rootContainerID), strconv.Itoa(rootHostID), "1",
+		strconv.Itoa(sandboxContainerID), strconv.Itoa(sandboxHostID), "1",
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%s for pid %d failed: %w%s", name, pid, err, formatCommandOutput(output))
+	}
+	return nil
+}
+
+func resolveHostSandboxID(path string, containerID int) (int, error) {
+	if os.Getuid() == 0 {
+		return containerID, nil
+	}
+
+	currentUser, err := user.Current()
+	if err != nil {
+		return 0, fmt.Errorf("resolve current user for %s: %w", path, err)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return 0, fmt.Errorf("read %s: %w", path, err)
+	}
+	prefix := currentUser.Username + ":"
+	for _, line := range strings.Split(strings.TrimSpace(string(content)), "\n") {
+		if !strings.HasPrefix(line, prefix) {
+			continue
+		}
+		parts := strings.Split(line, ":")
+		if len(parts) != 3 {
+			return 0, fmt.Errorf("parse %s entry %q", path, line)
+		}
+		start, err := strconv.Atoi(parts[1])
+		if err != nil {
+			return 0, fmt.Errorf("parse %s start %q: %w", path, parts[1], err)
+		}
+		size, err := strconv.Atoi(parts[2])
+		if err != nil {
+			return 0, fmt.Errorf("parse %s size %q: %w", path, parts[2], err)
+		}
+		if size < 1 {
+			return 0, fmt.Errorf("%s entry %q has invalid size", path, line)
+		}
+		return start, nil
+	}
+
+	return 0, fmt.Errorf("default non-root sandbox requires a subordinate ID range in %s for user %q", path, currentUser.Username)
+}
+
+func waitForUIDMapReady(path string) error {
+	if path == "" {
+		return nil
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, err := os.Stat(path); err == nil {
+			return nil
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("check uid map readiness file %q: %w", path, err)
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("timed out waiting for uid map readiness file %q", path)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func reexecBackendWithMappedRoot(rootfs string, cwd string, hostname string, networkBackend string, policyConfig string, routedInterface string, routedAddress string, routedGateway string, networkReadyFD int, roBind []string, rwBind []string, envItems []string, runAsRoot bool, command []string) error {
+	self, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("resolve mirage executable: %w", err)
+	}
+
+	args := []string{self, "__backend-exec", "--rootfs", rootfs, "--network-backend", networkBackend, "--mapped-root-ready"}
+	if cwd != "" {
+		args = append(args, "--cwd", cwd)
+	}
+	if hostname != "" {
+		args = append(args, "--hostname", hostname)
+	}
+	if policyConfig != "" {
+		args = append(args, "--policy-config", policyConfig)
+	}
+	if routedInterface != "" {
+		args = append(args, "--routed-interface", routedInterface)
+	}
+	if routedAddress != "" {
+		args = append(args, "--routed-address", routedAddress)
+	}
+	if routedGateway != "" {
+		args = append(args, "--routed-gateway", routedGateway)
+	}
+	if networkReadyFD >= 0 {
+		args = append(args, "--network-ready-fd", strconv.Itoa(networkReadyFD))
+	}
+	for _, item := range roBind {
+		args = append(args, "--ro-bind", item)
+	}
+	for _, item := range rwBind {
+		args = append(args, "--rw-bind", item)
+	}
+	for _, item := range envItems {
+		args = append(args, "--env", item)
+	}
+	if runAsRoot {
+		args = append(args, "--run-as-root")
+	}
+	args = append(args, "--")
+	args = append(args, command...)
+
+	return syscall.Exec(self, args, os.Environ())
 }
 
 func prepareRootfsMountLayout(rootfs string) error {
@@ -888,16 +1207,19 @@ func ensureSandboxSymlink(path string, target string) error {
 	return nil
 }
 
-func buildSandboxEnv(items []string, rootfs string) ([]string, error) {
-	home, user, err := defaultSandboxIdentity(rootfs)
-	if err != nil {
-		return nil, err
-	}
+type sandboxIdentity struct {
+	UID  int
+	GID  int
+	Home string
+	User string
+}
+
+func buildSandboxEnv(items []string, identity sandboxIdentity) ([]string, error) {
 	env := []string{
 		"PATH=" + defaultSandboxPath,
-		"HOME=" + home,
-		"USER=" + user,
-		"LOGNAME=" + user,
+		"HOME=" + identity.Home,
+		"USER=" + identity.User,
+		"LOGNAME=" + identity.User,
 	}
 	for _, item := range items {
 		key, _, ok := strings.Cut(item, "=")
@@ -909,28 +1231,144 @@ func buildSandboxEnv(items []string, rootfs string) ([]string, error) {
 	return env, nil
 }
 
-func defaultSandboxIdentity(rootfs string) (home string, user string, err error) {
-	if rootfs != "" && rootfs != "/" {
-		return defaultSandboxHome, defaultSandboxUser, nil
+func prepareSandboxIdentity(rootfs string, runAsRoot bool) (sandboxIdentity, error) {
+	identity := defaultSandboxIdentity(rootfs, runAsRoot)
+	if runAsRoot {
+		if rootfs != "" && rootfs != "/" {
+			if err := ensureDir(bindMountTargetPath(rootfs, identity.Home), 0o755); err != nil {
+				return sandboxIdentity{}, fmt.Errorf("prepare root home %q: %w", identity.Home, err)
+			}
+		}
+		return identity, nil
 	}
+	if err := ensureDir(bindMountTargetPath(rootfs, identity.Home), 0o777); err != nil {
+		return sandboxIdentity{}, fmt.Errorf("prepare sandbox home %q: %w", identity.Home, err)
+	}
+	if err := applySandboxIdentityFiles(rootfs, identity); err != nil {
+		return sandboxIdentity{}, err
+	}
+	return identity, nil
+}
 
-	home, err = os.UserHomeDir()
+func defaultSandboxIdentity(rootfs string, runAsRoot bool) sandboxIdentity {
+	if runAsRoot {
+		return sandboxIdentity{
+			UID:  0,
+			GID:  0,
+			Home: defaultRootHome,
+			User: defaultRootUser,
+		}
+	}
+	return sandboxIdentity{
+		UID:  sandboxUID,
+		GID:  sandboxGID,
+		Home: defaultSandboxHome,
+		User: defaultSandboxUser,
+	}
+}
+
+func applySandboxIdentityFiles(rootfs string, identity sandboxIdentity) error {
+	contents := map[string]string{
+		"/etc/passwd": fmt.Sprintf("root:x:0:0:root:%s:/bin/sh\n%s:x:%d:%d:%s:%s:/bin/sh\n", defaultRootHome, identity.User, identity.UID, identity.GID, identity.User, identity.Home),
+		"/etc/group":  fmt.Sprintf("root:x:0:\n%s:x:%d:\n", identity.User, identity.GID),
+	}
+	for target, content := range contents {
+		sourcePath, err := writeRuntimeIdentityFile(content)
+		if err != nil {
+			return fmt.Errorf("prepare sandbox identity file %q: %w", target, err)
+		}
+		defer func(path string) {
+			_ = os.Remove(path)
+		}(sourcePath)
+		if err := applyBindMount(rootfs, bindMount{Source: sourcePath, Target: target, ReadOnly: true}); err != nil {
+			return fmt.Errorf("install sandbox identity file %q: %w", target, err)
+		}
+	}
+	return nil
+}
+
+func writeRuntimeIdentityFile(content string) (string, error) {
+	file, err := os.CreateTemp("", "mirage-identity-*")
 	if err != nil {
-		return "", "", fmt.Errorf("resolve host sandbox home: %w", err)
+		return "", err
 	}
-	home = strings.TrimSpace(home)
-	if home == "" {
-		return "", "", errors.New("resolve host sandbox home: empty home directory")
+	if _, err := file.WriteString(content); err != nil {
+		_ = file.Close()
+		_ = os.Remove(file.Name())
+		return "", err
+	}
+	if err := file.Close(); err != nil {
+		_ = os.Remove(file.Name())
+		return "", err
+	}
+	return file.Name(), nil
+}
+
+func prepareHostRootRuntimeLayout() error {
+	if err := mountTmpfs("/run", "mode=0755"); err != nil {
+		return fmt.Errorf("mount runtime /run tmpfs: %w", err)
+	}
+	return nil
+}
+
+func stageSandboxCommand(command []string, rootfs string, sandboxEnv []string, identity sandboxIdentity) ([]string, error) {
+	if rootfs != "/" || identity.UID == 0 || len(command) == 0 {
+		return command, nil
 	}
 
-	user = strings.TrimSpace(os.Getenv("USER"))
-	if user == "" {
-		user = filepath.Base(home)
+	binary, err := resolveCommandBinary(command[0], rootfs, sandboxEnv)
+	if err != nil {
+		return nil, err
 	}
-	if user == "." || user == string(os.PathSeparator) || strings.TrimSpace(user) == "" {
-		user = defaultSandboxUser
+	if !strings.HasPrefix(binary, "/tmp/") {
+		return command, nil
 	}
-	return home, user, nil
+
+	stageDir := "/run/mirage-bin"
+	if err := ensureDir(stageDir, 0o755); err != nil {
+		return nil, fmt.Errorf("prepare staged command dir: %w", err)
+	}
+	source, err := os.Open(binary)
+	if err != nil {
+		return nil, fmt.Errorf("open staged command source %q: %w", binary, err)
+	}
+	defer source.Close()
+
+	stagedPath := filepath.Join(stageDir, filepath.Base(binary))
+	target, err := os.OpenFile(stagedPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
+	if err != nil {
+		return nil, fmt.Errorf("create staged command %q: %w", stagedPath, err)
+	}
+	if _, err := io.Copy(target, source); err != nil {
+		_ = target.Close()
+		return nil, fmt.Errorf("copy staged command %q: %w", stagedPath, err)
+	}
+	if err := target.Close(); err != nil {
+		return nil, fmt.Errorf("close staged command %q: %w", stagedPath, err)
+	}
+	if err := os.Chown(stageDir, identity.UID, identity.GID); err != nil {
+		return nil, fmt.Errorf("chown staged command dir %q: %w", stageDir, err)
+	}
+	if err := os.Chown(stagedPath, identity.UID, identity.GID); err != nil {
+		return nil, fmt.Errorf("chown staged command %q: %w", stagedPath, err)
+	}
+
+	stagedCommand := append([]string(nil), command...)
+	stagedCommand[0] = stagedPath
+	return stagedCommand, nil
+}
+
+func applySandboxIdentity(identity sandboxIdentity) error {
+	if identity.UID == 0 && identity.GID == 0 {
+		return nil
+	}
+	if err := syscall.Setgid(identity.GID); err != nil {
+		return fmt.Errorf("drop sandbox gid to %d: %w", identity.GID, err)
+	}
+	if err := syscall.Setuid(identity.UID); err != nil {
+		return fmt.Errorf("drop sandbox uid to %d: %w", identity.UID, err)
+	}
+	return nil
 }
 
 func envValue(items []string, key string, fallback string) string {
@@ -989,6 +1427,14 @@ func prepareLogWriter(path string, fallback io.Writer) (io.Closer, io.Writer, er
 	return file, io.MultiWriter(fallback, file), nil
 }
 
+func formatCommandOutput(output []byte) string {
+	text := strings.TrimSpace(string(output))
+	if text == "" {
+		return ""
+	}
+	return ": " + text
+}
+
 func closeQuietly(closer io.Closer) {
 	if closer != nil {
 		_ = closer.Close()
@@ -1044,6 +1490,11 @@ func PlanNotes(cfg spec.Config) []string {
 		notes = append(notes, "rootfs backend: host root")
 	} else {
 		notes = append(notes, "rootfs backend: mounted runtime layout plus chroot handoff")
+	}
+	if cfg.RunAsRoot {
+		notes = append(notes, "workload identity: root (explicit via --run-as-root)")
+	} else {
+		notes = append(notes, fmt.Sprintf("workload identity: non-root %s (%d:%d)", defaultSandboxUser, sandboxUID, sandboxGID))
 	}
 	return notes
 }

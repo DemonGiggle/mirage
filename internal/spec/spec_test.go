@@ -151,6 +151,7 @@ cwd: /workspace
 hostname: demo
 memory: 256M
 pids: 32
+runAsRoot: true
 `), 0o644); err != nil {
 		t.Fatalf("write preset file: %v", err)
 	}
@@ -165,6 +166,9 @@ pids: 32
 	}
 	if cfg.Memory != "256M" || cfg.Pids != 32 {
 		t.Fatalf("unexpected merged limits: %#v", cfg)
+	}
+	if !cfg.RunAsRoot {
+		t.Fatalf("expected preset to enable runAsRoot, got %#v", cfg)
 	}
 	if len(cfg.ROBind) != 1 || cfg.ROBind[0] != "/host:/guest" {
 		t.Fatalf("unexpected bind mounts: %#v", cfg)

@@ -87,6 +87,7 @@ Common options include:
 - `--ro-bind`: read-only `host:guest` bind mount
 - `--rw-bind`: read-write `host:guest` bind mount
 - `--env`: explicit sandbox environment variable in `KEY=VALUE` form
+- `--run-as-root`: keep the workload as root instead of Mirage's default non-root `mirage` user
 - `--cwd`: working directory inside the sandbox
 - `--stdout-log` and `--stderr-log`: host-visible log export targets
 - `--memory` and `--pids`: delegated cgroup v2 limits
@@ -113,6 +114,11 @@ silently degrading.
 Mirage does not inherit arbitrary host environment variables into the sandboxed
 workload. The managed sandbox environment starts from an explicit `PATH` and
 adds any `--env KEY=VALUE` entries you provide.
+
+By default, Mirage drops the workload to the non-root `mirage` user (UID/GID
+1000) and synthesizes matching `/etc/passwd` and `/etc/group` entries at
+runtime. Use `--run-as-root` only when the workload actually needs root inside
+the sandbox.
 
 ## Rootfs Workflows
 
