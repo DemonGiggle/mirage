@@ -48,6 +48,7 @@ func TestRootHelpMentionsCommandSurface(t *testing.T) {
 		"mirage <command> [flags]",
 		"rootfs          generate or inspect built-in rootfs templates",
 		"network-policy  list bundled example network policy files",
+		"package         assemble a standalone release bundle",
 	} {
 		if !strings.Contains(got, needle) {
 			t.Fatalf("expected root help to contain %q, got %q", needle, got)
@@ -123,6 +124,69 @@ func TestNetworkPolicyListFilesShowsExamples(t *testing.T) {
 	} {
 		if !strings.Contains(got, needle) {
 			t.Fatalf("expected network policy list output to contain %q, got %q", needle, got)
+		}
+	}
+}
+
+func TestPackageHelpIncludesBundleLayout(t *testing.T) {
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+
+	if err := Run([]string{"package", "--help"}, &out, &errBuf); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	got := out.String()
+	for _, needle := range []string{
+		"Assemble a standalone Mirage release bundle.",
+		"mirage package --output <path> [--binary <path>]",
+		"share/mirage/rootfs/templates",
+		"share/mirage/network-policies",
+		"share/mirage/presets",
+	} {
+		if !strings.Contains(got, needle) {
+			t.Fatalf("expected package help to contain %q, got %q", needle, got)
+		}
+	}
+}
+
+func TestPackageCreatesDirectoryBundle(t *testing.T) {
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+
+	tempDir := t.TempDir()
+	binaryPath := filepath.Join(tempDir, "mirage")
+	if err := os.WriteFile(binaryPath, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write fake binary: %v", err)
+	}
+	outputDir := filepath.Join(tempDir, "release")
+
+	if err := Run([]string{"package", "--output", outputDir, "--binary", binaryPath}, &out, &errBuf); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	for _, relPath := range []string{
+		"bin/mirage",
+		"share/mirage/rootfs/templates/basic.yaml",
+		"share/mirage/network-policies/offline.yaml",
+		"share/mirage/presets/openclaw-offline.yaml",
+	} {
+		fullPath := filepath.Join(outputDir, relPath)
+		if _, err := os.Stat(fullPath); err != nil {
+			t.Fatalf("expected packaged file %q to exist: %v", fullPath, err)
+		}
+	}
+
+	got := out.String()
+	for _, needle := range []string{
+		"mirage package",
+		"format: dir",
+		"rootfs-templates: ",
+		"network-policies: 3",
+		"presets: 2",
+	} {
+		if !strings.Contains(got, needle) {
+			t.Fatalf("expected package output to contain %q, got %q", needle, got)
 		}
 	}
 }

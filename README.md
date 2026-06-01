@@ -58,6 +58,13 @@ Build the CLI:
 go build -o ./bin/mirage ./cmd/mirage
 ```
 
+Assemble a release bundle that already includes the executable, bundled rootfs
+template YAML, network policies, and presets:
+
+```bash
+./bin/mirage package --output ./dist/mirage-linux-amd64.tar.gz --binary ./bin/mirage
+```
+
 Check the local environment:
 
 ```bash
@@ -84,6 +91,19 @@ Run a simple local-only command:
 
 For the full template catalog, dedicated-rootfs guidance, bind mounts, and
 preset-file workflows, use the docs linked below.
+
+## Release Bundles
+
+`mirage package` creates a standalone bundle for public release. The bundle
+contains:
+
+- `bin/mirage`
+- `share/mirage/rootfs/templates/*.yaml`
+- `share/mirage/network-policies/*.yaml`
+- `share/mirage/presets/*.yaml`
+
+That lets downstream users download one package and immediately use the bundled
+presets and policies without needing a source checkout.
 
 ## Host Requirements
 
