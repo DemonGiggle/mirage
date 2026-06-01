@@ -110,6 +110,9 @@ func TestRequireHostNetworkAdminRejectsMissingCapability(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "requires CAP_NET_ADMIN on the host") {
 		t.Fatalf("expected CAP_NET_ADMIN error, got %v", err)
 	}
+	if !strings.Contains(err.Error(), "setcap cap_net_admin+ep") {
+		t.Fatalf("expected capability remediation hint, got %v", err)
+	}
 }
 
 func TestRequireHostNetworkAdminAcceptsCapability(t *testing.T) {
@@ -123,6 +126,78 @@ func TestRequireHostNetworkAdminAcceptsCapability(t *testing.T) {
 
 	if err := requireHostNetworkAdmin(); err != nil {
 		t.Fatalf("requireHostNetworkAdmin returned error: %v", err)
+	}
+}
+
+func TestRequireIPv4ForwardingRejectsDisabledForwardingWithHint(t *testing.T) {
+	restoreReadForwarding := readIPv4ForwardingFile
+	readIPv4ForwardingFile = func(string) ([]byte, error) {
+		return []byte("0\n"), nil
+	}
+	t.Cleanup(func() {
+		readIPv4ForwardingFile = restoreReadForwarding
+	})
+
+	err := requireIPv4Forwarding()
+	if err == nil || !strings.Contains(err.Error(), "net.ipv4.ip_forward=1") {
+		t.Fatalf("expected ip_forward error, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "sudo sysctl -w net.ipv4.ip_forward=1") {
+		t.Fatalf("expected sysctl remediation hint, got %v", err)
+	}
+}
+
+func TestSetupRoutedNetworkHostSuggestsInstallingIPCommand(t *testing.T) {
+	restoreHostCommand := routedHostCommand
+	restoreReadForwarding := readIPv4ForwardingFile
+	restoreStatusReader := readProcessStatusFile
+	routedHostCommand = func(string, ...string) *exec.Cmd {
+		return exec.Command("definitely-missing-binary")
+	}
+	readIPv4ForwardingFile = func(string) ([]byte, error) {
+		return []byte("1\n"), nil
+	}
+	readProcessStatusFile = func(string) ([]byte, error) {
+		return []byte("Name:\ttest\nCapEff:\t0000000000001000\n"), nil
+	}
+	t.Cleanup(func() {
+		routedHostCommand = restoreHostCommand
+		readIPv4ForwardingFile = restoreReadForwarding
+		readProcessStatusFile = restoreStatusReader
+	})
+
+	_, err := setupRoutedNetworkHost(4242, routedNetworkConfig{
+		HostIfName:  "mrgh0",
+		GuestIfName: "mrgg0",
+		HostCIDR:    "198.19.0.1/30",
+		SubnetCIDR:  "198.19.0.0/30",
+	})
+	if err == nil || !strings.Contains(err.Error(), "install iproute2") {
+		t.Fatalf("expected iproute2 remediation hint, got %v", err)
+	}
+}
+
+func TestConfigureRoutedPolicyNetworkBackendSuggestsPrivilegeFix(t *testing.T) {
+	restorePolicyCommand := policyNetworkCommand
+	logPath := filepath.Join(t.TempDir(), "commands.log")
+	policyNetworkCommand = func(name string, args ...string) *exec.Cmd {
+		return helperCommandWithEnv(t, map[string]string{
+			"MIRAGE_TEST_COMMAND_LOG": logPath,
+			"MIRAGE_HELPER_STDERR":    "iptables v1.8.10 (nf_tables): Could not fetch rule set generation id: Permission denied (you must be root)",
+			"MIRAGE_HELPER_EXIT":      "1",
+		})(name, args...)
+	}
+	t.Cleanup(func() {
+		policyNetworkCommand = restorePolicyCommand
+	})
+
+	encoded, err := encodeNetworkPolicyBackend(testAllowBeforeDenyPolicy(t))
+	if err != nil {
+		t.Fatalf("encodeNetworkPolicyBackend returned error: %v", err)
+	}
+	err = configureRoutedPolicyNetworkBackend(encoded, "mrgg0", "198.19.0.2/30", "198.19.0.1")
+	if err == nil || !strings.Contains(err.Error(), "run mirage with sudo or grant CAP_NET_ADMIN") {
+		t.Fatalf("expected privilege remediation hint, got %v", err)
 	}
 }
 
@@ -160,24 +235,42 @@ func TestHelperProcess(t *testing.T) {
 		os.Exit(2)
 	}
 	entry := strings.Join(args[sentinel+1:], " ") + "\n"
-	file, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
-	if err != nil {
-		os.Exit(3)
+	if logPath != "" {
+		file, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+		if err != nil {
+			os.Exit(3)
+		}
+		_, _ = file.WriteString(entry)
+		_ = file.Close()
 	}
-	_, _ = file.WriteString(entry)
-	_ = file.Close()
+	if stderr := os.Getenv("MIRAGE_HELPER_STDERR"); stderr != "" {
+		_, _ = os.Stderr.WriteString(stderr)
+	}
+	if exitCode := os.Getenv("MIRAGE_HELPER_EXIT"); exitCode != "" && exitCode != "0" {
+		os.Exit(1)
+	}
 	os.Exit(0)
 }
 
 func helperCommand(t *testing.T, logPath string) func(string, ...string) *exec.Cmd {
 	t.Helper()
 	return func(name string, args ...string) *exec.Cmd {
+		return helperCommandWithEnv(t, map[string]string{
+			"MIRAGE_TEST_COMMAND_LOG": logPath,
+		})(name, args...)
+	}
+}
+
+func helperCommandWithEnv(t *testing.T, extraEnv map[string]string) func(string, ...string) *exec.Cmd {
+	t.Helper()
+	return func(name string, args ...string) *exec.Cmd {
 		commandArgs := append([]string{"-test.run=TestHelperProcess", "--", name}, args...)
 		cmd := exec.Command(os.Args[0], commandArgs...)
-		cmd.Env = append(os.Environ(),
-			"GO_WANT_HELPER_PROCESS=1",
-			"MIRAGE_TEST_COMMAND_LOG="+logPath,
-		)
+		env := append(os.Environ(), "GO_WANT_HELPER_PROCESS=1")
+		for key, value := range extraEnv {
+			env = append(env, key+"="+value)
+		}
+		cmd.Env = env
 		return cmd
 	}
 }
