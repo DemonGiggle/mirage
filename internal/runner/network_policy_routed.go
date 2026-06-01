@@ -155,13 +155,43 @@ func runPacketFilterCommands(commands []packetFilterCommand) error {
 	for _, command := range commands {
 		output, err := policyNetworkCommand(command.Name, command.Args...).CombinedOutput()
 		if err != nil {
-			if trimmed := strings.TrimSpace(string(output)); trimmed != "" {
-				return fmt.Errorf("apply networkPolicy backend command %s %v: %w: %s", command.Name, command.Args, err, trimmed)
-			}
-			return fmt.Errorf("apply networkPolicy backend command %s %v: %w", command.Name, command.Args, err)
+			return routedCommandError("apply networkPolicy backend command", command.Name, command.Args, err, output, "networkPolicy enforcement")
 		}
 	}
 	return nil
+}
+
+func routedCommandError(prefix string, name string, args []string, err error, output []byte, privilegeContext string) error {
+	suffix := ""
+	if trimmed := strings.TrimSpace(string(output)); trimmed != "" {
+		suffix += ": " + trimmed
+	}
+	if hint := routedCommandFixHint(name, err, output, privilegeContext); hint != "" {
+		suffix += "; " + hint
+	}
+	return fmt.Errorf("%s %s %v: %w%s", prefix, name, args, err, suffix)
+}
+
+func routedCommandFixHint(name string, err error, output []byte, privilegeContext string) string {
+	var execErr *exec.Error
+	if errors.As(err, &execErr) && errors.Is(execErr.Err, exec.ErrNotFound) {
+		switch name {
+		case "ip":
+			return "install iproute2 (or the distro package that provides `ip`) and ensure `ip` is on PATH before retrying"
+		case "iptables", "ip6tables":
+			return fmt.Sprintf("install the host package that provides `%s` and ensure it is on PATH before using networkPolicy enforcement", name)
+		}
+	}
+
+	combined := err.Error()
+	if trimmed := strings.TrimSpace(string(output)); trimmed != "" {
+		combined += "\n" + trimmed
+	}
+	lower := strings.ToLower(combined)
+	if strings.Contains(lower, "permission denied") || strings.Contains(lower, "operation not permitted") || strings.Contains(lower, "you must be root") {
+		return fmt.Sprintf("run mirage with sudo or grant CAP_NET_ADMIN before using %s", privilegeContext)
+	}
+	return ""
 }
 
 func setupRoutedNetworkHost(pid int, cfg routedNetworkConfig) (func(), error) {
@@ -179,10 +209,7 @@ func setupRoutedNetworkHost(pid int, cfg routedNetworkConfig) (func(), error) {
 	run := func(name string, args ...string) error {
 		output, err := routedHostCommand(name, args...).CombinedOutput()
 		if err != nil {
-			if trimmed := strings.TrimSpace(string(output)); trimmed != "" {
-				return fmt.Errorf("run %s %v: %w: %s", name, args, err, trimmed)
-			}
-			return fmt.Errorf("run %s %v: %w", name, args, err)
+			return routedCommandError("run", name, args, err, output, "routed networking")
 		}
 		return nil
 	}
@@ -266,21 +293,21 @@ func requireHostNetworkAdmin() error {
 			return fmt.Errorf("parse CapEff from /proc/self/status: %w", err)
 		}
 		if mask&(uint64(1)<<linuxCapabilityNETADMIN) == 0 {
-			return errors.New("routed network backend requires CAP_NET_ADMIN on the host; run mirage with sudo or grant the capability before using routed egress policies")
+			return errors.New("routed network backend requires CAP_NET_ADMIN on the host; run mirage with sudo or grant the capability with `sudo setcap cap_net_admin+ep /path/to/mirage` before using routed egress policies")
 		}
 		return nil
 	}
 
-	return errors.New("read /proc/self/status: missing CapEff entry")
+	return errors.New("read /proc/self/status: missing CapEff entry; ensure /proc is mounted and readable on the host before using routed egress policies")
 }
 
 func requireIPv4Forwarding() error {
 	data, err := readIPv4ForwardingFile("/proc/sys/net/ipv4/ip_forward")
 	if err != nil {
-		return fmt.Errorf("read /proc/sys/net/ipv4/ip_forward: %w", err)
+		return fmt.Errorf("read /proc/sys/net/ipv4/ip_forward: %w; ensure /proc/sys is mounted and readable on the host before using routed networking", err)
 	}
 	if strings.TrimSpace(string(data)) != "1" {
-		return fmt.Errorf("routed network backend requires net.ipv4.ip_forward=1 on the host")
+		return errors.New("routed network backend requires net.ipv4.ip_forward=1 on the host; enable it with `sudo sysctl -w net.ipv4.ip_forward=1` and persist it in `/etc/sysctl.d/*.conf` before retrying")
 	}
 	return nil
 }

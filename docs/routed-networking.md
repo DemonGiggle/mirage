@@ -161,6 +161,21 @@ cat /proc/sys/net/ipv4/ip_forward
 Mirage expects the value to be `1`. If it is not, routed networking fails
 closed instead of silently bypassing the requested policy.
 
+To enable it immediately:
+
+```bash
+sudo sysctl -w net.ipv4.ip_forward=1
+```
+
+To keep it enabled across reboots, add a sysctl drop-in such as
+`/etc/sysctl.d/99-mirage.conf` containing:
+
+```text
+net.ipv4.ip_forward = 1
+```
+
+Then reload sysctl settings with `sudo sysctl --system`.
+
 ### Sandbox-side setup
 
 After the host signals readiness, the sandbox runs commands equivalent to:
