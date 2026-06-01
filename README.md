@@ -88,16 +88,18 @@ preset-file workflows, use the docs linked below.
 ## Host Requirements
 
 Mirage expects a few host-side tools to already be installed. The exact package
-names vary by distribution, but the required binaries are:
+names vary by distribution, but the required host-provided packages/tools are:
 
 - `unshare` for namespace-backed execution
+- the `uidmap` package, which provides `newuidmap` and `newgidmap` for Mirage's
+  default non-root workload execution
 - `ip` for isolated network namespace setup
 - `iptables` and `ip6tables` for non-host `networkPolicy` enforcement
 - `systemd-run` with a working user manager session if you use delegated `--memory` or `--pids` limits
 
 `./bin/mirage doctor` is the quickest way to check the current environment, but
-you should install those host tools yourself before relying on namespace and
-network-policy features.
+you should install those host packages/tools yourself before relying on
+namespace and network-policy features.
 
 ## Documentation Map
 

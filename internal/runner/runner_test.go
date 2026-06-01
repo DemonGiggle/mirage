@@ -3,7 +3,6 @@ package runner
 import (
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 
@@ -11,7 +10,7 @@ import (
 )
 
 func TestResolveCommandBinaryMentionsRootfsWhenPathLookupFails(t *testing.T) {
-	sandboxEnv, err := buildSandboxEnv(nil, "/tmp/test-rootfs")
+	sandboxEnv, err := buildSandboxEnv(nil, defaultSandboxIdentity("/tmp/test-rootfs", false))
 	if err != nil {
 		t.Fatalf("buildSandboxEnv returned error: %v", err)
 	}
@@ -152,63 +151,60 @@ func TestPlanNotesAllowAllPolicy(t *testing.T) {
 	if !strings.Contains(got, "network backend: allow-all policy via host namespace passthrough") {
 		t.Fatalf("expected allow-all note, got %q", got)
 	}
+	if !strings.Contains(got, "workload identity: non-root mirage (1000:1000)") {
+		t.Fatalf("expected non-root identity note, got %q", got)
+	}
+}
+
+func TestPlanNotesRunAsRoot(t *testing.T) {
+	notes := PlanNotes(spec.Config{
+		RootFS:    "/",
+		RunAsRoot: true,
+	})
+	got := strings.Join(notes, "\n")
+	if !strings.Contains(got, "workload identity: root (explicit via --run-as-root)") {
+		t.Fatalf("expected root identity note, got %q", got)
+	}
 }
 
 func TestBuildUnshareArgsUsesNetNamespaceForOfflineNetworkPolicy(t *testing.T) {
-	args, err := buildUnshareArgs(spec.Config{
-		NetworkPolicy: &spec.NetworkPolicy{
-			Version:  1,
-			Loopback: spec.LoopbackPolicy{Default: spec.PolicyAllow},
-			Ingress:  spec.IngressPolicy{Default: spec.PolicyDeny, Rules: []spec.IngressRule{}},
-			Egress:   spec.EgressPolicy{Default: spec.PolicyDeny, Rules: []spec.EgressRule{}},
-		},
-	})
+	args, err := buildUnshareArgs(false, backendNetworkPolicyIsolated)
 	if err != nil {
 		t.Fatalf("buildUnshareArgs returned error: %v", err)
 	}
 	if !slicesContains(args, "--net") {
-		t.Fatalf("expected policy backend to use a dedicated net namespace, got %#v", args)
+		t.Fatalf("expected isolated backend to use a dedicated net namespace, got %#v", args)
 	}
 }
 
 func TestBuildUnshareArgsSkipsNetNamespaceForAllowAllNetworkPolicy(t *testing.T) {
-	policy := spec.AllowAllNetworkPolicy()
-	args, err := buildUnshareArgs(spec.Config{
-		NetworkPolicy: &policy,
-	})
+	args, err := buildUnshareArgs(false, backendNetworkPolicyHost)
 	if err != nil {
 		t.Fatalf("buildUnshareArgs returned error: %v", err)
 	}
 	if slicesContains(args, "--net") {
-		t.Fatalf("expected allow-all policy to avoid a dedicated net namespace, got %#v", args)
+		t.Fatalf("expected allow-all backend to avoid a dedicated net namespace, got %#v", args)
 	}
 }
 
-func TestBuildUnshareArgsSupportsPolicyAllows(t *testing.T) {
-	args, err := buildUnshareArgs(spec.Config{
-		NetworkPolicy: &spec.NetworkPolicy{
-			Version:  1,
-			Loopback: spec.LoopbackPolicy{Default: spec.PolicyAllow},
-			Ingress:  spec.IngressPolicy{Default: spec.PolicyDeny, Rules: []spec.IngressRule{}},
-			Egress: spec.EgressPolicy{
-				Default: spec.PolicyDeny,
-				Rules: []spec.EgressRule{
-					{
-						Name:        "allow-api",
-						Action:      spec.PolicyAllow,
-						Destination: spec.NetworkSelector{IP: "203.0.113.10"},
-						Protocol:    spec.ProtocolTCP,
-						Ports:       []int{443},
-					},
-				},
-			},
-		},
-	})
+func TestBuildUnshareArgsSwitchesRootMode(t *testing.T) {
+	args, err := buildUnshareArgs(false, backendNetworkPolicyIsolated)
 	if err != nil {
-		t.Fatalf("expected allow rule policy to succeed, got %v", err)
+		t.Fatalf("buildUnshareArgs returned error: %v", err)
 	}
-	if !slices.Contains(args, "--net") {
-		t.Fatalf("expected isolated policy to require --net, got %#v", args)
+	if !slicesContains(args, "--user") || !slicesContains(args, "--setgroups") {
+		t.Fatalf("expected non-root launch to configure a user namespace without map-root-user, got %#v", args)
+	}
+	if slicesContains(args, "--map-root-user") {
+		t.Fatalf("expected non-root launch to avoid --map-root-user, got %#v", args)
+	}
+
+	rootArgs, err := buildUnshareArgs(true, backendNetworkPolicyHost)
+	if err != nil {
+		t.Fatalf("buildUnshareArgs returned error for root mode: %v", err)
+	}
+	if !slicesContains(rootArgs, "--map-root-user") {
+		t.Fatalf("expected root launch to include --map-root-user, got %#v", rootArgs)
 	}
 }
 
@@ -230,6 +226,15 @@ func TestWriteOptionalCgroupFileIgnoresMissingFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected missing optional cgroup file to be ignored, got %v", err)
 	}
+}
+
+func slicesContains(items []string, want string) bool {
+	for _, item := range items {
+		if item == want {
+			return true
+		}
+	}
+	return false
 }
 
 func TestCgroupLeafCleanupRemovesLeafBeforeEntry(t *testing.T) {
@@ -262,19 +267,10 @@ func TestCgroupLeafCleanupSkipsRemovalAfterEntry(t *testing.T) {
 	}
 }
 
-func slicesContains(items []string, want string) bool {
-	for _, item := range items {
-		if item == want {
-			return true
-		}
-	}
-	return false
-}
-
 func TestBuildSandboxEnvDoesNotInheritHostVariables(t *testing.T) {
 	t.Setenv("SECRET_TOKEN", "host-secret")
 
-	env, err := buildSandboxEnv([]string{"FOO=bar"}, "/sandbox-rootfs")
+	env, err := buildSandboxEnv([]string{"FOO=bar"}, defaultSandboxIdentity("/sandbox-rootfs", false))
 	if err != nil {
 		t.Fatalf("buildSandboxEnv returned error: %v", err)
 	}
@@ -295,8 +291,90 @@ func TestBuildSandboxEnvDoesNotInheritHostVariables(t *testing.T) {
 	}
 }
 
+func TestConfigureSandboxUIDMappingsWritesDirectRootMaps(t *testing.T) {
+	pid := 4242
+	procRoot := filepath.Join(t.TempDir(), "proc")
+	pidDir := filepath.Join(procRoot, "4242")
+	if err := os.MkdirAll(pidDir, 0o755); err != nil {
+		t.Fatalf("create fake proc pid dir: %v", err)
+	}
+
+	restoreUID := currentUID
+	restoreGID := currentGID
+	restoreProcfs := procfsRoot
+	restoreRunner := idMapCommandRunner
+	currentUID = func() int { return 0 }
+	currentGID = func() int { return 0 }
+	procfsRoot = procRoot
+	idMapCommandRunner = func(string, int, int, int, int, int) error {
+		t.Fatal("expected direct procfs mapping writes for root caller")
+		return nil
+	}
+	t.Cleanup(func() {
+		currentUID = restoreUID
+		currentGID = restoreGID
+		procfsRoot = restoreProcfs
+		idMapCommandRunner = restoreRunner
+	})
+
+	if err := configureSandboxUIDMappings(pid, false); err != nil {
+		t.Fatalf("configureSandboxUIDMappings returned error: %v", err)
+	}
+
+	uidMap, err := os.ReadFile(filepath.Join(pidDir, "uid_map"))
+	if err != nil {
+		t.Fatalf("read uid_map: %v", err)
+	}
+	if got := string(uidMap); got != `0 0 1
+1000 1000 1
+` {
+		t.Fatalf("unexpected uid_map contents: %q", got)
+	}
+
+	gidMap, err := os.ReadFile(filepath.Join(pidDir, "gid_map"))
+	if err != nil {
+		t.Fatalf("read gid_map: %v", err)
+	}
+	if got := string(gidMap); got != `0 0 1
+1000 1000 1
+` {
+		t.Fatalf("unexpected gid_map contents: %q", got)
+	}
+}
+
+func TestResolveHostSandboxIDForUserSkipsReservedHostID(t *testing.T) {
+	got, err := resolveHostSandboxIDForUser("/etc/subuid", "mirage", 1000, []byte("mirage:1000:65536\n"))
+	if err != nil {
+		t.Fatalf("resolveHostSandboxIDForUser returned error: %v", err)
+	}
+	if got != 1001 {
+		t.Fatalf("expected subordinate ID 1001, got %d", got)
+	}
+}
+
+func TestResolveHostSandboxIDForUserFallsBackToLaterRange(t *testing.T) {
+	content := []byte("mirage:1000:1\nmirage:200000:65536\n")
+	got, err := resolveHostSandboxIDForUser("/etc/subuid", "mirage", 1000, content)
+	if err != nil {
+		t.Fatalf("resolveHostSandboxIDForUser returned error: %v", err)
+	}
+	if got != 200000 {
+		t.Fatalf("expected fallback subordinate ID 200000, got %d", got)
+	}
+}
+
+func TestResolveHostSandboxIDForUserRejectsOnlyOverlappingSingleIDRange(t *testing.T) {
+	_, err := resolveHostSandboxIDForUser("/etc/subuid", "mirage", 1000, []byte("mirage:1000:1\n"))
+	if err == nil {
+		t.Fatal("expected overlapping single-ID range to fail")
+	}
+	if !strings.Contains(err.Error(), "does not leave another ID for the sandbox user") {
+		t.Fatalf("expected overlap error, got %v", err)
+	}
+}
+
 func TestBuildSandboxEnvSupportsPathOverride(t *testing.T) {
-	env, err := buildSandboxEnv([]string{"PATH=/custom/bin", "HOME=/workspace", "USER=workspace-user", "TERM=xterm-256color"}, "/sandbox-rootfs")
+	env, err := buildSandboxEnv([]string{"PATH=/custom/bin", "HOME=/workspace", "USER=workspace-user", "TERM=xterm-256color"}, defaultSandboxIdentity("/sandbox-rootfs", false))
 	if err != nil {
 		t.Fatalf("buildSandboxEnv returned error: %v", err)
 	}
@@ -331,7 +409,7 @@ func TestResolveCommandBinaryUsesSandboxPath(t *testing.T) {
 		t.Fatalf("write demo binary: %v", err)
 	}
 
-	sandboxEnv, err := buildSandboxEnv([]string{"PATH=" + dir}, "/tmp/test-rootfs")
+	sandboxEnv, err := buildSandboxEnv([]string{"PATH=" + dir}, defaultSandboxIdentity("/tmp/test-rootfs", false))
 	if err != nil {
 		t.Fatalf("buildSandboxEnv returned error: %v", err)
 	}
@@ -359,5 +437,41 @@ func TestPingSocketProbesUsesDualStackForUnifiedPing(t *testing.T) {
 	probes := pingSocketProbes("/usr/bin/ping")
 	if len(probes) != 4 {
 		t.Fatalf("expected unified ping to probe both IPv4 and IPv6 socket variants, got %#v", probes)
+	}
+}
+
+func TestDefaultSandboxIdentityUsesRootHomeForExplicitRoot(t *testing.T) {
+	identity := defaultSandboxIdentity("/sandbox-rootfs", true)
+	if identity.UID != 0 || identity.GID != 0 {
+		t.Fatalf("expected root identity, got %#v", identity)
+	}
+	if identity.Home != defaultRootHome || identity.User != defaultRootUser {
+		t.Fatalf("unexpected root identity details: %#v", identity)
+	}
+}
+
+func TestDefaultSandboxIdentityUsesHostRootSafeHome(t *testing.T) {
+	identity := defaultSandboxIdentity("/", false)
+	if identity.UID != sandboxUID || identity.GID != sandboxGID {
+		t.Fatalf("expected sandbox uid/gid, got %#v", identity)
+	}
+	if identity.Home != hostSandboxHome() || identity.User != defaultSandboxUser {
+		t.Fatalf("unexpected host-root identity: %#v", identity)
+	}
+}
+
+func TestWriteRuntimeIdentityFile(t *testing.T) {
+	path, err := writeRuntimeIdentityFile("demo\n")
+	if err != nil {
+		t.Fatalf("writeRuntimeIdentityFile returned error: %v", err)
+	}
+	defer os.Remove(path)
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read runtime identity file: %v", err)
+	}
+	if string(data) != "demo\n" {
+		t.Fatalf("unexpected runtime identity file content %q", string(data))
 	}
 }

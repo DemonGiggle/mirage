@@ -453,6 +453,7 @@ func runSandbox(args []string, stdout, stderr io.Writer) error {
 	fs.Var(stringSliceValue{target: &cfg.ROBind}, "ro-bind", "Read-only bind mount in host:guest form.")
 	fs.Var(stringSliceValue{target: &cfg.RWBind}, "rw-bind", "Writable bind mount in host:guest form.")
 	fs.Var(stringSliceValue{target: &cfg.Env}, "env", "Environment variable in KEY=VALUE form.")
+	fs.BoolVar(&cfg.RunAsRoot, "run-as-root", false, "Run the workload as root inside the sandbox.")
 	fs.StringVar(&cfg.NetworkPolicyFile, "network-policy-file", "", "Path to a standalone networkPolicy YAML file. Use `mirage network-policy list` for bundled examples.")
 	fs.StringVar(&cfg.ScopeName, "scope-name", "", "Internal: explicit systemd user scope unit name.")
 	fs.StringVar(&cfg.PresetFile, "preset-file", "", "Path to a preset YAML file.")
@@ -469,7 +470,7 @@ func runSandbox(args []string, stdout, stderr io.Writer) error {
 	}
 	setFlags := collectSetFlags(fs)
 	if err := rejectPresetFileConflicts("run", cfg.PresetFile, setFlags, []string{
-		"rootfs", "ro-bind", "rw-bind", "env", "network-policy-file", "cwd", "hostname", "memory", "pids",
+		"rootfs", "ro-bind", "rw-bind", "env", "run-as-root", "network-policy-file", "cwd", "hostname", "memory", "pids",
 	}); err != nil {
 		return err
 	}
@@ -517,6 +518,7 @@ Notes:
 
 Examples:
   mirage run --rootfs /srv/rootfs --network-policy-file ./examples/network-policies/offline.yaml -- /bin/sh
+  mirage run --rootfs /srv/rootfs --run-as-root -- /bin/sh
   mirage run --rootfs /srv/rootfs --memory 512M --pids 64 -- /usr/bin/node app.js
   mirage run --preset-file ./examples/presets/openclaw-offline.yaml -- app
 `)

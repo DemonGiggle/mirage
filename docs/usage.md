@@ -10,6 +10,8 @@ validation guidance, see [rootfs.md](rootfs.md).
 - Linux
 - Go 1.24.4 or newer if building from source
 - `unshare` on `PATH` for namespace-backed execution
+- the host `uidmap` package installed so `newuidmap` and `newgidmap` are on
+  `PATH` for Mirage's default non-root workload execution
 - `ip` on `PATH` for isolated network namespace setup
 - `iptables` and `ip6tables` on `PATH` for non-host `networkPolicy`
   enforcement
@@ -87,6 +89,7 @@ Common options include:
 - `--ro-bind`: read-only `host:guest` bind mount
 - `--rw-bind`: read-write `host:guest` bind mount
 - `--env`: explicit sandbox environment variable in `KEY=VALUE` form
+- `--run-as-root`: keep the workload as root instead of Mirage's default non-root `mirage` user
 - `--cwd`: working directory inside the sandbox
 - `--stdout-log` and `--stderr-log`: host-visible log export targets
 - `--memory` and `--pids`: delegated cgroup v2 limits
@@ -113,6 +116,12 @@ silently degrading.
 Mirage does not inherit arbitrary host environment variables into the sandboxed
 workload. The managed sandbox environment starts from an explicit `PATH` and
 adds any `--env KEY=VALUE` entries you provide.
+
+By default, Mirage drops the workload to the non-root `mirage` user (UID/GID
+1000) and synthesizes matching `/etc/passwd` and `/etc/group` entries at
+runtime. That default path requires the host `uidmap` package so the
+`newuidmap` and `newgidmap` helpers are available. Use `--run-as-root` only
+when the workload actually needs root inside the sandbox.
 
 ## Rootfs Workflows
 
