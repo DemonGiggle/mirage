@@ -737,7 +737,7 @@ func applyBindMount(rootfs string, mount bindMount) error {
 }
 
 func bindMountTargetPath(rootfs string, target string) string {
-	if rootfs == "/" {
+	if rootfs == "" || rootfs == "/" {
 		return target
 	}
 	return filepath.Join(rootfs, strings.TrimPrefix(target, "/"))

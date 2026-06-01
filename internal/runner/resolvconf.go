@@ -15,6 +15,8 @@ var fallbackPublicResolvers = []string{
 	"2001:4860:4860::8888",
 }
 
+var routedResolverCGNATPrefix = netip.MustParsePrefix("100.64.0.0/10")
+
 func prepareRoutedResolverOverride(rootfs string) error {
 	data, err := os.ReadFile("/etc/resolv.conf")
 	if err != nil {
@@ -27,6 +29,9 @@ func prepareRoutedResolverOverride(rootfs string) error {
 	}
 	if !changed {
 		return nil
+	}
+	if err := makeMountNamespacePrivate(); err != nil {
+		return err
 	}
 
 	tempFile, err := os.CreateTemp("", "mirage-routed-resolv-*.conf")
@@ -114,28 +119,13 @@ func routedResolverConfig(data []byte) ([]byte, bool, error) {
 
 func routedResolverAllowed(addr netip.Addr) bool {
 	addr = addr.Unmap()
-	if addr.IsLoopback() || addr.IsLinkLocalUnicast() {
+	if addr.IsLoopback() || addr.IsLinkLocalUnicast() || addr.IsPrivate() {
 		return false
 	}
-	if addr.Is4() {
-		if inPrefix(addr, "10.0.0.0/8") ||
-			inPrefix(addr, "172.16.0.0/12") ||
-			inPrefix(addr, "192.168.0.0/16") ||
-			inPrefix(addr, "100.64.0.0/10") ||
-			inPrefix(addr, "169.254.0.0/16") {
-			return false
-		}
-		return true
-	}
-	if inPrefix(addr, "fc00::/7") || inPrefix(addr, "fe80::/10") {
+	if routedResolverCGNATPrefix.Contains(addr) {
 		return false
 	}
 	return true
-}
-
-func inPrefix(addr netip.Addr, raw string) bool {
-	prefix := netip.MustParsePrefix(raw)
-	return prefix.Contains(addr)
 }
 
 func appendIfMissing(items []string, value string) []string {

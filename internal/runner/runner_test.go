@@ -55,6 +55,12 @@ func TestPrepareBindTargetRequiresExistingTargetUnderHostRoot(t *testing.T) {
 	}
 }
 
+func TestBindMountTargetPathTreatsEmptyRootfsAsHostRoot(t *testing.T) {
+	if got := bindMountTargetPath("", "/etc/resolv.conf"); got != "/etc/resolv.conf" {
+		t.Fatalf("expected host-root target path, got %q", got)
+	}
+}
+
 func TestParseBindMount(t *testing.T) {
 	t.Run("read-only", func(t *testing.T) {
 		got, err := parseBindMount("/host/data:/workspace/data", true)
