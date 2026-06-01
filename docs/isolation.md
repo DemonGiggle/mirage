@@ -66,7 +66,8 @@ Today you can rely on:
 
 - namespace-backed process-tree execution on Linux
 - default workload credential drop to the non-root `mirage` user; root inside
-  the sandbox now requires explicit `--run-as-root`
+  the sandbox now requires explicit `--run-as-root` and host `newuidmap` /
+  `newgidmap` helpers
 - explicit bind-mount application
 - policy-first network selection through preset files or standalone policy files
 - delegated cgroup v2 memory and PID limits

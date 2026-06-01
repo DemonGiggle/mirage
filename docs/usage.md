@@ -10,6 +10,8 @@ validation guidance, see [rootfs.md](rootfs.md).
 - Linux
 - Go 1.24.4 or newer if building from source
 - `unshare` on `PATH` for namespace-backed execution
+- the host `uidmap` package installed so `newuidmap` and `newgidmap` are on
+  `PATH` for Mirage's default non-root workload execution
 - `ip` on `PATH` for isolated network namespace setup
 - `iptables` and `ip6tables` on `PATH` for non-host `networkPolicy`
   enforcement
@@ -117,8 +119,9 @@ adds any `--env KEY=VALUE` entries you provide.
 
 By default, Mirage drops the workload to the non-root `mirage` user (UID/GID
 1000) and synthesizes matching `/etc/passwd` and `/etc/group` entries at
-runtime. Use `--run-as-root` only when the workload actually needs root inside
-the sandbox.
+runtime. That default path requires the host `uidmap` package so the
+`newuidmap` and `newgidmap` helpers are available. Use `--run-as-root` only
+when the workload actually needs root inside the sandbox.
 
 ## Rootfs Workflows
 
