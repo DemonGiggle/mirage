@@ -154,11 +154,7 @@ func configurePolicyNetworkBackend(encodedPolicy string) error {
 func runPacketFilterCommands(commands []packetFilterCommand) error {
 	for _, command := range commands {
 		cmd := policyNetworkCommand(command.Name, command.Args...)
-		if cmd.Env == nil {
-			cmd.Env = append(os.Environ(), "XTABLES_LOCKFILE=/tmp/xtables.lock")
-		} else {
-			cmd.Env = append(cmd.Env, "XTABLES_LOCKFILE=/tmp/xtables.lock")
-		}
+		cmd.Env = append(cmd.Environ(), "XTABLES_LOCKFILE=/tmp/xtables.lock")
 		output, err := cmd.CombinedOutput()
 		if err != nil {
 			if command.Name == "ip6tables" && strings.Contains(string(output), "ip6tables table `filter': Table does not exist") {

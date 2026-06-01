@@ -222,7 +222,7 @@ func execute(cfg spec.Config, stdout, stderr io.Writer) error {
 	closeQuietly(syncRead)
 	syncRead = nil
 
-	targetPID := cmd.Process.Pid
+	var targetPID int
 	if launchSync.uidMapReadyFile != "" || policyPlan.BackendMode == backendNetworkPolicyRouted {
 		targetPID, err = waitForSandboxLeafPID(cmd.Process.Pid)
 		if err != nil {
@@ -702,6 +702,16 @@ func buildUnshareArgs(runAsRoot bool, networkBackend string) ([]string, error) {
 }
 
 func waitForSandboxLeafPID(parentPID int) (int, error) {
+	childrenPath := fmt.Sprintf("/proc/%d/task/%d/children", parentPID, parentPID)
+	if _, err := os.Stat(childrenPath); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			if _, statErr := os.Stat(fmt.Sprintf("/proc/%d", parentPID)); statErr == nil {
+				return 0, errors.New("sandbox tracking requires /proc/<pid>/task/<tid>/children support on the host kernel")
+			}
+		}
+		return 0, fmt.Errorf("check sandbox child pid support for %d: %w", parentPID, err)
+	}
+
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		pid, err := findLeafDescendantPID(parentPID)
@@ -1259,12 +1269,43 @@ func defaultSandboxIdentity(rootfs string, runAsRoot bool) sandboxIdentity {
 			User: defaultRootUser,
 		}
 	}
+	home := defaultSandboxHome
+	if rootfs == "/" {
+		home = hostSandboxHome()
+	}
 	return sandboxIdentity{
 		UID:  sandboxUID,
 		GID:  sandboxGID,
-		Home: defaultSandboxHome,
+		Home: home,
 		User: defaultSandboxUser,
 	}
+}
+
+func hostSandboxHome() string {
+	suffix := strconv.Itoa(os.Getuid())
+	if currentUser, err := user.Current(); err == nil {
+		if username := sanitizePathComponent(currentUser.Username); username != "" {
+			suffix = username
+		}
+	}
+	return filepath.Join("/tmp", "mirage-home-"+suffix)
+}
+
+func sanitizePathComponent(value string) string {
+	var builder strings.Builder
+	for _, r := range value {
+		switch {
+		case r >= 'a' && r <= 'z':
+			builder.WriteRune(r)
+		case r >= 'A' && r <= 'Z':
+			builder.WriteRune(r)
+		case r >= '0' && r <= '9':
+			builder.WriteRune(r)
+		case r == '-', r == '_', r == '.':
+			builder.WriteRune(r)
+		}
+	}
+	return builder.String()
 }
 
 func applySandboxIdentityFiles(rootfs string, identity sandboxIdentity) error {

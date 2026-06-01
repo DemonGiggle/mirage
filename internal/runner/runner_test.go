@@ -373,7 +373,7 @@ func TestDefaultSandboxIdentityUsesHostRootSafeHome(t *testing.T) {
 	if identity.UID != sandboxUID || identity.GID != sandboxGID {
 		t.Fatalf("expected sandbox uid/gid, got %#v", identity)
 	}
-	if identity.Home != "/tmp/mirage-home" || identity.User != defaultSandboxUser {
+	if identity.Home != hostSandboxHome() || identity.User != defaultSandboxUser {
 		t.Fatalf("unexpected host-root identity: %#v", identity)
 	}
 }
