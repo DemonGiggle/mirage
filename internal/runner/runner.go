@@ -26,11 +26,18 @@ const (
 	sysMountSetattr    = 442
 	defaultSandboxPath = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 	defaultSandboxUser = "mirage"
-	defaultSandboxHome = "/tmp/mirage-home"
+	defaultSandboxHome = "/home/mirage"
 	defaultRootUser    = "root"
 	defaultRootHome    = "/root"
 	sandboxUID         = 1000
 	sandboxGID         = 1000
+)
+
+var (
+	currentUID         = os.Getuid
+	currentGID         = os.Getgid
+	idMapCommandRunner = runIDMapCommand
+	procfsRoot         = "/proc"
 )
 
 func Execute(cfg spec.Config, stdout, stderr io.Writer) error {
@@ -753,21 +760,47 @@ func configureSandboxUIDMappings(pid int, runAsRoot bool) error {
 	if runAsRoot {
 		return nil
 	}
-	uidHostID, err := resolveHostSandboxID("/etc/subuid", os.Getuid(), sandboxUID)
+	rootHostUID := currentUID()
+	rootHostGID := currentGID()
+	if rootHostUID == 0 && rootHostGID == 0 {
+		if err := writeNamespaceIDMap(procfsPathForPID(pid, "uid_map"), [][3]int{{0, 0, 1}, {sandboxUID, sandboxUID, 1}}); err != nil {
+			return fmt.Errorf("write uid_map for pid %d: %w", pid, err)
+		}
+		if err := writeNamespaceIDMap(procfsPathForPID(pid, "gid_map"), [][3]int{{0, 0, 1}, {sandboxGID, sandboxGID, 1}}); err != nil {
+			return fmt.Errorf("write gid_map for pid %d: %w", pid, err)
+		}
+		return nil
+	}
+
+	uidHostID, err := resolveHostSandboxID("/etc/subuid", rootHostUID, sandboxUID)
 	if err != nil {
 		return err
 	}
-	gidHostID, err := resolveHostSandboxID("/etc/subgid", os.Getgid(), sandboxGID)
+	gidHostID, err := resolveHostSandboxID("/etc/subgid", rootHostGID, sandboxGID)
 	if err != nil {
 		return err
 	}
-	if err := runIDMapCommand("newuidmap", pid, 0, os.Getuid(), sandboxUID, uidHostID); err != nil {
+	if err := idMapCommandRunner("newuidmap", pid, 0, rootHostUID, sandboxUID, uidHostID); err != nil {
 		return err
 	}
-	if err := runIDMapCommand("newgidmap", pid, 0, os.Getgid(), sandboxGID, gidHostID); err != nil {
+	if err := idMapCommandRunner("newgidmap", pid, 0, rootHostGID, sandboxGID, gidHostID); err != nil {
 		return err
 	}
 	return nil
+}
+
+func procfsPathForPID(pid int, name string) string {
+	return filepath.Join(procfsRoot, strconv.Itoa(pid), name)
+}
+
+func writeNamespaceIDMap(path string, entries [][3]int) error {
+	var builder strings.Builder
+	for _, entry := range entries {
+		if _, err := fmt.Fprintf(&builder, "%d %d %d\n", entry[0], entry[1], entry[2]); err != nil {
+			return err
+		}
+	}
+	return os.WriteFile(path, []byte(builder.String()), 0o644)
 }
 
 func runIDMapCommand(name string, pid int, rootContainerID int, rootHostID int, sandboxContainerID int, sandboxHostID int) error {

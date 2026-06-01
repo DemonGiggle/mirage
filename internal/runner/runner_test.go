@@ -291,6 +291,57 @@ func TestBuildSandboxEnvDoesNotInheritHostVariables(t *testing.T) {
 	}
 }
 
+func TestConfigureSandboxUIDMappingsWritesDirectRootMaps(t *testing.T) {
+	pid := 4242
+	procRoot := filepath.Join(t.TempDir(), "proc")
+	pidDir := filepath.Join(procRoot, "4242")
+	if err := os.MkdirAll(pidDir, 0o755); err != nil {
+		t.Fatalf("create fake proc pid dir: %v", err)
+	}
+
+	restoreUID := currentUID
+	restoreGID := currentGID
+	restoreProcfs := procfsRoot
+	restoreRunner := idMapCommandRunner
+	currentUID = func() int { return 0 }
+	currentGID = func() int { return 0 }
+	procfsRoot = procRoot
+	idMapCommandRunner = func(string, int, int, int, int, int) error {
+		t.Fatal("expected direct procfs mapping writes for root caller")
+		return nil
+	}
+	t.Cleanup(func() {
+		currentUID = restoreUID
+		currentGID = restoreGID
+		procfsRoot = restoreProcfs
+		idMapCommandRunner = restoreRunner
+	})
+
+	if err := configureSandboxUIDMappings(pid, false); err != nil {
+		t.Fatalf("configureSandboxUIDMappings returned error: %v", err)
+	}
+
+	uidMap, err := os.ReadFile(filepath.Join(pidDir, "uid_map"))
+	if err != nil {
+		t.Fatalf("read uid_map: %v", err)
+	}
+	if got := string(uidMap); got != `0 0 1
+1000 1000 1
+` {
+		t.Fatalf("unexpected uid_map contents: %q", got)
+	}
+
+	gidMap, err := os.ReadFile(filepath.Join(pidDir, "gid_map"))
+	if err != nil {
+		t.Fatalf("read gid_map: %v", err)
+	}
+	if got := string(gidMap); got != `0 0 1
+1000 1000 1
+` {
+		t.Fatalf("unexpected gid_map contents: %q", got)
+	}
+}
+
 func TestResolveHostSandboxIDForUserSkipsReservedHostID(t *testing.T) {
 	got, err := resolveHostSandboxIDForUser("/etc/subuid", "mirage", 1000, []byte("mirage:1000:65536\n"))
 	if err != nil {

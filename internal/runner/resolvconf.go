@@ -2,6 +2,7 @@ package runner
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"net/netip"
 	"os"
@@ -15,13 +16,15 @@ var fallbackPublicResolvers = []string{
 	"2001:4860:4860::8888",
 }
 
+var readHostResolvConf = os.ReadFile
+
 func prepareRoutedResolverOverride(rootfs string) error {
-	data, err := os.ReadFile("/etc/resolv.conf")
-	if err != nil {
+	data, err := readHostResolvConf("/etc/resolv.conf")
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("read host resolv.conf: %w", err)
 	}
 
-	override, changed, err := routedResolverConfig(data)
+	override, changed, err := routedResolverOverrideConfig(data, errors.Is(err, os.ErrNotExist))
 	if err != nil {
 		return err
 	}
@@ -29,19 +32,9 @@ func prepareRoutedResolverOverride(rootfs string) error {
 		return nil
 	}
 
-	tempFile, err := os.CreateTemp("", "mirage-routed-resolv-*.conf")
+	tempPath, err := writeRoutedResolverOverrideFile(override)
 	if err != nil {
-		return fmt.Errorf("create routed resolver override: %w", err)
-	}
-	tempPath := tempFile.Name()
-	if _, err := tempFile.Write(override); err != nil {
-		_ = tempFile.Close()
-		_ = os.Remove(tempPath)
-		return fmt.Errorf("write routed resolver override: %w", err)
-	}
-	if err := tempFile.Close(); err != nil {
-		_ = os.Remove(tempPath)
-		return fmt.Errorf("close routed resolver override: %w", err)
+		return err
 	}
 	if err := applyBindMount(rootfs, bindMount{
 		Source:   tempPath,
@@ -55,6 +48,45 @@ func prepareRoutedResolverOverride(rootfs string) error {
 		return fmt.Errorf("remove routed resolver override staging file: %w", err)
 	}
 	return nil
+}
+
+func writeRoutedResolverOverrideFile(override []byte) (string, error) {
+	tempFile, err := os.CreateTemp("", "mirage-routed-resolv-*.conf")
+	if err != nil {
+		return "", fmt.Errorf("create routed resolver override: %w", err)
+	}
+	tempPath := tempFile.Name()
+	if _, err := tempFile.Write(override); err != nil {
+		_ = tempFile.Close()
+		_ = os.Remove(tempPath)
+		return "", fmt.Errorf("write routed resolver override: %w", err)
+	}
+	if err := tempFile.Close(); err != nil {
+		_ = os.Remove(tempPath)
+		return "", fmt.Errorf("close routed resolver override: %w", err)
+	}
+	if err := os.Chmod(tempPath, 0o644); err != nil {
+		_ = os.Remove(tempPath)
+		return "", fmt.Errorf("chmod routed resolver override: %w", err)
+	}
+	return tempPath, nil
+}
+
+func routedResolverOverrideConfig(data []byte, hostMissing bool) ([]byte, bool, error) {
+	if hostMissing {
+		return fallbackResolverConfig(), true, nil
+	}
+	return routedResolverConfig(data)
+}
+
+func fallbackResolverConfig() []byte {
+	var b strings.Builder
+	for _, resolver := range fallbackPublicResolvers {
+		b.WriteString("nameserver ")
+		b.WriteString(resolver)
+		b.WriteByte('\n')
+	}
+	return []byte(b.String())
 }
 
 func routedResolverConfig(data []byte) ([]byte, bool, error) {

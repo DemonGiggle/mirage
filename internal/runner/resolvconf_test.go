@@ -2,9 +2,46 @@ package runner
 
 import (
 	"net/netip"
+	"os"
 	"strings"
 	"testing"
 )
+
+func TestWriteRoutedResolverOverrideFileMakesWorldReadableFile(t *testing.T) {
+	path, err := writeRoutedResolverOverrideFile([]byte(`nameserver 1.1.1.1
+`))
+	if err != nil {
+		t.Fatalf("writeRoutedResolverOverrideFile returned error: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Remove(path)
+	})
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat override file: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0o644 {
+		t.Fatalf("expected override file mode 0644, got %#o", got)
+	}
+}
+
+func TestRoutedResolverOverrideConfigFallsBackWhenHostConfigMissing(t *testing.T) {
+	override, changed, err := routedResolverOverrideConfig(nil, true)
+	if err != nil {
+		t.Fatalf("routedResolverOverrideConfig returned error: %v", err)
+	}
+	if !changed {
+		t.Fatal("expected missing host resolv.conf to trigger a fallback override")
+	}
+
+	got := string(override)
+	for _, resolver := range []string{"nameserver 1.1.1.1", "nameserver 8.8.8.8"} {
+		if !strings.Contains(got, resolver) {
+			t.Fatalf("expected fallback resolver %q in %q", resolver, got)
+		}
+	}
+}
 
 func TestRoutedResolverConfigKeepsPublicResolvers(t *testing.T) {
 	input := []byte("nameserver 1.1.1.1\noptions edns0\n")
