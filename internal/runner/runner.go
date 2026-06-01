@@ -753,11 +753,11 @@ func configureSandboxUIDMappings(pid int, runAsRoot bool) error {
 	if runAsRoot {
 		return nil
 	}
-	uidHostID, err := resolveHostSandboxID("/etc/subuid", sandboxUID)
+	uidHostID, err := resolveHostSandboxID("/etc/subuid", os.Getuid(), sandboxUID)
 	if err != nil {
 		return err
 	}
-	gidHostID, err := resolveHostSandboxID("/etc/subgid", sandboxGID)
+	gidHostID, err := resolveHostSandboxID("/etc/subgid", os.Getgid(), sandboxGID)
 	if err != nil {
 		return err
 	}
@@ -788,7 +788,7 @@ func runIDMapCommand(name string, pid int, rootContainerID int, rootHostID int, 
 	return nil
 }
 
-func resolveHostSandboxID(path string, containerID int) (int, error) {
+func resolveHostSandboxID(path string, reservedHostID int, containerID int) (int, error) {
 	if os.Getuid() == 0 {
 		return containerID, nil
 	}
@@ -801,7 +801,12 @@ func resolveHostSandboxID(path string, containerID int) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("read %s: %w", path, err)
 	}
-	prefix := currentUser.Username + ":"
+	return resolveHostSandboxIDForUser(path, currentUser.Username, reservedHostID, content)
+}
+
+func resolveHostSandboxIDForUser(path string, username string, reservedHostID int, content []byte) (int, error) {
+	prefix := username + ":"
+	var lastUsableErr error
 	for _, line := range strings.Split(strings.TrimSpace(string(content)), "\n") {
 		if !strings.HasPrefix(line, prefix) {
 			continue
@@ -818,13 +823,30 @@ func resolveHostSandboxID(path string, containerID int) (int, error) {
 		if err != nil {
 			return 0, fmt.Errorf("parse %s size %q: %w", path, parts[2], err)
 		}
-		if size < 1 {
-			return 0, fmt.Errorf("%s entry %q has invalid size", path, line)
+		hostID, err := selectHostSandboxID(path, line, start, size, reservedHostID)
+		if err == nil {
+			return hostID, nil
 		}
-		return start, nil
+		lastUsableErr = err
 	}
 
-	return 0, fmt.Errorf("default non-root sandbox requires a subordinate ID range in %s for user %q", path, currentUser.Username)
+	if lastUsableErr != nil {
+		return 0, lastUsableErr
+	}
+	return 0, fmt.Errorf("default non-root sandbox requires a subordinate ID range in %s for user %q", path, username)
+}
+
+func selectHostSandboxID(path string, line string, start int, size int, reservedHostID int) (int, error) {
+	if size < 1 {
+		return 0, fmt.Errorf("%s entry %q has invalid size", path, line)
+	}
+	if start != reservedHostID {
+		return start, nil
+	}
+	if size < 2 {
+		return 0, fmt.Errorf("%s entry %q overlaps reserved host ID %d and does not leave another ID for the sandbox user", path, line, reservedHostID)
+	}
+	return start + 1, nil
 }
 
 func waitForUIDMapReady(path string) error {

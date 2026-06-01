@@ -291,6 +291,37 @@ func TestBuildSandboxEnvDoesNotInheritHostVariables(t *testing.T) {
 	}
 }
 
+func TestResolveHostSandboxIDForUserSkipsReservedHostID(t *testing.T) {
+	got, err := resolveHostSandboxIDForUser("/etc/subuid", "mirage", 1000, []byte("mirage:1000:65536\n"))
+	if err != nil {
+		t.Fatalf("resolveHostSandboxIDForUser returned error: %v", err)
+	}
+	if got != 1001 {
+		t.Fatalf("expected subordinate ID 1001, got %d", got)
+	}
+}
+
+func TestResolveHostSandboxIDForUserFallsBackToLaterRange(t *testing.T) {
+	content := []byte("mirage:1000:1\nmirage:200000:65536\n")
+	got, err := resolveHostSandboxIDForUser("/etc/subuid", "mirage", 1000, content)
+	if err != nil {
+		t.Fatalf("resolveHostSandboxIDForUser returned error: %v", err)
+	}
+	if got != 200000 {
+		t.Fatalf("expected fallback subordinate ID 200000, got %d", got)
+	}
+}
+
+func TestResolveHostSandboxIDForUserRejectsOnlyOverlappingSingleIDRange(t *testing.T) {
+	_, err := resolveHostSandboxIDForUser("/etc/subuid", "mirage", 1000, []byte("mirage:1000:1\n"))
+	if err == nil {
+		t.Fatal("expected overlapping single-ID range to fail")
+	}
+	if !strings.Contains(err.Error(), "does not leave another ID for the sandbox user") {
+		t.Fatalf("expected overlap error, got %v", err)
+	}
+}
+
 func TestBuildSandboxEnvSupportsPathOverride(t *testing.T) {
 	env, err := buildSandboxEnv([]string{"PATH=/custom/bin", "HOME=/workspace", "USER=workspace-user", "TERM=xterm-256color"}, defaultSandboxIdentity("/sandbox-rootfs", false))
 	if err != nil {
