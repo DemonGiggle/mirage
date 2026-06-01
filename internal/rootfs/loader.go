@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"os"
 	"path"
+	"path/filepath"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -86,4 +88,29 @@ func parseTemplateYAML(data []byte, source string) (Template, error) {
 	default:
 		return Template{}, fmt.Errorf("parse template file %q: multiple YAML documents are not supported", source)
 	}
+}
+
+func ExportBuiltInTemplates(outputRoot string) error {
+	entries, err := fs.ReadDir(builtInTemplateFiles, "templates")
+	if err != nil {
+		return fmt.Errorf("read template directory %q: %w", "templates", err)
+	}
+	if err := os.MkdirAll(outputRoot, 0o755); err != nil {
+		return fmt.Errorf("create output directory %q: %w", outputRoot, err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || path.Ext(entry.Name()) != ".yaml" {
+			continue
+		}
+		srcPath := path.Join("templates", entry.Name())
+		data, err := fs.ReadFile(builtInTemplateFiles, srcPath)
+		if err != nil {
+			return fmt.Errorf("read template file %q: %w", srcPath, err)
+		}
+		destPath := filepath.Join(outputRoot, entry.Name())
+		if err := os.WriteFile(destPath, data, 0o644); err != nil {
+			return fmt.Errorf("write template file %q: %w", destPath, err)
+		}
+	}
+	return nil
 }

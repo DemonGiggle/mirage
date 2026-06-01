@@ -71,12 +71,19 @@ Preview a run without executing it:
 ./bin/mirage run --dry-run --preset-file ./examples/presets/openclaw-offline.yaml -- /bin/echo hello
 ```
 
+Create a standalone release bundle:
+
+```bash
+./bin/mirage package --output ./dist/mirage-linux-amd64.tar.gz --binary ./bin/mirage
+```
+
 ## Command Pattern
 
 The general form is:
 
 ```bash
 mirage rootfs init --template <name> --output <path>
+mirage package --output <path> [--binary <path>]
 mirage run [sandbox options...] -- command [args...]
 ```
 
@@ -217,6 +224,33 @@ Example:
   --rootfs /srv/mirage/rootfs \
   --network-policy-file ./examples/network-policies/allow-all.yaml \
   -- app
+```
+
+## Release Packaging
+
+Use `mirage package` when you want to publish a binary together with the YAML
+assets operators need in practice.
+
+- if `--output` ends with `.tar.gz` or `.tgz`, Mirage writes a compressed
+  archive
+- otherwise Mirage writes an unpacked directory bundle
+- the bundle exports built-in rootfs templates to
+  `share/mirage/rootfs/templates`
+- the bundle exports bundled network policies to
+  `share/mirage/network-policies`
+- the bundle exports bundled presets to `share/mirage/presets`
+
+Example unpacked bundle:
+
+```bash
+./bin/mirage package --output ./dist/mirage-release --binary ./bin/mirage
+```
+
+After extraction, users can run the packaged binary directly and reference the
+exported config files relative to the package root, for example:
+
+```bash
+./bin/mirage run --preset-file ./share/mirage/presets/openclaw-offline.yaml -- app
 ```
 
 ## Log Export

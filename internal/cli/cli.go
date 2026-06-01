@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/DemonGiggle/mirage/examples"
+	"github.com/DemonGiggle/mirage/internal/release"
 	"github.com/DemonGiggle/mirage/internal/rootfs"
 	"github.com/DemonGiggle/mirage/internal/runner"
 	"github.com/DemonGiggle/mirage/internal/spec"
@@ -50,6 +52,8 @@ func Run(args []string, stdout, stderr io.Writer) error {
 	case "version":
 		_, _ = fmt.Fprintf(stdout, "mirage %s\n", version)
 		return nil
+	case "package":
+		return runPackage(args[1:], stdout, stderr)
 	case "__backend-exec":
 		return runner.RunBackendHelper(args[1:], stdout, stderr)
 	case "__cgroup-exec":
@@ -78,6 +82,9 @@ func runHelpTopic(args []string, stdout io.Writer) error {
 	case "doctor":
 		printDoctorHelp(stdout)
 		return nil
+	case "package":
+		printPackageHelp(stdout)
+		return nil
 	case "run":
 		printRunHelp(stdout)
 		return nil
@@ -99,17 +106,20 @@ Commands:
   doctor          inspect host capabilities and optionally validate a rootfs
   rootfs          generate or inspect built-in rootfs templates
   network-policy  list bundled example network policy files
+  package         assemble a standalone release bundle
   version         print version
 
 Help:
   mirage <command> --help
   mirage help rootfs
   mirage help network-policy
+  mirage help package
 
 Examples:
   mirage rootfs list-template
   mirage rootfs init --template basic --output /srv/mirage/basic-rootfs
   mirage network-policy list
+  mirage package --output ./dist/mirage-linux-amd64.tar.gz --binary ./bin/mirage
   mirage doctor --rootfs /srv/mirage/basic-rootfs --command /bin/ls
   mirage run --rootfs /srv/rootfs --network-policy-file ./examples/network-policies/offline.yaml -- app
   mirage run --preset-file ./examples/presets/openclaw-offline.yaml -- app
@@ -268,6 +278,83 @@ Usage:
 
 Examples:
   mirage rootfs list-template
+`)
+}
+
+func runPackage(args []string, stdout, stderr io.Writer) error {
+	if containsHelpFlag(args) {
+		printPackageHelp(stdout)
+		return nil
+	}
+
+	fs := flag.NewFlagSet("package", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+
+	var outputPath string
+	var binaryPath string
+
+	fs.StringVar(&outputPath, "output", "", "Package output path. Use a directory path for an unpacked bundle or a .tar.gz/.tgz path for an archive.")
+	fs.StringVar(&binaryPath, "binary", "", "Path to the mirage executable to include. Defaults to the current executable.")
+
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if outputPath == "" {
+		return errors.New("package requires --output")
+	}
+	if len(fs.Args()) > 0 {
+		return fmt.Errorf("package does not accept positional arguments: %s", strings.Join(fs.Args(), " "))
+	}
+	if binaryPath == "" {
+		self, err := os.Executable()
+		if err != nil {
+			return fmt.Errorf("resolve current executable: %w", err)
+		}
+		binaryPath = self
+	}
+
+	report, err := release.CreatePackage(release.PackageOptions{
+		OutputPath: outputPath,
+		BinaryPath: binaryPath,
+	})
+	if err != nil {
+		return err
+	}
+
+	networkPolicies, err := examples.NetworkPolicyNames()
+	if err != nil {
+		return err
+	}
+	presets, err := examples.PresetNames()
+	if err != nil {
+		return err
+	}
+
+	_, _ = fmt.Fprintln(stdout, "mirage package")
+	_, _ = fmt.Fprintf(stdout, "format: %s\n", report.Format)
+	_, _ = fmt.Fprintf(stdout, "output: %s\n", report.OutputPath)
+	_, _ = fmt.Fprintf(stdout, "binary: %s\n", report.BinaryPath)
+	_, _ = fmt.Fprintf(stdout, "package-root: %s\n", report.PackageRoot)
+	_, _ = fmt.Fprintf(stdout, "rootfs-templates: %d\n", len(rootfs.TemplateNames()))
+	_, _ = fmt.Fprintf(stdout, "network-policies: %d\n", len(networkPolicies))
+	_, _ = fmt.Fprintf(stdout, "presets: %d\n", len(presets))
+	return nil
+}
+
+func printPackageHelp(w io.Writer) {
+	_, _ = fmt.Fprint(w, `Assemble a standalone Mirage release bundle.
+
+Usage:
+  mirage package --output <path> [--binary <path>]
+
+Notes:
+  - If --output ends with .tar.gz or .tgz, Mirage writes a compressed release archive.
+  - Otherwise Mirage writes an unpacked directory bundle.
+  - The package includes bin/mirage plus share/mirage/rootfs/templates, share/mirage/network-policies, and share/mirage/presets.
+
+Examples:
+  mirage package --output ./dist/mirage-linux-amd64.tar.gz --binary ./bin/mirage
+  mirage package --output ./dist/mirage-release --binary ./bin/mirage
 `)
 }
 
