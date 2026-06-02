@@ -32,14 +32,14 @@ List built-in templates:
 Generate a rootfs:
 
 ```bash
-./bin/mirage rootfs init --template basic --output /srv/mirage/basic-rootfs
+sudo PATH=$PATH ./bin/mirage rootfs init --template basic --output /srv/mirage/basic-rootfs
 ```
 
 Reuse an existing non-empty output directory only when you intentionally want
 Mirage to replace generated files:
 
 ```bash
-./bin/mirage rootfs init \
+sudo PATH=$PATH ./bin/mirage rootfs init \
   --template basic \
   --output /srv/mirage/basic-rootfs \
   --allow-overwrite
@@ -74,6 +74,9 @@ Common behavior across generated rootfs trees:
 
 At runtime, dedicated rootfs runs also receive a managed device layout under
 `/dev`, including `/dev/shm` and `/dev/pts`.
+
+`rootfs init` currently runs through `sudo`, and `PATH` should be preserved as
+`sudo PATH=$PATH ...` so host `PATH` lookups used by the template still work.
 
 ## Template Schema
 

@@ -31,7 +31,7 @@ workflow, install a newer Node.js toolchain first, then regenerate the rootfs.
 Node.js-oriented tooling plus common development utilities.
 
 ```bash
-./bin/mirage rootfs init \
+sudo PATH=$PATH ./bin/mirage rootfs init \
   --template openclaw-developer \
   --output /srv/mirage/openclaw-rootfs
 ```
@@ -48,13 +48,13 @@ Use the allow-all preset for installation and onboarding steps that need
 network access:
 
 ```bash
-./bin/mirage run \
+sudo ./bin/mirage run \
   --preset-file ./examples/presets/openclaw-allow-all.yaml \
   -- npm install -g openclaw
 ```
 
 ```bash
-./bin/mirage run \
+sudo ./bin/mirage run \
   --preset-file ./examples/presets/openclaw-allow-all.yaml \
   -- openclaw onboard
 ```
@@ -64,7 +64,7 @@ network access:
 For local-only work:
 
 ```bash
-./bin/mirage run \
+sudo ./bin/mirage run \
   --preset-file ./examples/presets/openclaw-offline.yaml \
   -- openclaw
 ```
@@ -72,7 +72,7 @@ For local-only work:
 To run the local gateway:
 
 ```bash
-./bin/mirage run \
+sudo ./bin/mirage run \
   --preset-file ./examples/presets/openclaw-allow-all.yaml \
   -- openclaw gateway --port 18789
 ```

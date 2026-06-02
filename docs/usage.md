@@ -57,12 +57,19 @@ Useful first commands:
 ./bin/mirage network-policy list
 ```
 
+Current operational note:
+
+- use `sudo PATH=$PATH ./bin/mirage rootfs init ...` for generated rootfs work
+- use `sudo ./bin/mirage run ...` for sandbox execution
+- `./bin/mirage doctor`, `./bin/mirage rootfs list-template`, and
+  `./bin/mirage network-policy list` remain normal non-`sudo` commands
+
 ## Common Flows
 
 Generate and validate a basic rootfs:
 
 ```bash
-./bin/mirage rootfs init --template basic --output /srv/mirage/basic-rootfs
+sudo PATH=$PATH ./bin/mirage rootfs init --template basic --output /srv/mirage/basic-rootfs
 ./bin/mirage doctor --rootfs /srv/mirage/basic-rootfs --command /bin/ls
 ```
 
@@ -70,7 +77,7 @@ Allow Mirage to reuse a non-empty output directory only when you intend to
 replace generated files:
 
 ```bash
-./bin/mirage rootfs init \
+sudo PATH=$PATH ./bin/mirage rootfs init \
   --template basic \
   --output /srv/mirage/basic-rootfs \
   --allow-overwrite
@@ -79,7 +86,7 @@ replace generated files:
 Preview a run without executing it:
 
 ```bash
-./bin/mirage run \
+sudo ./bin/mirage run \
   --dry-run \
   --rootfs /srv/mirage/basic-rootfs \
   --network-policy-file ./examples/network-policies/offline.yaml \
@@ -89,7 +96,7 @@ Preview a run without executing it:
 Run a workload from a preset:
 
 ```bash
-./bin/mirage run --preset-file ./examples/presets/openclaw-offline.yaml -- openclaw
+sudo ./bin/mirage run --preset-file ./examples/presets/openclaw-offline.yaml -- openclaw
 ```
 
 Create a release bundle:
@@ -129,6 +136,7 @@ Important behavior:
 - `--preset-file` is exclusive with direct configuration flags such as
   `--rootfs`, `--network-policy-file`, bind mounts, `--cwd`, `--hostname`,
   `--memory`, and `--pids`.
+- In the current operational model, invoke `mirage run` through `sudo`.
 - The workload becomes sandbox PID 1. Mirage does not run a guest init system.
 - Mirage starts the sandbox with an explicit managed environment. Host
   environment variables are not inherited unless you pass them with `--env`.
@@ -138,7 +146,7 @@ Important behavior:
 Example:
 
 ```bash
-./bin/mirage run \
+sudo ./bin/mirage run \
   --rootfs /srv/mirage/basic-rootfs \
   --network-policy-file ./examples/network-policies/offline.yaml \
   -- /bin/sh
@@ -233,7 +241,7 @@ Example unpacked bundle:
 After extraction:
 
 ```bash
-./bin/mirage run --preset-file ./share/mirage/presets/openclaw-offline.yaml -- app
+sudo ./bin/mirage run --preset-file ./share/mirage/presets/openclaw-offline.yaml -- app
 ```
 
 ## Log Export
@@ -242,7 +250,7 @@ Mirage can mirror stdout and stderr to host-visible files while still writing
 to the terminal:
 
 ```bash
-./bin/mirage run \
+sudo ./bin/mirage run \
   --rootfs /srv/mirage/basic-rootfs \
   --network-policy-file ./examples/network-policies/allow-all.yaml \
   --stdout-log /tmp/app.out \

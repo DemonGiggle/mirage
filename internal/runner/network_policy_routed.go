@@ -312,7 +312,14 @@ func requireIPv4Forwarding() error {
 		return fmt.Errorf("read /proc/sys/net/ipv4/ip_forward: %w; ensure /proc/sys is mounted and readable on the host before using routed networking", err)
 	}
 	if strings.TrimSpace(string(data)) != "1" {
-		return errors.New("routed network backend requires net.ipv4.ip_forward=1 on the host; enable it with `sudo sysctl -w net.ipv4.ip_forward=1` and persist it in `/etc/sysctl.d/*.conf` before retrying")
+		return errors.New(
+			"routed network backend requires net.ipv4.ip_forward=1 on the host.\n" +
+				"Fix it with:\n" +
+				"- Enable it immediately: `sudo sysctl -w net.ipv4.ip_forward=1`\n" +
+				"- Persist it across reboots: create `/etc/sysctl.d/99-mirage.conf` with:\n" +
+				"  `net.ipv4.ip_forward = 1`\n" +
+				"- Reload sysctl settings: `sudo sysctl --system`",
+		)
 	}
 	return nil
 }

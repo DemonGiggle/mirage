@@ -42,10 +42,14 @@ cd mirage
 mkdir -p ./bin /srv/mirage
 go build -o ./bin/mirage ./cmd/mirage
 ./bin/mirage doctor
-./bin/mirage rootfs init --template basic --output /srv/mirage/basic-rootfs
+sudo PATH=$PATH ./bin/mirage rootfs init --template basic --output /srv/mirage/basic-rootfs
 ./bin/mirage doctor --rootfs /srv/mirage/basic-rootfs --command /bin/ls
-./bin/mirage run --rootfs /srv/mirage/basic-rootfs --network-policy-file ./examples/network-policies/offline.yaml -- /bin/ls /
+sudo ./bin/mirage run --rootfs /srv/mirage/basic-rootfs --network-policy-file ./examples/network-policies/offline.yaml -- /bin/ls /
 ```
+
+`rootfs init` currently needs `sudo` plus the caller `PATH` preserved so Mirage
+can resolve host binaries for the generated rootfs. `run` currently executes
+through `sudo` as well.
 
 ## Limits
 
