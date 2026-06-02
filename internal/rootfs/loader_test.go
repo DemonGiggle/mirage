@@ -79,7 +79,7 @@ func TestLoadBuiltInTemplatesFromEmbed(t *testing.T) {
 	if len(templates) != len(BuiltInTemplates) {
 		t.Fatalf("unexpected built-in template count: got %d want %d", len(templates), len(BuiltInTemplates))
 	}
-	for _, name := range []string{"basic", "openclaw", "openclaw-root", "openclaw-systemd"} {
+	for _, name := range []string{"basic", "debian", "openclaw", "openclaw-root", "openclaw-systemd"} {
 		if _, ok := templates[name]; !ok {
 			t.Fatalf("expected built-in embedded template %q, got %v", name, TemplateNames())
 		}

@@ -107,6 +107,7 @@ Runtime and generated paths must be absolute inside the guest tree.
 | Template | Purpose |
 | --- | --- |
 | `basic` | Small runnable base rootfs with shell and inspection tools |
+| `debian` | Minimal Debian-style template with `apt`, `dpkg`, package state, and repository metadata copied from the host |
 | `node` | Node.js-oriented template with `node`, `npm`, `npx`, CA material, and `/workspace` |
 | `python` | Python-oriented template with `python3`, `pip3`, CA material, and `/workspace` |
 | `openclaw` | Compatibility-oriented OpenClaw template with Node.js, Git, Bash, and `/workspace` |
@@ -121,6 +122,8 @@ Notes:
 
 - `basic` is the smallest general template and the best first rootfs for CLI
   validation.
+- `debian` is host-backed. It is meant for apt and dpkg workflows on Debian-like
+  hosts, not for bootstrapping a Debian filesystem from nothing.
 - `node`, `python`, and the OpenClaw templates depend on host binaries already
   existing on `PATH`.
 - `openclaw-developer` is the default preset-oriented template in

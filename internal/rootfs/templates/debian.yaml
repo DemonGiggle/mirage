@@ -1,0 +1,185 @@
+version: v1
+name: debian
+description: Minimal Debian-style rootfs template with apt, dpkg, repository metadata, and package state.
+directories:
+    - path: /proc
+      mode: 493
+    - path: /tmp
+      mode: 1023
+    - path: /run
+      mode: 493
+    - path: /var/tmp
+      mode: 1023
+    - path: /var/cache/apt/archives/partial
+      mode: 493
+    - path: /var/lib/apt/lists/partial
+      mode: 493
+    - path: /var/lib/dpkg
+      mode: 493
+    - path: /etc/ssl/certs
+      mode: 493
+binaries:
+    - target_path: /bin/sh
+      lookup_name: sh
+      copy_dependencies: true
+    - target_path: /bin/bash
+      lookup_name: bash
+      copy_dependencies: true
+    - target_path: /bin/ls
+      lookup_name: ls
+      copy_dependencies: true
+    - target_path: /bin/cat
+      lookup_name: cat
+      copy_dependencies: true
+    - target_path: /bin/mkdir
+      lookup_name: mkdir
+      copy_dependencies: true
+    - target_path: /bin/rm
+      lookup_name: rm
+      copy_dependencies: true
+    - target_path: /bin/cp
+      lookup_name: cp
+      copy_dependencies: true
+    - target_path: /bin/mv
+      lookup_name: mv
+      copy_dependencies: true
+    - target_path: /bin/touch
+      lookup_name: touch
+      copy_dependencies: true
+    - target_path: /usr/bin/env
+      lookup_name: env
+      copy_dependencies: true
+    - target_path: /usr/bin/apt
+      lookup_name: apt
+      copy_dependencies: true
+    - target_path: /usr/bin/apt-get
+      lookup_name: apt-get
+      copy_dependencies: true
+    - target_path: /usr/bin/apt-cache
+      lookup_name: apt-cache
+      copy_dependencies: true
+    - target_path: /usr/bin/apt-config
+      lookup_name: apt-config
+      copy_dependencies: true
+    - target_path: /usr/bin/dpkg
+      lookup_name: dpkg
+      copy_dependencies: true
+    - target_path: /usr/bin/dpkg-deb
+      lookup_name: dpkg-deb
+      copy_dependencies: true
+    - target_path: /usr/bin/dpkg-query
+      lookup_name: dpkg-query
+      copy_dependencies: true
+    - target_path: /usr/bin/gpgv
+      lookup_name: gpgv
+      copy_dependencies: true
+    - target_path: /usr/lib/apt/methods/copy
+      host_path: /usr/lib/apt/methods/copy
+      copy_dependencies: true
+    - target_path: /usr/lib/apt/methods/file
+      host_path: /usr/lib/apt/methods/file
+      copy_dependencies: true
+    - target_path: /usr/lib/apt/methods/gpgv
+      host_path: /usr/lib/apt/methods/gpgv
+      copy_dependencies: true
+    - target_path: /usr/lib/apt/methods/http
+      host_path: /usr/lib/apt/methods/http
+      copy_dependencies: true
+    - target_path: /usr/lib/apt/methods/https
+      host_path: /usr/lib/apt/methods/https
+      copy_dependencies: true
+    - target_path: /usr/lib/apt/methods/mirror
+      host_path: /usr/lib/apt/methods/mirror
+      copy_dependencies: true
+    - target_path: /usr/lib/apt/methods/mirror+copy
+      host_path: /usr/lib/apt/methods/mirror+copy
+      copy_dependencies: true
+    - target_path: /usr/lib/apt/methods/mirror+file
+      host_path: /usr/lib/apt/methods/mirror+file
+      copy_dependencies: true
+    - target_path: /usr/lib/apt/methods/mirror+ftp
+      host_path: /usr/lib/apt/methods/mirror+ftp
+      copy_dependencies: true
+      optional: true
+    - target_path: /usr/lib/apt/methods/mirror+http
+      host_path: /usr/lib/apt/methods/mirror+http
+      copy_dependencies: true
+    - target_path: /usr/lib/apt/methods/mirror+https
+      host_path: /usr/lib/apt/methods/mirror+https
+      copy_dependencies: true
+    - target_path: /usr/lib/apt/methods/store
+      host_path: /usr/lib/apt/methods/store
+      copy_dependencies: true
+    - target_path: /usr/bin/tar
+      lookup_name: tar
+      copy_dependencies: true
+    - target_path: /usr/bin/gzip
+      lookup_name: gzip
+      copy_dependencies: true
+    - target_path: /usr/bin/xz
+      lookup_name: xz
+      copy_dependencies: true
+    - target_path: /usr/bin/bzip2
+      lookup_name: bzip2
+      copy_dependencies: true
+    - target_path: /usr/bin/zstd
+      lookup_name: zstd
+      copy_dependencies: true
+      optional: true
+runtime_trees:
+    - host_path: /etc/apt
+      target_path: /etc/apt
+    - host_path: /etc/dpkg
+      target_path: /etc/dpkg
+      optional: true
+    - host_path: /usr/lib/apt
+      target_path: /usr/lib/apt
+      optional: true
+    - host_path: /usr/lib/dpkg
+      target_path: /usr/lib/dpkg
+      optional: true
+    - host_path: /usr/share/dpkg
+      target_path: /usr/share/dpkg
+      optional: true
+    - host_path: /var/lib/apt
+      target_path: /var/lib/apt
+      optional: true
+    - host_path: /var/lib/dpkg
+      target_path: /var/lib/dpkg
+    - host_path: /var/cache/apt
+      target_path: /var/cache/apt
+      optional: true
+runtime_files:
+    - host_path: /etc/hosts
+      target_path: /etc/hosts
+    - host_path: /etc/resolv.conf
+      target_path: /etc/resolv.conf
+    - host_path: /etc/nsswitch.conf
+      target_path: /etc/nsswitch.conf
+    - host_path: /etc/passwd
+      target_path: /etc/passwd
+      optional: true
+    - host_path: /etc/group
+      target_path: /etc/group
+      optional: true
+    - host_path: /etc/os-release
+      target_path: /etc/os-release
+      optional: true
+    - host_path: /etc/localtime
+      target_path: /etc/localtime
+      optional: true
+    - host_path: /etc/timezone
+      target_path: /etc/timezone
+      optional: true
+    - host_path: /etc/ssl/certs/ca-certificates.crt
+      target_path: /etc/ssl/certs/ca-certificates.crt
+      optional: true
+    - host_path: /etc/ssl/cert.pem
+      target_path: /etc/ssl/cert.pem
+      optional: true
+    - host_path: /etc/pki/tls/certs/ca-bundle.crt
+      target_path: /etc/pki/tls/certs/ca-bundle.crt
+      optional: true
+    - host_path: /usr/share/keyrings/debian-archive-keyring.gpg
+      target_path: /usr/share/keyrings/debian-archive-keyring.gpg
+      optional: true
