@@ -208,7 +208,7 @@ func TestConfigureRoutedPolicyNetworkBackendIgnoresMissingIP6TablesConntrackMatc
 		if name == "ip6tables" && strings.Contains(strings.Join(args, " "), "conntrack") {
 			return helperCommandWithEnv(t, map[string]string{
 				"MIRAGE_TEST_COMMAND_LOG": logPath,
-				"MIRAGE_HELPER_STDERR":    "ip6tables v1.8.4 (legacy): Couldn't load match `conntrack':No such file or directory",
+				"MIRAGE_HELPER_STDERR":    "ip6tables v1.8.4 (legacy): Couldn't load match 'conntrack':No such file or directory",
 				"MIRAGE_HELPER_EXIT":      "1",
 			})(name, args...)
 		}

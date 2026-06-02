@@ -181,7 +181,8 @@ func shouldIgnoreIP6TablesFailure(command packetFilterCommand, output []byte) bo
 	// IPv6 return-traffic helper rule unavailable even though the IPv4 routed
 	// path still works.
 	return slicesContainsString(command.Args, "conntrack") &&
-		strings.Contains(message, "Couldn't load match `conntrack'")
+		strings.Contains(message, "Couldn't load match") &&
+		strings.Contains(message, "conntrack")
 }
 
 func routedCommandError(prefix string, name string, args []string, err error, output []byte, privilegeContext string) error {
