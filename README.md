@@ -24,6 +24,45 @@ Tools such as OpenClaw often need a middle ground:
 - explicit writable paths
 - a path from ad hoc runs to explicit, reviewable launch config
 
+## Quick Start
+
+If you are on Debian or Ubuntu, install the host-side tools first:
+
+```bash
+sudo apt update
+sudo apt install -y util-linux uidmap iproute2 iptables systemd ca-certificates curl tar
+```
+
+Install Go from the official release site instead of `apt` so you control the
+toolchain version. Mirage currently builds with Go `1.24.4` or newer:
+
+```bash
+curl -LO https://go.dev/dl/go1.24.4.linux-amd64.tar.gz
+sudo rm -rf /usr/local/go
+sudo tar -C /usr/local -xzf go1.24.4.linux-amd64.tar.gz
+export PATH=/usr/local/go/bin:$PATH
+go version
+```
+
+Then build Mirage, verify the host, generate a rootfs, and run a first command:
+
+```bash
+git clone <your-fork-or-this-repo-url> mirage
+cd mirage
+mkdir -p ./bin /srv/mirage
+go build -o ./bin/mirage ./cmd/mirage
+./bin/mirage doctor
+./bin/mirage rootfs init --template basic --output /srv/mirage/basic-rootfs
+./bin/mirage doctor --rootfs /srv/mirage/basic-rootfs --command /bin/ls
+./bin/mirage run --rootfs / --preset-file ./examples/presets/openclaw-offline.yaml -- /bin/echo hello
+```
+
+If you already have a suitable Go toolchain on `PATH`, you can skip the Go
+install step and start at `go build`.
+
+For the full template catalog, dedicated-rootfs guidance, bind mounts, and
+preset-file workflows, use the docs linked below.
+
 ## Current Scope
 
 Today the project includes:
@@ -49,48 +88,6 @@ Important caveat:
 
 For exact behavior and current limitations, see
 [docs/isolation.md](docs/isolation.md).
-
-## Quick Start
-
-Build the CLI:
-
-```bash
-go build -o ./bin/mirage ./cmd/mirage
-```
-
-Assemble a release bundle that already includes the executable, bundled rootfs
-template YAML, network policies, and presets:
-
-```bash
-./bin/mirage package --output ./dist/mirage-linux-amd64.tar.gz --binary ./bin/mirage
-```
-
-Check the local environment:
-
-```bash
-./bin/mirage doctor
-```
-
-Generate a runnable rootfs from the built-in `basic` template:
-
-```bash
-./bin/mirage rootfs init --template basic --output /srv/mirage/basic-rootfs
-```
-
-Validate that rootfs before trying to run inside it:
-
-```bash
-./bin/mirage doctor --rootfs /srv/mirage/basic-rootfs --command /bin/ls
-```
-
-Run a simple local-only command:
-
-```bash
-./bin/mirage run --rootfs / --preset-file ./examples/presets/openclaw-offline.yaml -- /bin/echo hello
-```
-
-For the full template catalog, dedicated-rootfs guidance, bind mounts, and
-preset-file workflows, use the docs linked below.
 
 ## Release Bundles
 
