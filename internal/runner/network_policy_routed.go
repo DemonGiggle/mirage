@@ -157,13 +157,31 @@ func runPacketFilterCommands(commands []packetFilterCommand) error {
 		cmd.Env = append(cmd.Environ(), "XTABLES_LOCKFILE=/tmp/xtables.lock")
 		output, err := cmd.CombinedOutput()
 		if err != nil {
-			if command.Name == "ip6tables" && strings.Contains(string(output), "ip6tables table `filter': Table does not exist") {
+			if shouldIgnoreIP6TablesFailure(command, output) {
 				continue
 			}
 			return routedCommandError("apply networkPolicy backend command", command.Name, command.Args, err, output, "networkPolicy enforcement")
 		}
 	}
 	return nil
+}
+
+func shouldIgnoreIP6TablesFailure(command packetFilterCommand, output []byte) bool {
+	if command.Name != "ip6tables" {
+		return false
+	}
+
+	message := string(output)
+	if strings.Contains(message, "ip6tables table `filter': Table does not exist") {
+		return true
+	}
+
+	// The routed backend only provisions an IPv4 uplink today. Some hosts ship
+	// ip6tables variants that lack the conntrack match module, which makes the
+	// IPv6 return-traffic helper rule unavailable even though the IPv4 routed
+	// path still works.
+	return slicesContainsString(command.Args, "conntrack") &&
+		strings.Contains(message, "Couldn't load match `conntrack'")
 }
 
 func routedCommandError(prefix string, name string, args []string, err error, output []byte, privilegeContext string) error {
@@ -175,6 +193,15 @@ func routedCommandError(prefix string, name string, args []string, err error, ou
 		suffix += "; " + hint
 	}
 	return fmt.Errorf("%s %s %v: %w%s", prefix, name, args, err, suffix)
+}
+
+func slicesContainsString(items []string, want string) bool {
+	for _, item := range items {
+		if item == want {
+			return true
+		}
+	}
+	return false
 }
 
 func routedCommandFixHint(name string, err error, output []byte, privilegeContext string) string {

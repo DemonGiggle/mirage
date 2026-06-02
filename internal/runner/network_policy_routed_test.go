@@ -201,6 +201,32 @@ func TestConfigureRoutedPolicyNetworkBackendSuggestsPrivilegeFix(t *testing.T) {
 	}
 }
 
+func TestConfigureRoutedPolicyNetworkBackendIgnoresMissingIP6TablesConntrackMatch(t *testing.T) {
+	logPath := filepath.Join(t.TempDir(), "commands.log")
+	restorePolicyCommand := policyNetworkCommand
+	policyNetworkCommand = func(name string, args ...string) *exec.Cmd {
+		if name == "ip6tables" && strings.Contains(strings.Join(args, " "), "conntrack") {
+			return helperCommandWithEnv(t, map[string]string{
+				"MIRAGE_TEST_COMMAND_LOG": logPath,
+				"MIRAGE_HELPER_STDERR":    "ip6tables v1.8.4 (legacy): Couldn't load match `conntrack':No such file or directory",
+				"MIRAGE_HELPER_EXIT":      "1",
+			})(name, args...)
+		}
+		return helperCommand(t, logPath)(name, args...)
+	}
+	t.Cleanup(func() {
+		policyNetworkCommand = restorePolicyCommand
+	})
+
+	encoded, err := encodeNetworkPolicyBackend(testAllowBeforeDenyPolicy(t))
+	if err != nil {
+		t.Fatalf("encodeNetworkPolicyBackend returned error: %v", err)
+	}
+	if err := configureRoutedPolicyNetworkBackend(encoded, "mrgg0", "198.19.0.2/30", "198.19.0.1"); err != nil {
+		t.Fatalf("expected missing ip6tables conntrack match to be ignored, got %v", err)
+	}
+}
+
 func TestWaitForRoutedNetworkReadyTreatsEOFAsAbortedSetup(t *testing.T) {
 	readEnd, writeEnd, err := os.Pipe()
 	if err != nil {
