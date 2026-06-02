@@ -1,56 +1,73 @@
 # Usage
 
-This document describes how to run `mirage`. For implementation details, see
-[architecture.md](architecture.md). For current guarantees and caveats, see
-[isolation.md](isolation.md). For rootfs choice, built-in templates, and
-validation guidance, see [rootfs.md](rootfs.md).
+This document describes the current operator-facing CLI. For rootfs template
+details, see [rootfs.md](rootfs.md). For current isolation boundaries, see
+[isolation.md](isolation.md). For internal runtime structure, see
+[architecture.md](architecture.md).
 
 ## Host Prerequisites
 
 - Linux
-- Go 1.24.4 or newer if building from source
-- `unshare` on `PATH` for namespace-backed execution
-- the host `uidmap` package installed so `newuidmap` and `newgidmap` are on
-  `PATH` for Mirage's default non-root workload execution
-- `ip` on `PATH` for isolated network namespace setup
-- `iptables` and `ip6tables` on `PATH` for non-host `networkPolicy`
-  enforcement
-- `systemd-run` with a working user manager session for delegated `--memory`
-  and `--pids`
+- Go `1.24.4` or newer if you build from source
+- `unshare` on `PATH`
+- `newuidmap` and `newgidmap` from the host `uidmap` package
+- `ip` on `PATH`
+- `iptables` and `ip6tables` on `PATH`
+- `systemd-run` with a working user manager session when you use `--memory` or
+  `--pids`
 
-The exact package names vary by distribution. Run `./bin/mirage doctor` after
-installing them to confirm the local environment.
+On Debian or Ubuntu:
+
+```bash
+sudo apt update
+sudo apt install -y util-linux uidmap iproute2 iptables systemd
+```
+
+Run `./bin/mirage doctor` after installation to verify the host environment.
 
 ## Build
-
-Build the CLI binary:
 
 ```bash
 go build -o ./bin/mirage ./cmd/mirage
 ```
 
-You can also run the CLI directly from source:
+You can also inspect the command surface without producing a binary:
 
 ```bash
 go run ./cmd/mirage --help
 ```
 
-## Common Commands
+## Command Surface
 
-Environment check:
+Current top-level commands:
+
+- `mirage run`
+- `mirage doctor`
+- `mirage rootfs init`
+- `mirage rootfs list-template`
+- `mirage network-policy list`
+- `mirage package`
+- `mirage version`
+
+Useful first commands:
 
 ```bash
 ./bin/mirage doctor
+./bin/mirage rootfs list-template
+./bin/mirage network-policy list
 ```
 
-Generate a runnable rootfs from a built-in template:
+## Common Flows
+
+Generate and validate a basic rootfs:
 
 ```bash
 ./bin/mirage rootfs init --template basic --output /srv/mirage/basic-rootfs
+./bin/mirage doctor --rootfs /srv/mirage/basic-rootfs --command /bin/ls
 ```
 
-Reuse an existing non-empty rootfs output path only when you explicitly want
-Mirage to overwrite generated files:
+Allow Mirage to reuse a non-empty output directory only when you intend to
+replace generated files:
 
 ```bash
 ./bin/mirage rootfs init \
@@ -59,123 +76,93 @@ Mirage to overwrite generated files:
   --allow-overwrite
 ```
 
-Validate a rootfs before running inside it:
-
-```bash
-./bin/mirage doctor --rootfs /srv/mirage/basic-rootfs --command /bin/ls
-```
-
 Preview a run without executing it:
 
 ```bash
-./bin/mirage run --dry-run --preset-file ./examples/presets/openclaw-offline.yaml -- /bin/echo hello
+./bin/mirage run \
+  --dry-run \
+  --rootfs /srv/mirage/basic-rootfs \
+  --network-policy-file ./examples/network-policies/offline.yaml \
+  -- /bin/ls /
 ```
 
-Create a standalone release bundle:
+Run a workload from a preset:
+
+```bash
+./bin/mirage run --preset-file ./examples/presets/openclaw-offline.yaml -- openclaw
+```
+
+Create a release bundle:
 
 ```bash
 ./bin/mirage package --output ./dist/mirage-linux-amd64.tar.gz --binary ./bin/mirage
 ```
 
-## Command Pattern
+## `mirage run`
 
-The general form is:
+General form:
 
 ```bash
-mirage rootfs init --template <name> --output <path>
-mirage package --output <path> [--binary <path>]
-mirage run [sandbox options...] -- command [args...]
+mirage run [flags] -- <command> [args...]
 ```
 
-Common options include:
+Important flags:
 
-- `--rootfs`: root filesystem for the sandbox
-- `--preset-file`: single preset YAML file that can bundle rootfs, network
-  policy, bind mounts, cwd, hostname, memory, and PID limits
-- `--network-policy-file`: standalone `networkPolicy` YAML file
-- `--ro-bind`: read-only `host:guest` bind mount
-- `--rw-bind`: read-write `host:guest` bind mount
-- `--env`: explicit sandbox environment variable in `KEY=VALUE` form
-- `--run-as-root`: keep the workload as root instead of Mirage's default non-root `mirage` user
-- `--cwd`: working directory inside the sandbox
-- `--stdout-log` and `--stderr-log`: host-visible log export targets
-- `--memory` and `--pids`: delegated cgroup v2 limits
+- `--rootfs`
+- `--network-policy-file`
+- `--preset-file`
+- `--ro-bind`
+- `--rw-bind`
+- `--env`
+- `--run-as-root`
+- `--cwd`
+- `--hostname`
+- `--stdout-log`
+- `--stderr-log`
+- `--memory`
+- `--pids`
+- `--dry-run`
 
-`--memory` and `--pids` are not implemented as plain process ulimits. Mirage
-launches a delegated user scope through `systemd-run`, then creates a child
-cgroup and writes the real cgroup v2 limit files there. See
-[cgroups.md](cgroups.md) for the exact flow and the cgroup tree sketch.
+Important behavior:
 
-`mirage run` always uses the direct one-command model: the requested workload
-becomes sandbox PID 1. Network behavior is resolved from either a preset file
-or `--network-policy-file`. The current backend supports three
-runtime paths:
-
-- allow-all policy -> host namespace passthrough
-- deny-only policy -> dedicated network namespace with ordered loopback,
-  ingress, and egress allow/deny enforcement
-- policy with egress allow semantics -> dedicated network namespace plus a
-  routed host uplink with ordered rule enforcement
-
-Deferred selectors such as domain-based egress still fail explicitly instead of
-silently degrading.
-
-Mirage does not inherit arbitrary host environment variables into the sandboxed
-workload. The managed sandbox environment starts from an explicit `PATH` and
-adds any `--env KEY=VALUE` entries you provide.
-
-By default, Mirage drops the workload to the non-root `mirage` user (UID/GID
-1000) and synthesizes matching `/etc/passwd` and `/etc/group` entries at
-runtime. That default path requires the host `uidmap` package so the
-`newuidmap` and `newgidmap` helpers are available. Use `--run-as-root` only
-when the workload actually needs root inside the sandbox.
-
-## Rootfs Workflows
-
-When you use a custom `--rootfs`, that root filesystem must contain:
-
-- the command you want to launch
-- any runtime libraries or files it needs
-- any target paths for bind mounts inside the guest tree
-
-For quick local sanity checks, `--rootfs /` is the simplest option. It is also
-the weakest rootfs mode. See [isolation.md](isolation.md) for the exact
-tradeoffs.
-
-When bind mounts target `--rootfs /`, `mirage` expects the guest path to
-already exist on the host root. It will not create new host-side mountpoints in
-that mode.
-
-For the built-in template catalog, the rootfs schema, and `rootfs init`
-behavior, see [rootfs.md](rootfs.md).
-
-## Bind Mounts
-
-Bind mounts use `host:guest` pairs.
-
-Rules:
-
-- host paths must be absolute
-- guest paths must be absolute
-- host paths must already exist
-- guest `/` is not a valid bind target
+- `--` is required to separate Mirage flags from the workload command.
+- `--preset-file` is exclusive with direct configuration flags such as
+  `--rootfs`, `--network-policy-file`, bind mounts, `--cwd`, `--hostname`,
+  `--memory`, and `--pids`.
+- The workload becomes sandbox PID 1. Mirage does not run a guest init system.
+- Mirage starts the sandbox with an explicit managed environment. Host
+  environment variables are not inherited unless you pass them with `--env`.
+- By default, Mirage drops the workload to the non-root `mirage` user
+  (`1000:1000`). That requires host `newuidmap` and `newgidmap`.
 
 Example:
 
 ```bash
 ./bin/mirage run \
-  --preset-file ./examples/presets/openclaw-offline.yaml \
+  --rootfs /srv/mirage/basic-rootfs \
+  --network-policy-file ./examples/network-policies/offline.yaml \
   -- /bin/sh
 ```
 
 ## Presets
 
-`mirage` accepts a single preset document through `--preset-file`. The preset
-file can bundle the same configuration you would otherwise pass with several
-flags, including rootfs path, bind mounts, working directory, hostname, memory,
-PID limits, and network policy.
+`--preset-file` loads one YAML document that can bundle:
 
-Example preset file:
+- `rootfs.path`
+- `rootfs.template`
+- `rootfs.required_commands`
+- `networkPolicy` or `networkPolicyFile`
+- `roBind`
+- `rwBind`
+- `env`
+- `runAsRoot`
+- `cwd`
+- `hostname`
+- `memory`
+- `pids`
+- `description`
+
+Example:
 
 ```yaml
 rootfs:
@@ -185,60 +172,57 @@ rootfs:
     - node
 networkPolicyFile: ../network-policies/offline.yaml
 cwd: /workspace
-description: Team preset for local-only agent work
+description: Offline OpenClaw workflow preset
 ```
 
-Use it with:
+Notes:
+
+- Use exactly one of `networkPolicy` or `networkPolicyFile`.
+- Relative `networkPolicyFile` paths are resolved relative to the preset file.
+- If `rootfs.path` is missing or empty on disk and `rootfs.template` is set,
+  Mirage will generate that rootfs before the run starts.
+- `rootfs.required_commands` is validated by `mirage doctor --preset-file ...`.
+
+Validate a preset-managed rootfs:
 
 ```bash
-./bin/mirage run --preset-file ./examples/presets/openclaw-offline.yaml -- app
+./bin/mirage doctor --preset-file ./examples/presets/openclaw-offline.yaml
 ```
 
-Inside a preset file, use exactly one of:
+## Network Policy Use
 
-- `networkPolicy`: inline policy details
-- `networkPolicyFile`: reference a standalone policy YAML file
+Mirage exposes a policy-first network surface. The current bundled examples are:
 
-When `--preset-file` is used, Mirage rejects overlapping direct flags such as
-`--rootfs`, `--network-policy-file`, `--cwd`, bind mounts, hostname, memory,
-and PID limits. Move that configuration into the preset file instead.
+- `./examples/network-policies/allow-all.yaml`: host network namespace passthrough
+- `./examples/network-policies/offline.yaml`: dedicated namespace with loopback
+  only
+- `./examples/network-policies/block-local-egress.yaml`: dedicated namespace
+  with a routed host uplink and local-network egress denies
 
-## Network Usage
-
-The current network philosophy is intentionally narrow and policy-first:
-
-- use `./examples/network-policies/offline.yaml` when the workload should not
-  reach non-loopback network
-- use `./examples/network-policies/allow-all.yaml` when the workload truly
-  needs the host network stack
-- use `./examples/network-policies/block-local-egress.yaml` when the workload
-  should keep public egress while denying common local-network ranges
-- use `--network-policy-file` for a reviewable standalone policy document
-- expect domain-backed egress selectors to fail explicitly until the runtime can
-  materialize them safely
-
-Example:
+List them with:
 
 ```bash
-./bin/mirage run \
-  --rootfs /srv/mirage/rootfs \
-  --network-policy-file ./examples/network-policies/allow-all.yaml \
-  -- app
+./bin/mirage network-policy list
 ```
+
+Current backend behavior:
+
+- allow-all policy -> host network stack
+- deny-only IP/CIDR rules -> isolated network namespace with ordered rules
+- egress allow semantics -> isolated namespace plus routed host uplink
+- domain selectors -> explicit error
 
 ## Release Packaging
 
-Use `mirage package` when you want to publish a binary together with the YAML
-assets operators need in practice.
+`mirage package` writes a release bundle containing:
 
-- if `--output` ends with `.tar.gz` or `.tgz`, Mirage writes a compressed
-  archive
-- otherwise Mirage writes an unpacked directory bundle
-- the bundle exports built-in rootfs templates to
-  `share/mirage/rootfs/templates`
-- the bundle exports bundled network policies to
-  `share/mirage/network-policies`
-- the bundle exports bundled presets to `share/mirage/presets`
+- `bin/mirage`
+- `share/mirage/rootfs/templates`
+- `share/mirage/network-policies`
+- `share/mirage/presets`
+
+If `--output` ends with `.tar.gz` or `.tgz`, Mirage writes a compressed
+archive. Otherwise it writes an unpacked directory tree.
 
 Example unpacked bundle:
 
@@ -246,8 +230,7 @@ Example unpacked bundle:
 ./bin/mirage package --output ./dist/mirage-release --binary ./bin/mirage
 ```
 
-After extraction, users can run the packaged binary directly and reference the
-exported config files relative to the package root, for example:
+After extraction:
 
 ```bash
 ./bin/mirage run --preset-file ./share/mirage/presets/openclaw-offline.yaml -- app
@@ -255,12 +238,12 @@ exported config files relative to the package root, for example:
 
 ## Log Export
 
-You can tee workload output into host-visible files while preserving console
-output:
+Mirage can mirror stdout and stderr to host-visible files while still writing
+to the terminal:
 
 ```bash
 ./bin/mirage run \
-  --rootfs / \
+  --rootfs /srv/mirage/basic-rootfs \
   --network-policy-file ./examples/network-policies/allow-all.yaml \
   --stdout-log /tmp/app.out \
   --stderr-log /tmp/app.err \
@@ -269,12 +252,9 @@ output:
 
 ## Related Docs
 
-- [rootfs.md](rootfs.md): rootfs selection, template catalog, and generation
-  details
-- [applications.md](applications.md): application-oriented setup flows such as
-  OpenClaw installation and launch
-- [isolation.md](isolation.md): exact current behavior and caveats
-- [cgroups.md](cgroups.md): how delegated systemd scopes and cgroup v2 limits
-  are applied
-- [architecture.md](architecture.md): internal implementation model
-- [development.md](development.md): build, tests, and contributor workflow
+- [rootfs.md](rootfs.md)
+- [isolation.md](isolation.md)
+- [apps/openclaw.md](apps/openclaw.md)
+- [cgroups.md](cgroups.md)
+- [architecture.md](architecture.md)
+- [development.md](development.md)

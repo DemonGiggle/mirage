@@ -1,19 +1,17 @@
 # Development
 
-This document is for contributors working on `mirage` itself. For user-facing
-operation, see [usage.md](usage.md).
+This document is for contributors working on Mirage itself.
 
 ## Prerequisites
 
 - Linux
-- Go 1.24.4 or newer
+- Go `1.24.4` or newer
 - `unshare` on `PATH`
-- `systemd-run` with a working user manager session for delegated `--memory`
-  and `--pids`, and for init-mode cgroup delegation
+- `newuidmap` and `newgidmap` on `PATH`
+- `systemd-run` with a working user manager session when testing delegated
+  `--memory` and `--pids`
 
-Mirage does not rely on `systemd-run` alone for resource control. It uses
-`systemd-run` to obtain a delegated user scope, then creates and manages its
-own leaf cgroup inside that scope. See [cgroups.md](cgroups.md).
+For full operator prerequisites, see [usage.md](usage.md).
 
 ## Build
 
@@ -23,7 +21,7 @@ Build the CLI:
 go build -o ./bin/mirage ./cmd/mirage
 ```
 
-Build every package:
+Build all packages:
 
 ```bash
 go build ./...
@@ -31,11 +29,14 @@ go build ./...
 
 ## Test
 
-Run the full test suite:
+Run the unit and integration suites:
 
 ```bash
 go test ./...
 ```
+
+Some end-to-end tests require namespace, uidmap, and local socket capabilities
+that may be unavailable in restricted environments.
 
 ## Formatting
 
@@ -48,33 +49,27 @@ gofmt -w $(find . -name '*.go' -print)
 ## Repository Layout
 
 - `cmd/mirage`: CLI entrypoint
-- `cmd/probe-*`: single-purpose probe binaries used by end-to-end tests
-- `e2e`: end-to-end CLI coverage
-- `internal/cli`: argument parsing and command dispatch
-- `internal/runner`: namespace runner, mounts, cgroups, and execution handoff
-- `internal/spec`: config structures, presets, and validation
-- `docs/rootfs.md`: rootfs choice, template catalog, and generation details
-- `docs/usage.md`: user-facing command guide
-- `docs/isolation.md`: current isolation matrix and caveats
-- `docs/cgroups.md`: delegated scope and cgroup v2 resource-limit behavior
-- `docs/network-rule-model.md`: draft future rule-first network model
-- `docs/network-transition.md`: transition plan from current mode-first surfaces
-- `docs/architecture.md`: internal design and run flow
-- `docs/roadmap.md`: staged implementation plan
+- `cmd/probe-*`: small single-purpose test binaries
+- `e2e`: end-to-end coverage
+- `examples`: bundled example policies and presets exported by `mirage package`
+- `internal/cli`: subcommand parsing and command dispatch
+- `internal/rootfs`: template loading, generation, and validation
+- `internal/runner`: namespace backend, mounts, network, cgroups, and final exec
+- `internal/spec`: preset and network-policy data structures and validation
+- `docs/`: user and technical documentation
 
 ## Probe Tools
 
-The repository includes narrow probe binaries intended to test a single
-isolation property at a time:
+The probe binaries each target one isolation property so failures stay small
+and obvious:
 
-- `probe-file-read`: attempts to read one file path
-- `probe-file-write`: attempts to write one file path
-- `probe-env-read`: reads one environment variable
-- `probe-http-get`: performs one outbound HTTP GET
-- `probe-list-procs`: lists visible numeric `/proc` entries
-- `probe-readlink`: reads one symlink target
-- `probe-tcp-connect`: attempts one outbound TCP connection
-- `probe-spawn-child`: spawns one child process and reports the relationship
-
-These probes are meant to stay small, obvious, and easy to reason about when a
-test fails.
+- `probe-env-read`
+- `probe-file-read`
+- `probe-file-write`
+- `probe-http-get`
+- `probe-list-procs`
+- `probe-open-ptmx`
+- `probe-readlink`
+- `probe-spawn-child`
+- `probe-spawn-many`
+- `probe-tcp-connect`

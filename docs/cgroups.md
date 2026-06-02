@@ -15,16 +15,15 @@ Today Mirage supports a narrow cgroup v2 feature set:
 - swap disablement through `memory.swap.max` when available
 - PID ceiling through `pids.max`
 
-The project intentionally does not try to expose a full resource-management
-surface.
+The project intentionally does not expose a broader CPU, IO, or QoS surface.
 
-## Why `systemd-run` And `cgroup2` Both Exist
+## Why `systemd-run` And cgroup v2 Both Exist
 
 Mirage uses both because they solve different problems.
 
 - `systemd-run` creates a user-owned scope under the systemd user manager.
 - `Delegate=yes` gives Mirage permission to manage a subtree below that scope.
-- direct cgroup v2 file writes apply the actual kernel-enforced limits.
+- direct cgroup v2 file writes apply the actual kernel-enforced limits
 
 In other words:
 
@@ -156,11 +155,9 @@ For users of `mirage run`, the important practical points are:
 
 ## Related Code
 
-The current implementation is centered in:
+The implementation is centered in:
 
 - [`internal/runner/runner.go`](../internal/runner/runner.go)
 - `buildDelegatedScopeCommand`
 - `RunCgroupHelper`
 - `enterCgroupLeaf`
-
-These functions correspond directly to the sequence described above.

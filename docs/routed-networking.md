@@ -1,9 +1,10 @@
 # Routed Host-Sandbox Networking
 
 This document explains the routed network backend used when a `networkPolicy`
-requires egress allow semantics without falling back to full host-network
-passthrough. For the broader runtime model, see [architecture.md](architecture.md).
-For operator-facing isolation behavior, see [isolation.md](isolation.md).
+needs egress allow semantics without falling back to full host-network
+passthrough. For the broader runtime model, see
+[architecture.md](architecture.md). For operator-facing behavior, see
+[isolation.md](isolation.md).
 
 ## High-Level View
 
@@ -106,7 +107,7 @@ Because the subnet is `/30`, the link is point-to-point in practice:
 ## Linux Commands Behind The Flow
 
 The routed backend is small enough that the important behavior can be described
-directly in terms of Linux commands.
+directly in Linux command terms.
 
 In the real implementation, Mirage generates interface names like these:
 

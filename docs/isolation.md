@@ -1,96 +1,99 @@
 # Isolation Behavior
 
-This document explains what `mirage` isolates today and where the current
-boundary is weaker than the long-term design. For usage examples, see
-[usage.md](usage.md). For implementation details, see
-[architecture.md](architecture.md). For the future rule-first network design,
-see [network-rule-model.md](network-rule-model.md).
+This document describes the current isolation boundary Mirage actually provides.
+It is the operator-facing source of truth for guarantees and caveats.
 
-## Isolation Dimensions
+## Read The Axes Separately
 
-There are three sources of behavior to keep separate:
+Most confusion comes from mixing three independent choices:
 
-- network policy or preset-file choice
-- runner behavior: namespaces, mounts, and cgroups
-- rootfs choice: how strong the filesystem and `/proc` view are
+- rootfs choice
+- network policy choice
+- optional cgroup limits
 
-Most confusion comes from mixing those together.
+A strong network policy does not strengthen a weak rootfs choice, and a strong
+rootfs choice does not imply a network namespace.
 
-## Current Network Surface
+## Process Tree
 
-Mirage now exposes only policy-first network inputs:
+Each `mirage run` invocation creates one sandbox process tree.
 
-| Surface | Network behavior |
+- the requested workload becomes sandbox PID 1
+- child processes stay inside the same PID namespace
+- Mirage does not run a guest init system
+
+## Rootfs Boundary
+
+Mirage has two practical rootfs modes.
+
+### `--rootfs /`
+
+- the sandbox uses the host root as `/`
+- Mirage does not prepare a new root mount layout
+- the host `/proc` mount stays visible
+
+This mode is convenient, but it is not a strong filesystem isolation boundary.
+
+### Dedicated non-`/` rootfs
+
+- Mirage prepares runtime mountpoints under that rootfs
+- Mirage mounts a fresh procfs
+- Mirage provides managed `/dev`, `/dev/shm`, and `/dev/pts`
+- handoff finishes with `chroot`
+
+This is the preferred mode when filesystem separation or proc visibility
+matters.
+
+## Network Boundary
+
+Mirage exposes only policy-first network inputs.
+
+| Policy shape | Runtime behavior |
 | --- | --- |
-| `--network-policy-file ./examples/network-policies/allow-all.yaml` or allow-all `networkPolicy` | No network namespace isolation; the workload uses the host network stack |
-| deny-only IP/CIDR `networkPolicy`, including `./examples/network-policies/offline.yaml` | Dedicated network namespace with loopback, ingress, and egress enforced through ordered allow/deny rules |
-| IP/CIDR `networkPolicy` with egress allow semantics, including `./examples/network-policies/block-local-egress.yaml` | Dedicated network namespace plus a routed host uplink; Mirage programs a veth pair, host-side forwarding/NAT, and ordered packet-filter rules |
-| deferred selectors such as `destination.domain` | Explicit unsupported error |
+| allow-all policy | workload uses the host network stack |
+| deny-only IP/CIDR rules | dedicated network namespace with ordered loopback, ingress, and egress rules |
+| egress allow semantics with IP/CIDR selectors | dedicated network namespace plus a routed host uplink |
+| domain selectors | explicit unsupported error |
 
-That should still be read as a conservative implementation slice, not as the
-complete rule-engine target. Domain-backed selectors and other deferred shapes
-remain intentionally unsupported until Mirage can enforce them safely.
+The policy file decides which backend Mirage chooses. See
+[network-rule-model.md](network-rule-model.md) for the schema and
+[routed-networking.md](routed-networking.md) for the routed uplink details.
 
-## What Mirage Isolates Today
+## Credentials and Environment
 
-### Process namespace
+By default:
 
-The runner creates a PID namespace for sandboxed runs. Child processes spawned
-by the workload stay inside that namespace.
+- the workload runs as the non-root `mirage` user (`1000:1000`)
+- Mirage synthesizes matching passwd and group entries at runtime
+- host environment variables are not inherited automatically
 
-This does not automatically guarantee a fresh `/proc` view. That depends on the
-rootfs layout and proc mount setup.
-
-### Rootfs isolation
-
-- with `--rootfs /`, the sandbox uses the host root as its `/`
-- with a non-`/` rootfs, the runner prepares runtime mountpoints and hands off
-  with `chroot`
-
-This makes `--rootfs /` a convenience mode, not a strong filesystem boundary.
-
-### `/proc` view
-
-This is the most important current caveat:
-
-- a non-`/` rootfs gets a fresh proc mount prepared under that rootfs
-- `--rootfs /` does not remount proc, so tools such as `ps` can still inspect
-  the host procfs mount
-
-That is why `mirage run --rootfs / --network-policy-file ./examples/network-policies/offline.yaml -- ps aux`
-can still show the host process list.
+Use `--run-as-root` only when the guest workload actually needs root.
 
 ## Current Guarantees
 
-Today you can rely on:
+Today Mirage reliably provides:
 
-- namespace-backed process-tree execution on Linux
-- default workload credential drop to the non-root `mirage` user; root inside
-  the sandbox now requires explicit `--run-as-root` and host `newuidmap` /
-  `newgidmap` helpers
-- explicit bind-mount application
-- policy-first network selection through preset files or standalone policy files
-- delegated cgroup v2 memory and PID limits
-- managed `/dev` runtime mounts for dedicated rootfs runs
-- host-side log export
+- Linux namespace-backed process-tree execution
+- explicit bind mounts
+- policy-file or preset-driven network selection
+- managed runtime mounts for dedicated rootfs runs
+- delegated cgroup v2 memory and PID limits when configured
+- host-visible stdout and stderr log export
 
 ## Current Limitations
 
 Today you should assume:
 
-- `--rootfs /` exposes the host root as the sandbox root
+- `--rootfs /` exposes the host filesystem as the guest root
 - `--rootfs /` does not provide a fresh procfs view
-- rootfs handoff still ends with `chroot`, not `pivot_root`
-- domain-backed selectors such as `destination.domain` are still deferred and
-  fail closed rather than bypassing the packet filter backend
+- dedicated rootfs handoff still ends with `chroot`, not `pivot_root`
+- allow-all policy intentionally uses host network passthrough
+- domain-backed selectors fail closed because the runtime does not enforce them
 
 ## Practical Guidance
 
-- use `--rootfs /` only for quick local checks and simple host-root-based runs
-- use a dedicated rootfs when filesystem separation or proc visibility matters
-- prefer explicit `--network-policy-file` or `--preset-file` in operator flows
-  so network behavior stays reviewable
-- use `mirage run` for one-shot commands where Mirage owns the foreground
-  workload
-- use this document as the source of truth for current behavior, and
-  [roadmap.md](roadmap.md) for deferred work
+- Use `--rootfs /` only for quick local checks.
+- Use a dedicated rootfs for anything you expect to be repeatable or reviewable.
+- Prefer `--network-policy-file` or `--preset-file` over ad hoc experimentation
+  when sharing commands with other operators.
+- Treat this document as the current behavior reference, not the design target.

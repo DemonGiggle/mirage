@@ -1,31 +1,42 @@
 # Rootfs and Templates
 
-This document describes how Mirage uses `--rootfs`, what `mirage rootfs init`
-prepares, and how the built-in rootfs templates map to current workflows. For
-general CLI usage, see [usage.md](usage.md). For operator-visible isolation
-tradeoffs, see [isolation.md](isolation.md).
+This document explains what Mirage expects from `--rootfs`, how `mirage rootfs
+init` builds generated root filesystems, and which built-in templates exist
+today.
 
-## Choosing a Rootfs
+## Rootfs Modes
 
-Mirage supports two broad rootfs shapes:
+Mirage supports two practical rootfs choices:
 
-- `--rootfs /`: convenient for quick local checks and host-root-backed runs
-- a dedicated non-`/` rootfs: the preferred mode when filesystem separation or
-  proc visibility matter
+- `--rootfs /`
+- a dedicated non-`/` rootfs
 
-`--rootfs /` is intentionally weaker. It does not provide the same filesystem
-or `/proc` behavior as a dedicated generated or custom rootfs.
+`--rootfs /` is useful for quick local checks, but it is intentionally weak.
+The sandbox sees the host root as `/`, and Mirage does not replace the host
+`/proc` mount in that mode.
 
-## Creating and Validating a Rootfs
+A dedicated rootfs is the preferred mode when you care about:
 
-Generate a runnable rootfs from a built-in template:
+- filesystem separation
+- a fresh procfs mount
+- predictable runtime paths such as `/tmp`, `/run`, and `/dev`
+
+## Create and Validate
+
+List built-in templates:
+
+```bash
+./bin/mirage rootfs list-template
+```
+
+Generate a rootfs:
 
 ```bash
 ./bin/mirage rootfs init --template basic --output /srv/mirage/basic-rootfs
 ```
 
-If you intentionally want to reuse an existing non-empty output directory,
-opt in explicitly:
+Reuse an existing non-empty output directory only when you intentionally want
+Mirage to replace generated files:
 
 ```bash
 ./bin/mirage rootfs init \
@@ -34,113 +45,99 @@ opt in explicitly:
   --allow-overwrite
 ```
 
-Validate a command inside that rootfs before launching a full workload:
+Validate a rootfs and a command inside it:
 
 ```bash
 ./bin/mirage doctor --rootfs /srv/mirage/basic-rootfs --command /bin/ls
 ```
 
-## Rootfs Template Model
+## What `rootfs init` Does
 
-A V1 rootfs template describes:
+A built-in template can declare:
 
-- template `version`, `name`, and `description`
-- directories that should exist in the generated rootfs
-- binaries copied either from an explicit host absolute path or from host `PATH`
-- whether each binary should bring along its shared-library dependency closure
-- whether a binary is optional and may be skipped if the host copy is missing or
-  unusable
-- runtime trees copied recursively from the host into the rootfs
-- runtime files copied from the host into the rootfs
-- generated files written directly by Mirage into the rootfs
+- directories to create
+- binaries to copy from an absolute host path or from host `PATH`
+- whether shared-library dependencies should be copied
+- runtime trees to copy recursively
+- runtime files to copy
+- generated files to write directly
 
-Every built-in template currently prepares the same baseline rootfs content:
+Common behavior across generated rootfs trees:
 
-- runtime directories: `/proc`, `/tmp`, and `/run`
-- common runtime files: `/etc/hosts`, `/etc/resolv.conf`, and
-  `/etc/nsswitch.conf`
-- declared binaries copied with their ELF dependency closures when requested
-- shebang interpreters copied when a declared command is a script wrapper
+- Mirage creates baseline runtime directories such as `/proc`, `/tmp`, and
+  `/run`.
+- Mirage copies declared binaries and their dependency closures when requested.
+- Script entrypoints keep their shebang interpreters.
+- Missing required host assets are reported as warnings while the rest of the
+  rootfs is still written.
+- Missing optional host assets are skipped.
 
-At launch time, dedicated non-`/` rootfs runs also get a managed device layout
-inside the sandbox, including `/dev`, `/dev/shm`, and `/dev/pts`, so child
-process spawning and PTY-backed tools can work without relying on host-root
-device paths baked into the generated rootfs.
+At runtime, dedicated rootfs runs also receive a managed device layout under
+`/dev`, including `/dev/shm` and `/dev/pts`.
 
-Mirage reports missing **non-optional** host assets as warnings and still writes
-the rest of the rootfs. Optional host assets are skipped silently.
+## Template Schema
 
-By default, `rootfs init` still rejects a non-empty output directory. Use
-`--allow-overwrite` only when you explicitly want Mirage to reuse an existing
-rootfs path and replace generated files in place.
-
-### Schema shape
+The built-in schema is versioned as `v1`. A template can include these fields:
 
 ```json
 {
   "version": "v1",
   "name": "basic",
   "description": "Small runnable base rootfs with shell and core inspection tools.",
-  "directories": [
-    {"path": "/proc", "mode": 493},
-    {"path": "/tmp", "mode": 1023},
-    {"path": "/run", "mode": 493}
-  ],
-  "binaries": [
-    {
-      "target_path": "/bin/sh",
-      "lookup_name": "sh",
-      "copy_dependencies": true
-    },
-    {
-      "target_path": "/usr/bin/host",
-      "lookup_name": "host",
-      "copy_dependencies": true,
-      "optional": true
-    }
-  ],
-  "runtime_trees": [
-    {
-      "host_path": "/usr/share/zoneinfo",
-      "target_path": "/usr/share/zoneinfo",
-      "optional": true
-    }
-  ],
-  "runtime_files": [
-    {"host_path": "/etc/hosts", "target_path": "/etc/hosts"},
-    {"host_path": "/etc/resolv.conf", "target_path": "/etc/resolv.conf"}
-  ],
-  "generated_files": [
-    {"target_path": "/etc/machine-id", "content": "", "mode": 420}
-  ]
+  "directories": [],
+  "binaries": [],
+  "runtime_trees": [],
+  "runtime_files": [],
+  "generated_files": []
 }
 ```
 
+Binary entries choose exactly one host source:
+
+- `host_path`
+- `lookup_name`
+
+Runtime and generated paths must be absolute inside the guest tree.
+
 ## Built-In Templates
 
-| Template | What it prepares | Good starting point for |
-| --- | --- | --- |
-| `basic` | Shell and inspection basics: `/bin/sh`, `/bin/ls`, `/bin/cat`, `/bin/mkdir`, `/bin/pwd`, `/bin/rm`, `/bin/true`, `/bin/false`, and `/usr/bin/env` | Sanity checks, simple shell commands, and minimal rootfs runs |
-| `node` | Everything from `basic`, plus `/workspace`, `/etc/ssl/certs`, `node`, `npm`, `npx`, and common CA bundle files when present on the host | Node.js-oriented tooling and HTTPS-capable Node workloads |
-| `python` | Everything from `basic`, plus `/workspace`, `/etc/ssl/certs`, `python3`, `pip3`, and common CA bundle files when present on the host | Python-oriented tooling and HTTPS-capable Python workloads |
-| `openclaw-chat-only` | Everything from `node`, plus locale/tzdata runtime data and `openssl` | Minimal OpenClaw chat-oriented runs that need Node.js, TLS, and locale/timezone data |
-| `openclaw-work` | Everything from `openclaw-chat-only`, plus shell, archive, patching, JSON, and search tooling | OpenClaw work sessions with common Unix utilities |
-| `openclaw-developer` | Everything from `openclaw-work`, plus VCS, editors, Python, SQLite, and common build-toolchain entrypoints | OpenClaw development-oriented sessions |
-| `openclaw-admin` | Everything from `openclaw-developer`, plus networking, process, and capability utilities | OpenClaw troubleshooting and host/network administration tasks |
-| `openclaw-root` | Everything from `openclaw-admin`, plus package-management, tracing, debugging, namespace, and filesystem tools | Privileged or recovery-oriented OpenClaw sessions |
+| Template | Purpose |
+| --- | --- |
+| `basic` | Small runnable base rootfs with shell and inspection tools |
+| `node` | Node.js-oriented template with `node`, `npm`, `npx`, CA material, and `/workspace` |
+| `python` | Python-oriented template with `python3`, `pip3`, CA material, and `/workspace` |
+| `openclaw` | Compatibility-oriented OpenClaw template with Node.js, Git, Bash, and `/workspace` |
+| `openclaw-chat-only` | Smallest OpenClaw-focused level with Node.js, TLS material, locales, tzdata, and OpenSSL |
+| `openclaw-work` | `openclaw-chat-only` plus common shell, archive, patching, JSON, and search tooling |
+| `openclaw-developer` | `openclaw-work` plus VCS, editors, interpreters, databases, and common build toolchains |
+| `openclaw-admin` | `openclaw-developer` plus networking, process, capability, and sync utilities |
+| `openclaw-root` | `openclaw-admin` plus package-management, tracing, debugging, namespace, and filesystem tooling |
+| `openclaw-systemd` | OpenClaw-oriented template with guest systemd tooling and systemd-ready directories |
 
 Notes:
 
-- `basic` is the smallest built-in template and the best first choice when you
-  just want a runnable rootfs for `/bin/ls` or `/bin/sh`.
-- `node`, `python`, and all `openclaw*` templates intentionally add a writable
-  `/workspace` layout because those flows commonly mount or use project trees there.
-- the leveled `openclaw-*` templates compose strictly from the previous level
-  plus the current level's additions.
-- the built-in OpenClaw preset hints currently recommend `openclaw-developer`
-  and expect `node` to be present.
+- `basic` is the smallest general template and the best first rootfs for CLI
+  validation.
+- `node`, `python`, and the OpenClaw templates depend on host binaries already
+  existing on `PATH`.
+- `openclaw-developer` is the default preset-oriented template in
+  `examples/presets/`.
 
-## OpenClaw-Oriented Rootfs Flows
+## Preset Interaction
 
-For end-to-end OpenClaw installation and launch examples, see
-[applications.md#openclaw](applications.md#openclaw).
+Preset files can declare:
+
+- `rootfs.path`
+- `rootfs.template`
+- `rootfs.required_commands`
+
+If the preset rootfs path is absent or empty and `rootfs.template` is present,
+Mirage can generate that rootfs automatically before `mirage run`.
+
+`mirage doctor --preset-file ...` also validates any
+`rootfs.required_commands` entries declared in the preset.
+
+## Application Flows
+
+For a short OpenClaw-specific setup sequence, see
+[apps/openclaw.md](apps/openclaw.md).
