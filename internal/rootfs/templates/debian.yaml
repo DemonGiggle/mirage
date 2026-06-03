@@ -133,6 +133,9 @@ binaries:
     - target_path: /usr/bin/cut
       lookup_name: cut
       copy_dependencies: true
+    - target_path: /usr/bin/getent
+      lookup_name: getent
+      copy_dependencies: true
     - target_path: /usr/bin/cmp
       lookup_name: cmp
       copy_dependencies: true
@@ -160,20 +163,113 @@ binaries:
     - target_path: /usr/bin/stat
       lookup_name: stat
       copy_dependencies: true
+    - target_path: /usr/bin/getopt
+      lookup_name: getopt
+      copy_dependencies: true
     - target_path: /usr/bin/mktemp
       lookup_name: mktemp
       copy_dependencies: true
     - target_path: /usr/bin/readlink
       lookup_name: readlink
       copy_dependencies: true
+    - target_path: /usr/bin/basename
+      lookup_name: basename
+      copy_dependencies: true
+    - target_path: /usr/bin/passwd
+      lookup_name: passwd
+      copy_dependencies: true
+    - target_path: /usr/bin/chfn
+      lookup_name: chfn
+      copy_dependencies: true
+    - target_path: /usr/bin/chsh
+      lookup_name: chsh
+      copy_dependencies: true
+    - target_path: /usr/bin/dpkg-statoverride
+      lookup_name: dpkg-statoverride
+      copy_dependencies: true
+    - target_path: /usr/bin/deb-systemd-helper
+      lookup_name: deb-systemd-helper
+      copy_dependencies: true
+    - target_path: /usr/bin/deb-systemd-invoke
+      lookup_name: deb-systemd-invoke
+      copy_dependencies: true
+    - target_path: /usr/bin/dbus-uuidgen
+      lookup_name: dbus-uuidgen
+      copy_dependencies: true
+    - target_path: /usr/bin/gpg-agent
+      lookup_name: gpg-agent
+      copy_dependencies: true
+    - target_path: /usr/bin/gpg-connect-agent
+      lookup_name: gpg-connect-agent
+      copy_dependencies: true
     - target_path: /usr/sbin/ldconfig
       lookup_name: ldconfig
+      copy_dependencies: true
+    - target_path: /usr/sbin/adduser
+      lookup_name: adduser
+      copy_dependencies: true
+    - target_path: /usr/sbin/addgroup
+      lookup_name: addgroup
+      copy_dependencies: true
+    - target_path: /usr/sbin/deluser
+      lookup_name: deluser
+      copy_dependencies: true
+    - target_path: /usr/sbin/delgroup
+      lookup_name: delgroup
+      copy_dependencies: true
+    - target_path: /usr/sbin/useradd
+      lookup_name: useradd
+      copy_dependencies: true
+    - target_path: /usr/sbin/groupadd
+      lookup_name: groupadd
+      copy_dependencies: true
+    - target_path: /usr/sbin/groupdel
+      lookup_name: groupdel
+      copy_dependencies: true
+    - target_path: /usr/sbin/usermod
+      lookup_name: usermod
+      copy_dependencies: true
+    - target_path: /usr/sbin/update-passwd
+      lookup_name: update-passwd
+      copy_dependencies: true
+    - target_path: /usr/sbin/invoke-rc.d
+      lookup_name: invoke-rc.d
+      copy_dependencies: true
+    - target_path: /usr/sbin/update-rc.d
+      lookup_name: update-rc.d
+      copy_dependencies: true
+    - target_path: /usr/sbin/service
+      lookup_name: service
+      copy_dependencies: true
+    - target_path: /usr/sbin/nologin
+      lookup_name: nologin
       copy_dependencies: true
     - target_path: /sbin/start-stop-daemon
       lookup_name: start-stop-daemon
       copy_dependencies: true
+    - target_path: /bin/run-parts
+      lookup_name: run-parts
+      copy_dependencies: true
+    - target_path: /bin/pidof
+      lookup_name: pidof
+      copy_dependencies: true
+    - target_path: /bin/systemctl
+      lookup_name: systemctl
+      copy_dependencies: true
+    - target_path: /bin/systemd-tmpfiles
+      lookup_name: systemd-tmpfiles
+      copy_dependencies: true
     - target_path: /bin/chmod
       lookup_name: chmod
+      copy_dependencies: true
+    - target_path: /bin/chown
+      lookup_name: chown
+      copy_dependencies: true
+    - target_path: /bin/chgrp
+      lookup_name: chgrp
+      copy_dependencies: true
+    - target_path: /bin/ln
+      lookup_name: ln
       copy_dependencies: true
     - target_path: /usr/lib/apt/methods/copy
       host_path: /usr/lib/apt/methods/copy
@@ -243,6 +339,18 @@ runtime_trees:
       optional: true
     - host_path: /usr/lib/dpkg
       target_path: /usr/lib/dpkg
+      optional: true
+    - host_path: /usr/share/perl
+      target_path: /usr/share/perl
+      optional: true
+    - host_path: /usr/share/perl5
+      target_path: /usr/share/perl5
+      optional: true
+    - host_path: /usr/lib/x86_64-linux-gnu/perl
+      target_path: /usr/lib/x86_64-linux-gnu/perl
+      optional: true
+    - host_path: /usr/lib/x86_64-linux-gnu/perl5
+      target_path: /usr/lib/x86_64-linux-gnu/perl5
       optional: true
     - host_path: /usr/share/dpkg
       target_path: /usr/share/dpkg

@@ -213,7 +213,14 @@ func TestDebianTemplateIncludesAPTEnvironment(t *testing.T) {
 	for _, binary := range template.Binaries {
 		lookups = append(lookups, binary.LookupName)
 	}
-	for _, want := range []string{"apt", "apt-get", "apt-cache", "apt-config", "apt-key", "dpkg", "dpkg-deb", "dpkg-query", "gpg", "gpgv"} {
+	for _, want := range []string{
+		"apt", "apt-get", "apt-cache", "apt-config", "apt-key",
+		"dpkg", "dpkg-deb", "dpkg-query", "gpg", "gpgv",
+		"adduser", "addgroup", "groupadd", "useradd", "getent",
+		"invoke-rc.d", "update-rc.d", "deb-systemd-helper",
+		"dbus-uuidgen", "dpkg-statoverride", "basename", "getopt", "run-parts",
+		"chown", "chgrp", "ln",
+	} {
 		if !contains(lookups, want) {
 			t.Fatalf("expected debian template to include %q, got %v", want, lookups)
 		}
@@ -237,7 +244,14 @@ func TestDebianTemplateIncludesAPTEnvironment(t *testing.T) {
 	for _, runtimeTree := range template.RuntimeTrees {
 		treeTargets = append(treeTargets, runtimeTree.TargetPath)
 	}
-	for _, want := range []string{"/etc/apt/keyrings", "/etc/apt/trusted.gpg.d"} {
+	for _, want := range []string{
+		"/etc/apt/keyrings",
+		"/etc/apt/trusted.gpg.d",
+		"/usr/share/perl",
+		"/usr/share/perl5",
+		"/usr/lib/x86_64-linux-gnu/perl",
+		"/usr/lib/x86_64-linux-gnu/perl5",
+	} {
 		if !contains(treeTargets, want) {
 			t.Fatalf("expected debian template to include runtime tree %q, got %v", want, treeTargets)
 		}
