@@ -4,6 +4,24 @@ This guide collects basic Mirage setup flows for specific applications. Start
 with the application section that matches the tool you want to run inside a
 Mirage rootfs.
 
+## Hermes Agent
+
+Hermes Agent wants both Python and Node in a normal install path, plus a small
+set of quality-of-life tools that upstream treats as part of the expected
+runtime surface.
+
+Use the built-in `hermes-agent` template when you want a Mirage rootfs aimed at
+Hermes itself rather than a generic Python-only environment:
+
+```bash
+./bin/mirage rootfs init \
+  --template hermes-agent \
+  --output /srv/mirage/hermes-agent-rootfs
+```
+
+For the detailed rationale behind that template and what it intentionally does
+or does not include, see [apps/hermes-agent.md](apps/hermes-agent.md).
+
 ## OpenClaw
 
 OpenClaw can run against several different OpenClaw-oriented rootfs levels. The

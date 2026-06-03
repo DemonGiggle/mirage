@@ -1,0 +1,292 @@
+version: v1
+name: hermes-agent
+description: Hermes Agent rootfs template with Python, Node.js, git, ripgrep, ffmpeg, and common shell/runtime data.
+directories:
+    - path: /proc
+      mode: 493
+    - path: /tmp
+      mode: 1023
+    - path: /run
+      mode: 493
+    - path: /workspace
+      mode: 493
+    - path: /etc/ssl/certs
+      mode: 493
+    - path: /home
+      mode: 493
+binaries:
+    - target_path: /bin/sh
+      lookup_name: sh
+      copy_dependencies: true
+    - target_path: /bin/ls
+      lookup_name: ls
+      copy_dependencies: true
+    - target_path: /bin/cat
+      lookup_name: cat
+      copy_dependencies: true
+    - target_path: /bin/mkdir
+      lookup_name: mkdir
+      copy_dependencies: true
+    - target_path: /bin/pwd
+      lookup_name: pwd
+      copy_dependencies: true
+    - target_path: /bin/rm
+      lookup_name: rm
+      copy_dependencies: true
+    - target_path: /bin/true
+      lookup_name: "true"
+      copy_dependencies: true
+    - target_path: /bin/false
+      lookup_name: "false"
+      copy_dependencies: true
+    - target_path: /usr/bin/env
+      lookup_name: env
+      copy_dependencies: true
+    - target_path: /usr/bin/node
+      lookup_name: node
+      copy_dependencies: true
+    - target_path: /usr/bin/npm
+      lookup_name: npm
+      copy_dependencies: true
+    - target_path: /usr/bin/npx
+      lookup_name: npx
+      copy_dependencies: true
+    - target_path: /usr/bin/python3
+      lookup_name: python3
+      copy_dependencies: true
+    - target_path: /usr/bin/pip3
+      lookup_name: pip3
+      copy_dependencies: true
+    - target_path: /usr/bin/openssl
+      lookup_name: openssl
+      copy_dependencies: true
+    - target_path: /bin/bash
+      lookup_name: bash
+      copy_dependencies: true
+    - target_path: /bin/cp
+      lookup_name: cp
+      copy_dependencies: true
+    - target_path: /bin/mv
+      lookup_name: mv
+      copy_dependencies: true
+    - target_path: /bin/ln
+      lookup_name: ln
+      copy_dependencies: true
+    - target_path: /bin/chmod
+      lookup_name: chmod
+      copy_dependencies: true
+    - target_path: /bin/chown
+      lookup_name: chown
+      copy_dependencies: true
+    - target_path: /bin/touch
+      lookup_name: touch
+      copy_dependencies: true
+    - target_path: /bin/sleep
+      lookup_name: sleep
+      copy_dependencies: true
+    - target_path: /usr/bin/stat
+      lookup_name: stat
+      copy_dependencies: true
+    - target_path: /usr/bin/tee
+      lookup_name: tee
+      copy_dependencies: true
+    - target_path: /usr/bin/head
+      lookup_name: head
+      copy_dependencies: true
+    - target_path: /usr/bin/tail
+      lookup_name: tail
+      copy_dependencies: true
+    - target_path: /usr/bin/sort
+      lookup_name: sort
+      copy_dependencies: true
+    - target_path: /usr/bin/uniq
+      lookup_name: uniq
+      copy_dependencies: true
+    - target_path: /usr/bin/cut
+      lookup_name: cut
+      copy_dependencies: true
+    - target_path: /usr/bin/wc
+      lookup_name: wc
+      copy_dependencies: true
+    - target_path: /usr/bin/du
+      lookup_name: du
+      copy_dependencies: true
+    - target_path: /usr/bin/df
+      lookup_name: df
+      copy_dependencies: true
+    - target_path: /usr/bin/basename
+      lookup_name: basename
+      copy_dependencies: true
+    - target_path: /usr/bin/dirname
+      lookup_name: dirname
+      copy_dependencies: true
+    - target_path: /usr/bin/readlink
+      lookup_name: readlink
+      copy_dependencies: true
+    - target_path: /usr/bin/printf
+      lookup_name: printf
+      copy_dependencies: true
+    - target_path: /usr/bin/id
+      lookup_name: id
+      copy_dependencies: true
+    - target_path: /usr/bin/whoami
+      lookup_name: whoami
+      copy_dependencies: true
+    - target_path: /usr/bin/uname
+      lookup_name: uname
+      copy_dependencies: true
+    - target_path: /usr/bin/seq
+      lookup_name: seq
+      copy_dependencies: true
+    - target_path: /usr/bin/tr
+      lookup_name: tr
+      copy_dependencies: true
+    - target_path: /usr/bin/find
+      lookup_name: find
+      copy_dependencies: true
+    - target_path: /usr/bin/xargs
+      lookup_name: xargs
+      copy_dependencies: true
+    - target_path: /usr/bin/grep
+      lookup_name: grep
+      copy_dependencies: true
+    - target_path: /usr/bin/sed
+      lookup_name: sed
+      copy_dependencies: true
+    - target_path: /usr/bin/awk
+      lookup_name: awk
+      copy_dependencies: true
+    - target_path: /usr/bin/diff
+      lookup_name: diff
+      copy_dependencies: true
+    - target_path: /usr/bin/patch
+      lookup_name: patch
+      copy_dependencies: true
+    - target_path: /usr/bin/less
+      lookup_name: less
+      copy_dependencies: true
+    - target_path: /usr/bin/file
+      lookup_name: file
+      copy_dependencies: true
+    - target_path: /usr/bin/tar
+      lookup_name: tar
+      copy_dependencies: true
+    - target_path: /usr/bin/gzip
+      lookup_name: gzip
+      copy_dependencies: true
+    - target_path: /usr/bin/bzip2
+      lookup_name: bzip2
+      copy_dependencies: true
+    - target_path: /usr/bin/xz
+      lookup_name: xz
+      copy_dependencies: true
+    - target_path: /usr/bin/zip
+      lookup_name: zip
+      copy_dependencies: true
+    - target_path: /usr/bin/unzip
+      lookup_name: unzip
+      copy_dependencies: true
+    - target_path: /usr/bin/jq
+      lookup_name: jq
+      copy_dependencies: true
+    - target_path: /usr/bin/rg
+      lookup_name: rg
+      copy_dependencies: true
+    - target_path: /usr/bin/git
+      lookup_name: git
+      copy_dependencies: true
+    - target_path: /usr/bin/curl
+      lookup_name: curl
+      copy_dependencies: true
+    - target_path: /usr/bin/ps
+      lookup_name: ps
+      copy_dependencies: true
+    - target_path: /usr/bin/pgrep
+      lookup_name: pgrep
+      copy_dependencies: true
+    - target_path: /usr/bin/pkill
+      lookup_name: pkill
+      copy_dependencies: true
+    - target_path: /usr/bin/ffmpeg
+      lookup_name: ffmpeg
+      copy_dependencies: true
+runtime_trees:
+    - host_path: /usr/share/zoneinfo
+      target_path: /usr/share/zoneinfo
+      optional: true
+    - host_path: /usr/lib/locale
+      target_path: /usr/lib/locale
+      optional: true
+    - host_path: /usr/share/locale
+      target_path: /usr/share/locale
+      optional: true
+    - host_path: /lib/terminfo
+      target_path: /lib/terminfo
+      optional: true
+    - host_path: /usr/share/terminfo
+      target_path: /usr/share/terminfo
+      optional: true
+    - host_path: /usr/lib/python3
+      target_path: /usr/lib/python3
+      optional: true
+    - host_path: /usr/lib/python3.10
+      target_path: /usr/lib/python3.10
+      optional: true
+    - host_path: /usr/lib/python3.11
+      target_path: /usr/lib/python3.11
+      optional: true
+    - host_path: /usr/lib/python3.12
+      target_path: /usr/lib/python3.12
+      optional: true
+    - host_path: /usr/lib/python3.13
+      target_path: /usr/lib/python3.13
+      optional: true
+    - host_path: /usr/lib/python3/dist-packages
+      target_path: /usr/lib/python3/dist-packages
+      optional: true
+    - host_path: /usr/local/lib/python3.10
+      target_path: /usr/local/lib/python3.10
+      optional: true
+    - host_path: /usr/local/lib/python3.11
+      target_path: /usr/local/lib/python3.11
+      optional: true
+    - host_path: /usr/local/lib/python3.12
+      target_path: /usr/local/lib/python3.12
+      optional: true
+    - host_path: /usr/local/lib/python3.13
+      target_path: /usr/local/lib/python3.13
+      optional: true
+    - host_path: /usr/lib/node_modules
+      target_path: /usr/lib/node_modules
+      optional: true
+    - host_path: /usr/local/lib/node_modules
+      target_path: /usr/local/lib/node_modules
+      optional: true
+runtime_files:
+    - host_path: /etc/hosts
+      target_path: /etc/hosts
+    - host_path: /etc/resolv.conf
+      target_path: /etc/resolv.conf
+    - host_path: /etc/nsswitch.conf
+      target_path: /etc/nsswitch.conf
+    - host_path: /etc/ssl/certs/ca-certificates.crt
+      target_path: /etc/ssl/certs/ca-certificates.crt
+      optional: true
+    - host_path: /etc/ssl/cert.pem
+      target_path: /etc/ssl/cert.pem
+      optional: true
+    - host_path: /etc/pki/tls/certs/ca-bundle.crt
+      target_path: /etc/pki/tls/certs/ca-bundle.crt
+      optional: true
+    - host_path: /etc/localtime
+      target_path: /etc/localtime
+      optional: true
+    - host_path: /etc/timezone
+      target_path: /etc/timezone
+      optional: true
+    - host_path: /etc/ssl/openssl.cnf
+      target_path: /etc/ssl/openssl.cnf
+      optional: true
+    - host_path: /usr/share/misc/magic.mgc
+      target_path: /usr/share/misc/magic.mgc
+      optional: true

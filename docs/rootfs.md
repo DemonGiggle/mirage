@@ -121,6 +121,7 @@ rootfs path and replace generated files in place.
 | Template | What it prepares | Good starting point for |
 | --- | --- | --- |
 | `basic` | Shell and inspection basics: `/bin/sh`, `/bin/ls`, `/bin/cat`, `/bin/mkdir`, `/bin/pwd`, `/bin/rm`, `/bin/true`, `/bin/false`, and `/usr/bin/env` | Sanity checks, simple shell commands, and minimal rootfs runs |
+| `hermes-agent` | Python 3.11+-oriented and Node-oriented runtime surface for Hermes Agent, including git, ripgrep, ffmpeg, process tools, Python runtime trees, and Node module trees | Running Hermes Agent itself inside a dedicated Mirage guest without jumping all the way to a full developer/admin image |
 | `node` | Everything from `basic`, plus `/workspace`, `/etc/ssl/certs`, `node`, `npm`, `npx`, and common CA bundle files when present on the host | Node.js-oriented tooling and HTTPS-capable Node workloads |
 | `python` | Everything from `basic`, plus `/workspace`, `/etc/ssl/certs`, `python3`, `pip3`, and common CA bundle files when present on the host | Python-oriented tooling and HTTPS-capable Python workloads |
 | `openclaw-chat-only` | Everything from `node`, plus locale/tzdata runtime data and `openssl` | Minimal OpenClaw chat-oriented runs that need Node.js, TLS, and locale/timezone data |
@@ -133,6 +134,9 @@ Notes:
 
 - `basic` is the smallest built-in template and the best first choice when you
   just want a runnable rootfs for `/bin/ls` or `/bin/sh`.
+- `hermes-agent` is intentionally narrower than `openclaw-developer`: it aims
+  to cover Hermes Agent's upstream runtime expectations without forcing in a
+  full compiler and editor stack.
 - `node`, `python`, and all `openclaw*` templates intentionally add a writable
   `/workspace` layout because those flows commonly mount or use project trees there.
 - the leveled `openclaw-*` templates compose strictly from the previous level

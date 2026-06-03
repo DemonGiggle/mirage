@@ -9,6 +9,7 @@ func TestTemplateNames(t *testing.T) {
 	got := TemplateNames()
 	want := []string{
 		"basic",
+		"hermes-agent",
 		"node",
 		"openclaw",
 		"openclaw-admin",
@@ -198,6 +199,33 @@ func TestOpenclawLevelsComposeIncrementally(t *testing.T) {
 			if !contains(lookups, want) {
 				t.Fatalf("expected %s template to include %q, got %v", level.name, want, lookups)
 			}
+		}
+	}
+}
+
+func TestHermesAgentTemplateIncludesExpectedRuntimeTools(t *testing.T) {
+	template, ok := LookupTemplate("hermes-agent")
+	if !ok {
+		t.Fatal("expected hermes-agent template to exist")
+	}
+
+	var lookups []string
+	for _, binary := range template.Binaries {
+		lookups = append(lookups, binary.LookupName)
+	}
+	for _, want := range []string{"python3", "pip3", "node", "npm", "npx", "git", "rg", "ffmpeg", "curl"} {
+		if !contains(lookups, want) {
+			t.Fatalf("expected hermes-agent template to include %q, got %v", want, lookups)
+		}
+	}
+
+	var treeTargets []string
+	for _, runtimeTree := range template.RuntimeTrees {
+		treeTargets = append(treeTargets, runtimeTree.TargetPath)
+	}
+	for _, want := range []string{"/usr/lib/python3", "/usr/lib/node_modules"} {
+		if !contains(treeTargets, want) {
+			t.Fatalf("expected hermes-agent template to include runtime tree %q, got %v", want, treeTargets)
 		}
 	}
 }
