@@ -9,6 +9,7 @@ func TestTemplateNames(t *testing.T) {
 	got := TemplateNames()
 	want := []string{
 		"basic",
+		"debian",
 		"node",
 		"openclaw",
 		"openclaw-admin",
@@ -198,6 +199,65 @@ func TestOpenclawLevelsComposeIncrementally(t *testing.T) {
 			if !contains(lookups, want) {
 				t.Fatalf("expected %s template to include %q, got %v", level.name, want, lookups)
 			}
+		}
+	}
+}
+
+func TestDebianTemplateIncludesAPTEnvironment(t *testing.T) {
+	template, ok := LookupTemplate("debian")
+	if !ok {
+		t.Fatal("expected debian template to exist")
+	}
+
+	var lookups []string
+	for _, binary := range template.Binaries {
+		lookups = append(lookups, binary.LookupName)
+	}
+	for _, want := range []string{"apt", "apt-get", "apt-cache", "apt-config", "apt-key", "dpkg", "dpkg-deb", "dpkg-query", "gpg", "gpgv"} {
+		if !contains(lookups, want) {
+			t.Fatalf("expected debian template to include %q, got %v", want, lookups)
+		}
+	}
+
+	var targets []string
+	for _, binary := range template.Binaries {
+		targets = append(targets, binary.TargetPath)
+	}
+	for _, want := range []string{
+		"/usr/lib/apt/methods/http",
+		"/usr/lib/apt/methods/https",
+		"/usr/lib/apt/methods/gpgv",
+	} {
+		if !contains(targets, want) {
+			t.Fatalf("expected debian template to include apt method binary %q, got %v", want, targets)
+		}
+	}
+
+	var treeTargets []string
+	for _, runtimeTree := range template.RuntimeTrees {
+		treeTargets = append(treeTargets, runtimeTree.TargetPath)
+	}
+	for _, want := range []string{"/etc/apt/keyrings", "/etc/apt/trusted.gpg.d"} {
+		if !contains(treeTargets, want) {
+			t.Fatalf("expected debian template to include runtime tree %q, got %v", want, treeTargets)
+		}
+	}
+
+	var dirPaths []string
+	for _, dir := range template.Directories {
+		dirPaths = append(dirPaths, dir.Path)
+	}
+	for _, want := range []string{
+		"/etc/apt/apt.conf.d",
+		"/etc/apt/preferences.d",
+		"/etc/apt/sources.list.d",
+		"/var/lib/dpkg",
+		"/var/lib/dpkg/info",
+		"/var/lib/dpkg/triggers",
+		"/var/lib/dpkg/updates",
+	} {
+		if !contains(dirPaths, want) {
+			t.Fatalf("expected debian template to include directory %q, got %v", want, dirPaths)
 		}
 	}
 }
