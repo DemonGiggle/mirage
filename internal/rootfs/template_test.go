@@ -213,7 +213,13 @@ func TestDebianTemplateIncludesAPTEnvironment(t *testing.T) {
 	for _, binary := range template.Binaries {
 		lookups = append(lookups, binary.LookupName)
 	}
-	for _, want := range []string{"apt", "apt-get", "apt-cache", "apt-config", "apt-key", "dpkg", "dpkg-deb", "dpkg-query", "gpg", "gpgv"} {
+	for _, want := range []string{
+		"apt", "apt-get", "apt-cache", "apt-config", "apt-key",
+		"dpkg", "dpkg-deb", "dpkg-query", "gpg", "gpgv",
+		"adduser", "addgroup", "groupadd", "useradd", "getent",
+		"invoke-rc.d", "update-rc.d", "deb-systemd-helper",
+		"dbus-uuidgen", "dpkg-statoverride", "basename", "getopt", "run-parts",
+	} {
 		if !contains(lookups, want) {
 			t.Fatalf("expected debian template to include %q, got %v", want, lookups)
 		}
