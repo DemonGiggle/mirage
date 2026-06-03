@@ -213,7 +213,7 @@ func TestHermesAgentTemplateIncludesExpectedRuntimeTools(t *testing.T) {
 	for _, binary := range template.Binaries {
 		lookups = append(lookups, binary.LookupName)
 	}
-	for _, want := range []string{"python3", "pip3", "node", "npm", "npx", "git", "rg", "ffmpeg", "curl"} {
+	for _, want := range []string{"python3", "pip3", "node", "npm", "npx", "git", "rg", "ffmpeg", "curl", "ps", "pgrep", "pkill"} {
 		if !contains(lookups, want) {
 			t.Fatalf("expected hermes-agent template to include %q, got %v", want, lookups)
 		}

@@ -262,6 +262,12 @@ runtime_trees:
     - host_path: /usr/local/lib/node_modules
       target_path: /usr/local/lib/node_modules
       optional: true
+    - host_path: /usr/lib/git-core
+      target_path: /usr/lib/git-core
+      optional: true
+    - host_path: /usr/libexec/git-core
+      target_path: /usr/libexec/git-core
+      optional: true
 runtime_files:
     - host_path: /etc/hosts
       target_path: /etc/hosts
