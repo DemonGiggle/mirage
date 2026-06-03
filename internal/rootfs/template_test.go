@@ -215,7 +215,8 @@ func TestDebianTemplateIncludesAPTEnvironment(t *testing.T) {
 	}
 	for _, want := range []string{
 		"apt", "apt-get", "apt-cache", "apt-config", "apt-key",
-		"dpkg", "dpkg-deb", "dpkg-query", "gpg", "gpgv",
+		"dpkg", "dpkg-deb", "dpkg-query", "dpkg-divert", "dpkg-maintscript-helper",
+		"dpkg-realpath", "dpkg-trigger", "gpg", "gpgv",
 		"adduser", "addgroup", "groupadd", "useradd", "getent",
 		"invoke-rc.d", "update-rc.d", "deb-systemd-helper",
 		"dbus-uuidgen", "dpkg-statoverride", "basename", "getopt", "run-parts",
@@ -245,12 +246,16 @@ func TestDebianTemplateIncludesAPTEnvironment(t *testing.T) {
 		treeTargets = append(treeTargets, runtimeTree.TargetPath)
 	}
 	for _, want := range []string{
+		"/etc/apt/auth.conf.d",
 		"/etc/apt/keyrings",
+		"/etc/apt/preferences.d",
+		"/etc/apt/sources.list.d",
 		"/etc/apt/trusted.gpg.d",
 		"/usr/share/perl",
 		"/usr/share/perl5",
 		"/usr/lib/x86_64-linux-gnu/perl",
 		"/usr/lib/x86_64-linux-gnu/perl5",
+		"/usr/share/keyrings",
 	} {
 		if !contains(treeTargets, want) {
 			t.Fatalf("expected debian template to include runtime tree %q, got %v", want, treeTargets)

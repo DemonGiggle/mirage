@@ -109,6 +109,15 @@ binaries:
     - target_path: /usr/bin/dpkg-split
       lookup_name: dpkg-split
       copy_dependencies: true
+    - target_path: /usr/bin/dpkg-divert
+      lookup_name: dpkg-divert
+      copy_dependencies: true
+    - target_path: /usr/bin/dpkg-maintscript-helper
+      lookup_name: dpkg-maintscript-helper
+      copy_dependencies: true
+    - target_path: /usr/bin/dpkg-realpath
+      lookup_name: dpkg-realpath
+      copy_dependencies: true
     - target_path: /usr/bin/gpgv
       lookup_name: gpgv
       copy_dependencies: true
@@ -186,6 +195,9 @@ binaries:
       copy_dependencies: true
     - target_path: /usr/bin/dpkg-statoverride
       lookup_name: dpkg-statoverride
+      copy_dependencies: true
+    - target_path: /usr/bin/dpkg-trigger
+      lookup_name: dpkg-trigger
       copy_dependencies: true
     - target_path: /usr/bin/deb-systemd-helper
       lookup_name: deb-systemd-helper
@@ -325,8 +337,17 @@ binaries:
       copy_dependencies: true
       optional: true
 runtime_trees:
+    - host_path: /etc/apt/auth.conf.d
+      target_path: /etc/apt/auth.conf.d
+      optional: true
     - host_path: /etc/apt/keyrings
       target_path: /etc/apt/keyrings
+      optional: true
+    - host_path: /etc/apt/preferences.d
+      target_path: /etc/apt/preferences.d
+      optional: true
+    - host_path: /etc/apt/sources.list.d
+      target_path: /etc/apt/sources.list.d
       optional: true
     - host_path: /etc/apt/trusted.gpg.d
       target_path: /etc/apt/trusted.gpg.d
@@ -354,6 +375,9 @@ runtime_trees:
       optional: true
     - host_path: /usr/share/dpkg
       target_path: /usr/share/dpkg
+      optional: true
+    - host_path: /usr/share/keyrings
+      target_path: /usr/share/keyrings
       optional: true
 runtime_files:
     - host_path: /etc/apt/sources.list
@@ -389,18 +413,6 @@ runtime_files:
       optional: true
     - host_path: /etc/pki/tls/certs/ca-bundle.crt
       target_path: /etc/pki/tls/certs/ca-bundle.crt
-      optional: true
-    - host_path: /usr/share/keyrings/debian-archive-keyring.gpg
-      target_path: /usr/share/keyrings/debian-archive-keyring.gpg
-      optional: true
-    - host_path: /usr/share/keyrings/ubuntu-archive-keyring.gpg
-      target_path: /usr/share/keyrings/ubuntu-archive-keyring.gpg
-      optional: true
-    - host_path: /usr/share/keyrings/ubuntu-master-keyring.gpg
-      target_path: /usr/share/keyrings/ubuntu-master-keyring.gpg
-      optional: true
-    - host_path: /usr/share/keyrings/ubuntu-archive-removed-keys.gpg
-      target_path: /usr/share/keyrings/ubuntu-archive-removed-keys.gpg
       optional: true
 generated_files:
     - target_path: /etc/apt/apt.conf.d/99mirage-sandbox
