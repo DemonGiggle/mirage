@@ -213,7 +213,7 @@ func TestDebianTemplateIncludesAPTEnvironment(t *testing.T) {
 	for _, binary := range template.Binaries {
 		lookups = append(lookups, binary.LookupName)
 	}
-	for _, want := range []string{"apt", "apt-get", "apt-cache", "apt-config", "dpkg", "dpkg-deb", "dpkg-query", "gpgv"} {
+	for _, want := range []string{"apt", "apt-get", "apt-cache", "apt-config", "apt-key", "dpkg", "dpkg-deb", "dpkg-query", "gpg", "gpgv"} {
 		if !contains(lookups, want) {
 			t.Fatalf("expected debian template to include %q, got %v", want, lookups)
 		}
@@ -237,9 +237,27 @@ func TestDebianTemplateIncludesAPTEnvironment(t *testing.T) {
 	for _, runtimeTree := range template.RuntimeTrees {
 		treeTargets = append(treeTargets, runtimeTree.TargetPath)
 	}
-	for _, want := range []string{"/etc/apt", "/var/lib/dpkg", "/var/lib/apt", "/var/cache/apt"} {
+	for _, want := range []string{"/etc/apt/keyrings", "/etc/apt/trusted.gpg.d"} {
 		if !contains(treeTargets, want) {
 			t.Fatalf("expected debian template to include runtime tree %q, got %v", want, treeTargets)
+		}
+	}
+
+	var dirPaths []string
+	for _, dir := range template.Directories {
+		dirPaths = append(dirPaths, dir.Path)
+	}
+	for _, want := range []string{
+		"/etc/apt/apt.conf.d",
+		"/etc/apt/preferences.d",
+		"/etc/apt/sources.list.d",
+		"/var/lib/dpkg",
+		"/var/lib/dpkg/info",
+		"/var/lib/dpkg/triggers",
+		"/var/lib/dpkg/updates",
+	} {
+		if !contains(dirPaths, want) {
+			t.Fatalf("expected debian template to include directory %q, got %v", want, dirPaths)
 		}
 	}
 }
