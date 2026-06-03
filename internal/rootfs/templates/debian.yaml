@@ -262,6 +262,15 @@ binaries:
     - target_path: /bin/chmod
       lookup_name: chmod
       copy_dependencies: true
+    - target_path: /bin/chown
+      lookup_name: chown
+      copy_dependencies: true
+    - target_path: /bin/chgrp
+      lookup_name: chgrp
+      copy_dependencies: true
+    - target_path: /bin/ln
+      lookup_name: ln
+      copy_dependencies: true
     - target_path: /usr/lib/apt/methods/copy
       host_path: /usr/lib/apt/methods/copy
       copy_dependencies: true
@@ -330,6 +339,18 @@ runtime_trees:
       optional: true
     - host_path: /usr/lib/dpkg
       target_path: /usr/lib/dpkg
+      optional: true
+    - host_path: /usr/share/perl
+      target_path: /usr/share/perl
+      optional: true
+    - host_path: /usr/share/perl5
+      target_path: /usr/share/perl5
+      optional: true
+    - host_path: /usr/lib/x86_64-linux-gnu/perl
+      target_path: /usr/lib/x86_64-linux-gnu/perl
+      optional: true
+    - host_path: /usr/lib/x86_64-linux-gnu/perl5
+      target_path: /usr/lib/x86_64-linux-gnu/perl5
       optional: true
     - host_path: /usr/share/dpkg
       target_path: /usr/share/dpkg
