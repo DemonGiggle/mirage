@@ -203,8 +203,11 @@ func TestBuildUnshareArgsSwitchesRootMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildUnshareArgs returned error for root mode: %v", err)
 	}
-	if !slicesContains(rootArgs, "--map-root-user") {
-		t.Fatalf("expected root launch to include --map-root-user, got %#v", rootArgs)
+	if !slicesContains(rootArgs, "--user") || !slicesContains(rootArgs, "--setgroups") {
+		t.Fatalf("expected root launch to configure an explicit user namespace map, got %#v", rootArgs)
+	}
+	if slicesContains(rootArgs, "--map-root-user") {
+		t.Fatalf("expected root launch to avoid --map-root-user, got %#v", rootArgs)
 	}
 }
 
@@ -306,7 +309,7 @@ func TestConfigureSandboxUIDMappingsWritesDirectRootMaps(t *testing.T) {
 	currentUID = func() int { return 0 }
 	currentGID = func() int { return 0 }
 	procfsRoot = procRoot
-	idMapCommandRunner = func(string, int, int, int, int, int) error {
+	idMapCommandRunner = func(string, int, [][3]int) error {
 		t.Fatal("expected direct procfs mapping writes for root caller")
 		return nil
 	}
@@ -349,6 +352,26 @@ func TestResolveHostSandboxIDForUserSkipsReservedHostID(t *testing.T) {
 	}
 	if got != 1001 {
 		t.Fatalf("expected subordinate ID 1001, got %d", got)
+	}
+}
+
+func TestResolveHostSandboxRangeForUserSkipsReservedHostIDAtRangeStart(t *testing.T) {
+	start, size, err := resolveHostSandboxRangeForUser("/etc/subuid", "mirage", 1000, 1, maxMappedGuestID, []byte("mirage:1000:65536\n"))
+	if err != nil {
+		t.Fatalf("resolveHostSandboxRangeForUser returned error: %v", err)
+	}
+	if start != 1001 || size != maxMappedGuestID {
+		t.Fatalf("expected subordinate range start 1001 size %d, got start=%d size=%d", maxMappedGuestID, start, size)
+	}
+}
+
+func TestResolveHostSandboxRangeForUserRejectsTooSmallRange(t *testing.T) {
+	_, _, err := resolveHostSandboxRangeForUser("/etc/subuid", "mirage", 1000, 1, maxMappedGuestID, []byte("mirage:200000:1024\n"))
+	if err == nil {
+		t.Fatal("expected undersized subordinate range to fail")
+	}
+	if !strings.Contains(err.Error(), "does not provide") {
+		t.Fatalf("expected undersized range error, got %v", err)
 	}
 }
 

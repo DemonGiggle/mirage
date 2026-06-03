@@ -31,6 +31,7 @@ const (
 	defaultRootHome    = "/root"
 	sandboxUID         = 1000
 	sandboxGID         = 1000
+	maxMappedGuestID   = 65535
 )
 
 var (
@@ -657,9 +658,6 @@ type sandboxLaunchSync struct {
 }
 
 func prepareSandboxLaunchSync(runAsRoot bool, networkBackend string) (sandboxLaunchSync, error) {
-	if runAsRoot {
-		return sandboxLaunchSync{}, nil
-	}
 	tempDir, err := os.MkdirTemp("", "mirage-launch-*")
 	if err != nil {
 		return sandboxLaunchSync{}, fmt.Errorf("create sandbox launch tempdir: %w", err)
@@ -700,11 +698,7 @@ func buildUnshareArgs(runAsRoot bool, networkBackend string) ([]string, error) {
 	default:
 		return nil, fmt.Errorf("unsupported backend network mode %q", networkBackend)
 	}
-	if runAsRoot {
-		args = append(args, "--map-root-user")
-	} else {
-		args = append(args, "--user", "--setgroups", "deny")
-	}
+	args = append(args, "--user", "--setgroups", "deny")
 	return args, nil
 }
 
@@ -757,36 +751,56 @@ func findLeafDescendantPID(pid int) (int, error) {
 }
 
 func configureSandboxUIDMappings(pid int, runAsRoot bool) error {
-	if runAsRoot {
-		return nil
-	}
 	rootHostUID := currentUID()
 	rootHostGID := currentGID()
-	if rootHostUID == 0 && rootHostGID == 0 {
-		if err := writeNamespaceIDMap(procfsPathForPID(pid, "uid_map"), [][3]int{{0, 0, 1}, {sandboxUID, sandboxUID, 1}}); err != nil {
+	uidEntries, gidEntries, err := sandboxIDMapEntries(runAsRoot, rootHostUID, rootHostGID)
+	if err != nil {
+		return err
+	}
+	if rootHostUID == 0 {
+		if err := writeNamespaceIDMap(procfsPathForPID(pid, "uid_map"), uidEntries); err != nil {
 			return fmt.Errorf("write uid_map for pid %d: %w", pid, err)
 		}
-		if err := writeNamespaceIDMap(procfsPathForPID(pid, "gid_map"), [][3]int{{0, 0, 1}, {sandboxGID, sandboxGID, 1}}); err != nil {
+		if err := writeNamespaceIDMap(procfsPathForPID(pid, "gid_map"), gidEntries); err != nil {
 			return fmt.Errorf("write gid_map for pid %d: %w", pid, err)
 		}
 		return nil
 	}
-
-	uidHostID, err := resolveHostSandboxID("/etc/subuid", rootHostUID, sandboxUID)
-	if err != nil {
+	if err := idMapCommandRunner("newuidmap", pid, uidEntries); err != nil {
 		return err
 	}
-	gidHostID, err := resolveHostSandboxID("/etc/subgid", rootHostGID, sandboxGID)
-	if err != nil {
-		return err
-	}
-	if err := idMapCommandRunner("newuidmap", pid, 0, rootHostUID, sandboxUID, uidHostID); err != nil {
-		return err
-	}
-	if err := idMapCommandRunner("newgidmap", pid, 0, rootHostGID, sandboxGID, gidHostID); err != nil {
+	if err := idMapCommandRunner("newgidmap", pid, gidEntries); err != nil {
 		return err
 	}
 	return nil
+}
+
+func sandboxIDMapEntries(runAsRoot bool, rootHostUID int, rootHostGID int) ([][3]int, [][3]int, error) {
+	if !runAsRoot {
+		uidHostID, err := resolveHostSandboxID("/etc/subuid", rootHostUID, sandboxUID)
+		if err != nil {
+			return nil, nil, err
+		}
+		gidHostID, err := resolveHostSandboxID("/etc/subgid", rootHostGID, sandboxGID)
+		if err != nil {
+			return nil, nil, err
+		}
+		return [][3]int{{0, rootHostUID, 1}, {sandboxUID, uidHostID, 1}},
+			[][3]int{{0, rootHostGID, 1}, {sandboxGID, gidHostID, 1}},
+			nil
+	}
+
+	uidStart, err := resolveHostSandboxRange("/etc/subuid", rootHostUID, 1, maxMappedGuestID)
+	if err != nil {
+		return nil, nil, err
+	}
+	gidStart, err := resolveHostSandboxRange("/etc/subgid", rootHostGID, 1, maxMappedGuestID)
+	if err != nil {
+		return nil, nil, err
+	}
+	return [][3]int{{0, rootHostUID, 1}, {1, uidStart, maxMappedGuestID}},
+		[][3]int{{0, rootHostGID, 1}, {1, gidStart, maxMappedGuestID}},
+		nil
 }
 
 func procfsPathForPID(pid int, name string) string {
@@ -803,17 +817,16 @@ func writeNamespaceIDMap(path string, entries [][3]int) error {
 	return os.WriteFile(path, []byte(builder.String()), 0o644)
 }
 
-func runIDMapCommand(name string, pid int, rootContainerID int, rootHostID int, sandboxContainerID int, sandboxHostID int) error {
+func runIDMapCommand(name string, pid int, entries [][3]int) error {
 	path, err := exec.LookPath(name)
 	if err != nil {
 		return fmt.Errorf("default non-root sandbox requires %s on PATH: %w", name, err)
 	}
-	cmd := exec.Command(
-		path,
-		strconv.Itoa(pid),
-		strconv.Itoa(rootContainerID), strconv.Itoa(rootHostID), "1",
-		strconv.Itoa(sandboxContainerID), strconv.Itoa(sandboxHostID), "1",
-	)
+	args := []string{strconv.Itoa(pid)}
+	for _, entry := range entries {
+		args = append(args, strconv.Itoa(entry[0]), strconv.Itoa(entry[1]), strconv.Itoa(entry[2]))
+	}
+	cmd := exec.Command(path, args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%s for pid %d failed: %w%s", name, pid, err, formatCommandOutput(output))
@@ -822,7 +835,7 @@ func runIDMapCommand(name string, pid int, rootContainerID int, rootHostID int, 
 }
 
 func resolveHostSandboxID(path string, reservedHostID int, containerID int) (int, error) {
-	if os.Getuid() == 0 {
+	if currentUID() == 0 {
 		return containerID, nil
 	}
 
@@ -837,49 +850,74 @@ func resolveHostSandboxID(path string, reservedHostID int, containerID int) (int
 	return resolveHostSandboxIDForUser(path, currentUser.Username, reservedHostID, content)
 }
 
+func resolveHostSandboxRange(path string, reservedHostID int, containerStart int, containerSize int) (int, error) {
+	if currentUID() == 0 {
+		return containerStart, nil
+	}
+
+	currentUser, err := user.Current()
+	if err != nil {
+		return 0, fmt.Errorf("resolve current user for %s: %w", path, err)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return 0, fmt.Errorf("read %s: %w", path, err)
+	}
+	hostStart, _, err := resolveHostSandboxRangeForUser(path, currentUser.Username, reservedHostID, containerStart, containerSize, content)
+	return hostStart, err
+}
+
 func resolveHostSandboxIDForUser(path string, username string, reservedHostID int, content []byte) (int, error) {
-	prefix := username + ":"
+	hostID, _, err := resolveHostSandboxRangeForUser(path, username, reservedHostID, sandboxUID, 1, content)
+	return hostID, err
+}
+
+func resolveHostSandboxRangeForUser(path string, username string, reservedHostID int, containerStart int, containerSize int, content []byte) (int, int, error) {
 	var lastUsableErr error
 	for _, line := range strings.Split(strings.TrimSpace(string(content)), "\n") {
-		if !strings.HasPrefix(line, prefix) {
-			continue
-		}
 		parts := strings.Split(line, ":")
 		if len(parts) != 3 {
-			return 0, fmt.Errorf("parse %s entry %q", path, line)
+			return 0, 0, fmt.Errorf("parse %s entry %q", path, line)
+		}
+		if parts[0] != username {
+			continue
 		}
 		start, err := strconv.Atoi(parts[1])
 		if err != nil {
-			return 0, fmt.Errorf("parse %s start %q: %w", path, parts[1], err)
+			return 0, 0, fmt.Errorf("parse %s start %q: %w", path, parts[1], err)
 		}
 		size, err := strconv.Atoi(parts[2])
 		if err != nil {
-			return 0, fmt.Errorf("parse %s size %q: %w", path, parts[2], err)
+			return 0, 0, fmt.Errorf("parse %s size %q: %w", path, parts[2], err)
 		}
-		hostID, err := selectHostSandboxID(path, line, start, size, reservedHostID)
+		hostID, hostSize, err := selectHostSandboxRange(path, line, start, size, reservedHostID, containerStart, containerSize)
 		if err == nil {
-			return hostID, nil
+			return hostID, hostSize, nil
 		}
 		lastUsableErr = err
 	}
 
 	if lastUsableErr != nil {
-		return 0, lastUsableErr
+		return 0, 0, lastUsableErr
 	}
-	return 0, fmt.Errorf("default non-root sandbox requires a subordinate ID range in %s for user %q", path, username)
+	return 0, 0, fmt.Errorf("default non-root sandbox requires a subordinate ID range in %s for user %q", path, username)
 }
 
-func selectHostSandboxID(path string, line string, start int, size int, reservedHostID int) (int, error) {
-	if size < 1 {
-		return 0, fmt.Errorf("%s entry %q has invalid size", path, line)
+func selectHostSandboxRange(path string, line string, start int, size int, reservedHostID int, containerStart int, containerSize int) (int, int, error) {
+	if containerSize < 1 || size < 1 {
+		return 0, 0, fmt.Errorf("%s entry %q has invalid size", path, line)
 	}
-	if start != reservedHostID {
-		return start, nil
+	hostStart := start
+	if reservedHostID >= hostStart && reservedHostID < hostStart+containerSize {
+		hostStart = reservedHostID + 1
 	}
-	if size < 2 {
-		return 0, fmt.Errorf("%s entry %q overlaps reserved host ID %d and does not leave another ID for the sandbox user", path, line, reservedHostID)
+	if hostStart+containerSize > start+size {
+		if reservedHostID >= start && reservedHostID < start+size {
+			return 0, 0, fmt.Errorf("%s entry %q overlaps reserved host ID %d and does not leave another ID for the sandbox user", path, line, reservedHostID)
+		}
+		return 0, 0, fmt.Errorf("%s entry %q does not provide %d subordinate IDs", path, line, containerSize)
 	}
-	return start + 1, nil
+	return hostStart, containerSize, nil
 }
 
 func waitForUIDMapReady(path string) error {
