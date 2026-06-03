@@ -757,7 +757,7 @@ func configureSandboxUIDMappings(pid int, runAsRoot bool) error {
 	if err != nil {
 		return err
 	}
-	if rootHostUID == 0 && rootHostGID == 0 {
+	if rootHostUID == 0 {
 		if err := writeNamespaceIDMap(procfsPathForPID(pid, "uid_map"), uidEntries); err != nil {
 			return fmt.Errorf("write uid_map for pid %d: %w", pid, err)
 		}
@@ -873,15 +873,14 @@ func resolveHostSandboxIDForUser(path string, username string, reservedHostID in
 }
 
 func resolveHostSandboxRangeForUser(path string, username string, reservedHostID int, containerStart int, containerSize int, content []byte) (int, int, error) {
-	prefix := username + ":"
 	var lastUsableErr error
 	for _, line := range strings.Split(strings.TrimSpace(string(content)), "\n") {
-		if !strings.HasPrefix(line, prefix) {
-			continue
-		}
 		parts := strings.Split(line, ":")
 		if len(parts) != 3 {
 			return 0, 0, fmt.Errorf("parse %s entry %q", path, line)
+		}
+		if parts[0] != username {
+			continue
 		}
 		start, err := strconv.Atoi(parts[1])
 		if err != nil {
@@ -917,9 +916,6 @@ func selectHostSandboxRange(path string, line string, start int, size int, reser
 			return 0, 0, fmt.Errorf("%s entry %q overlaps reserved host ID %d and does not leave another ID for the sandbox user", path, line, reservedHostID)
 		}
 		return 0, 0, fmt.Errorf("%s entry %q does not provide %d subordinate IDs", path, line, containerSize)
-	}
-	if hostStart == reservedHostID {
-		return 0, 0, fmt.Errorf("%s entry %q overlaps reserved host ID %d and does not leave another ID for the sandbox user", path, line, reservedHostID)
 	}
 	return hostStart, containerSize, nil
 }
