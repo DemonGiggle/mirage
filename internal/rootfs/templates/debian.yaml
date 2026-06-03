@@ -94,6 +94,9 @@ binaries:
     - target_path: /usr/bin/apt-key
       lookup_name: apt-key
       copy_dependencies: true
+    - target_path: /usr/bin/update-alternatives
+      lookup_name: update-alternatives
+      copy_dependencies: true
     - target_path: /usr/bin/dpkg
       lookup_name: dpkg
       copy_dependencies: true
