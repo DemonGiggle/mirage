@@ -772,7 +772,12 @@ func (g *generator) copyHostTree(sourceRoot string, targetRoot string) error {
 }
 
 func (g *generator) copyHostFile(sourcePath string, targetPath string, optional bool) error {
-	if _, exists := g.copiedTargets[targetPath]; exists {
+	effectiveTargetPath, err := g.rewriteTargetPathForHostAncestorSymlinks(sourcePath, targetPath)
+	if err != nil {
+		return err
+	}
+
+	if _, exists := g.copiedTargets[effectiveTargetPath]; exists {
 		return nil
 	}
 
@@ -780,7 +785,7 @@ func (g *generator) copyHostFile(sourcePath string, targetPath string, optional 
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			if !optional {
-				g.recordMissing(sourcePath, targetPath, "runtime file")
+				g.recordMissing(sourcePath, effectiveTargetPath, "runtime file")
 			}
 			return nil
 		}
@@ -790,11 +795,11 @@ func (g *generator) copyHostFile(sourcePath string, targetPath string, optional 
 		return fmt.Errorf("host path %q is a directory; only files are supported", sourcePath)
 	}
 
-	target := g.rootPath(targetPath)
+	target := g.rootPath(effectiveTargetPath)
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-		return fmt.Errorf("create parent directory for %q: %w", targetPath, err)
+		return fmt.Errorf("create parent directory for %q: %w", effectiveTargetPath, err)
 	}
-	if err := g.prepareTargetPath(targetPath, false); err != nil {
+	if err := g.prepareTargetPath(effectiveTargetPath, false); err != nil {
 		return err
 	}
 
@@ -806,25 +811,83 @@ func (g *generator) copyHostFile(sourcePath string, targetPath string, optional 
 
 	targetFile, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, info.Mode().Perm())
 	if err != nil {
-		return fmt.Errorf("create target file %q: %w", targetPath, err)
+		return fmt.Errorf("create target file %q: %w", effectiveTargetPath, err)
 	}
 
 	if _, err := io.Copy(targetFile, sourceFile); err != nil {
 		targetFile.Close()
-		return fmt.Errorf("copy %q to %q: %w", sourcePath, targetPath, err)
+		return fmt.Errorf("copy %q to %q: %w", sourcePath, effectiveTargetPath, err)
 	}
 	if err := targetFile.Close(); err != nil {
-		return fmt.Errorf("close target file %q: %w", targetPath, err)
+		return fmt.Errorf("close target file %q: %w", effectiveTargetPath, err)
 	}
 	if err := os.Chmod(target, info.Mode().Perm()); err != nil {
-		return fmt.Errorf("set target mode for %q: %w", targetPath, err)
+		return fmt.Errorf("set target mode for %q: %w", effectiveTargetPath, err)
 	}
-	if warning := preserveFileCapabilitiesWarning(sourcePath, targetPath, target); warning != "" {
+	if warning := preserveFileCapabilitiesWarning(sourcePath, effectiveTargetPath, target); warning != "" {
 		g.report.addWarning(warning)
 	}
 
-	g.copiedTargets[targetPath] = struct{}{}
+	g.copiedTargets[effectiveTargetPath] = struct{}{}
 	return nil
+}
+
+func (g *generator) rewriteTargetPathForHostAncestorSymlinks(sourcePath string, targetPath string) (string, error) {
+	if !filepath.IsAbs(sourcePath) || !filepath.IsAbs(targetPath) {
+		return targetPath, nil
+	}
+
+	sourceParts := splitAbsolutePath(sourcePath)
+	targetParts := splitAbsolutePath(targetPath)
+	maxDepth := len(sourceParts)
+	if len(targetParts) < maxDepth {
+		maxDepth = len(targetParts)
+	}
+	if maxDepth <= 1 {
+		return targetPath, nil
+	}
+
+	for depth := 1; depth < maxDepth-1; depth++ {
+		sourcePrefix := joinAbsolutePath(sourceParts[:depth+1])
+		info, err := os.Lstat(sourcePrefix)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return targetPath, nil
+			}
+			return "", fmt.Errorf("lstat host ancestor %q: %w", sourcePrefix, err)
+		}
+		if info.Mode()&os.ModeSymlink == 0 {
+			continue
+		}
+
+		targetPrefix := joinAbsolutePath(targetParts[:depth+1])
+		if err := g.copyHostSymlink(sourcePrefix, targetPrefix); err != nil {
+			return "", err
+		}
+
+		translatedPrefix := translatedSymlinkTarget(targetPrefix, sourcePrefix)
+		if depth+1 >= len(targetParts) {
+			return translatedPrefix, nil
+		}
+		return filepath.Join(append([]string{translatedPrefix}, targetParts[depth+1:]...)...), nil
+	}
+
+	return targetPath, nil
+}
+
+func splitAbsolutePath(path string) []string {
+	cleaned := filepath.Clean(path)
+	if cleaned == string(filepath.Separator) {
+		return []string{""}
+	}
+	return append([]string{""}, strings.Split(strings.TrimPrefix(cleaned, string(filepath.Separator)), string(filepath.Separator))...)
+}
+
+func joinAbsolutePath(parts []string) string {
+	if len(parts) <= 1 {
+		return string(filepath.Separator)
+	}
+	return string(filepath.Separator) + filepath.Join(parts[1:]...)
 }
 
 func (g *generator) prepareTargetPath(targetPath string, wantDir bool) error {

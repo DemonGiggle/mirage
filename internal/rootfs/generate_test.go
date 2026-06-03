@@ -115,6 +115,56 @@ func TestGenerateCopiesFilesAndDependencies(t *testing.T) {
 	}
 }
 
+func TestGeneratePreservesMergedUsrLibrarySymlinkAncestors(t *testing.T) {
+	shellPath, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("host PATH does not contain sh")
+	}
+
+	libInfo, err := os.Lstat("/lib")
+	if err != nil {
+		t.Fatalf("lstat /lib: %v", err)
+	}
+	lib64Info, err := os.Lstat("/lib64")
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			t.Skip("host does not expose /lib64")
+		}
+		t.Fatalf("lstat /lib64: %v", err)
+	}
+	if libInfo.Mode()&os.ModeSymlink == 0 || lib64Info.Mode()&os.ModeSymlink == 0 {
+		t.Skip("host is not using merged-usr library symlinks")
+	}
+
+	outputRoot := filepath.Join(t.TempDir(), "rootfs")
+	template := Template{
+		Version:     TemplateVersionV1,
+		Name:        "custom",
+		Description: "Custom template",
+		Binaries: []Binary{
+			{
+				HostPath:         shellPath,
+				TargetPath:       "/bin/sh",
+				CopyDependencies: true,
+			},
+		},
+	}
+
+	if err := Generate(outputRoot, template); err != nil {
+		t.Fatalf("Generate returned error: %v", err)
+	}
+
+	for _, path := range []string{"/lib", "/lib64"} {
+		info, err := os.Lstat(filepath.Join(outputRoot, strings.TrimPrefix(path, "/")))
+		if err != nil {
+			t.Fatalf("lstat generated %q: %v", path, err)
+		}
+		if info.Mode()&os.ModeSymlink == 0 {
+			t.Fatalf("expected generated %q to remain a symlink", path)
+		}
+	}
+}
+
 func TestGenerateWithReportReportsMissingAssetsWithoutFailing(t *testing.T) {
 	scriptPath := filepath.Join(t.TempDir(), "demo-script")
 	if err := os.WriteFile(scriptPath, []byte("#!/definitely/missing/interpreter\nexit 0\n"), 0o755); err != nil {

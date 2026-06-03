@@ -219,7 +219,9 @@ func TestDebianTemplateIncludesAPTEnvironment(t *testing.T) {
 		"dpkg-realpath", "dpkg-trigger", "gpg", "gpgv",
 		"adduser", "addgroup", "groupadd", "useradd", "getent",
 		"invoke-rc.d", "update-rc.d", "deb-systemd-helper",
-		"dbus-uuidgen", "dpkg-statoverride", "basename", "getopt", "run-parts",
+		"dbus-uuidgen", "dpkg-statoverride", "basename", "dirname", "expr",
+		"getopt", "head", "install", "locale", "md5sum", "mkfifo", "run-parts",
+		"sha256sum", "tail", "tee", "tr", "uniq", "xargs",
 		"chown", "chgrp", "ln",
 	} {
 		if !contains(lookups, want) {
@@ -274,6 +276,7 @@ func TestDebianTemplateIncludesAPTEnvironment(t *testing.T) {
 		"/var/lib/dpkg/info",
 		"/var/lib/dpkg/triggers",
 		"/var/lib/dpkg/updates",
+		"/usr/local",
 	} {
 		if !contains(dirPaths, want) {
 			t.Fatalf("expected debian template to include directory %q, got %v", want, dirPaths)
