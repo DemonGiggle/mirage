@@ -319,15 +319,6 @@ func bootstrapDebianBaseRootfs(root string, logOutput io.Writer) error {
 				return fmt.Errorf("prepare fake bootstrap directory %q: %w", dir, err)
 			}
 		}
-		generator := generator{
-			outputRoot:      root,
-			allowOverwrite:  true,
-			copiedTargets:   make(map[string]struct{}),
-			copiedTrees:     make(map[string]struct{}),
-			missingReported: make(map[string]struct{}),
-			shebangCache:    make(map[string]shebangCacheEntry),
-			lddCache:        make(map[string]lddCacheEntry),
-		}
 		for _, name := range []string{"sh", "bash", "ls"} {
 			source, err := exec.LookPath(name)
 			if err != nil {
@@ -337,7 +328,7 @@ func bootstrapDebianBaseRootfs(root string, logOutput io.Writer) error {
 			if err != nil {
 				return fmt.Errorf("resolve fake bootstrap command symlink %q: %w", name, err)
 			}
-			if err := generator.copyHostBinary(resolvedSource, filepath.Join("/bin", name), true); err != nil {
+			if err := copyBootstrapBinary(root, resolvedSource, filepath.Join("/bin", name)); err != nil {
 				return fmt.Errorf("prepare fake bootstrap command %q: %w", name, err)
 			}
 		}
@@ -370,6 +361,72 @@ func bootstrapDebianBaseRootfs(root string, logOutput io.Writer) error {
 			return fmt.Errorf("bootstrap rootfs with mmdebstrap: %w: %s", err, stderr)
 		}
 		return fmt.Errorf("bootstrap rootfs with mmdebstrap: %w", err)
+	}
+	return nil
+}
+
+func copyBootstrapBinary(root string, sourcePath string, targetPath string) error {
+	if err := copyBootstrapFile(root, sourcePath, targetPath); err != nil {
+		return err
+	}
+	report, err := lddDependencyReport(sourcePath)
+	if err != nil {
+		return err
+	}
+	for _, dependency := range report.missing {
+		return fmt.Errorf("missing shared library dependency: %s", dependency)
+	}
+	for _, dependency := range report.paths {
+		if err := copyBootstrapFile(root, dependency, dependency); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func copyBootstrapFile(root string, sourcePath string, targetPath string) error {
+	info, err := os.Stat(sourcePath)
+	if err != nil {
+		return fmt.Errorf("stat host file %q: %w", sourcePath, err)
+	}
+	if info.IsDir() {
+		return fmt.Errorf("host path %q is a directory; only files are supported", sourcePath)
+	}
+
+	target := filepath.Join(root, strings.TrimPrefix(targetPath, "/"))
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return fmt.Errorf("create parent directory for %q: %w", targetPath, err)
+	}
+	if targetInfo, err := os.Lstat(target); err == nil {
+		if targetInfo.IsDir() {
+			return fmt.Errorf("target path %q already exists and is a directory", targetPath)
+		}
+		if err := os.Remove(target); err != nil {
+			return fmt.Errorf("remove existing target path %q: %w", targetPath, err)
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("lstat target path %q: %w", targetPath, err)
+	}
+
+	sourceFile, err := os.Open(sourcePath)
+	if err != nil {
+		return fmt.Errorf("open host file %q: %w", sourcePath, err)
+	}
+	defer sourceFile.Close()
+
+	targetFile, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, info.Mode().Perm())
+	if err != nil {
+		return fmt.Errorf("create target file %q: %w", targetPath, err)
+	}
+	if _, err := io.Copy(targetFile, sourceFile); err != nil {
+		targetFile.Close()
+		return fmt.Errorf("copy %q to %q: %w", sourcePath, targetPath, err)
+	}
+	if err := targetFile.Close(); err != nil {
+		return fmt.Errorf("close target file %q: %w", targetPath, err)
+	}
+	if err := os.Chmod(target, info.Mode().Perm()); err != nil {
+		return fmt.Errorf("set mode for target file %q: %w", targetPath, err)
 	}
 	return nil
 }
