@@ -8,7 +8,6 @@ import (
 
 type RootfsPreset struct {
 	Path             string   `json:"path,omitempty" yaml:"path,omitempty"`
-	Template         string   `json:"template,omitempty" yaml:"template,omitempty"`
 	RequiredCommands []string `json:"required_commands,omitempty" yaml:"required_commands,omitempty"`
 }
 

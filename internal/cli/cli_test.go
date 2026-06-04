@@ -8,21 +8,13 @@ import (
 	"testing"
 
 	"github.com/DemonGiggle/mirage/internal/rootfs"
-	"github.com/DemonGiggle/mirage/internal/spec"
 )
 
-func installBuiltInTemplate(t *testing.T, template rootfs.Template) {
-	t.Helper()
-
-	previous, existed := rootfs.BuiltInTemplates[template.Name]
-	rootfs.BuiltInTemplates[template.Name] = template
-	t.Cleanup(func() {
-		if existed {
-			rootfs.BuiltInTemplates[template.Name] = previous
-			return
-		}
-		delete(rootfs.BuiltInTemplates, template.Name)
-	})
+func TestMain(m *testing.M) {
+	if err := os.Setenv("MIRAGE_TEST_SKIP_MMDEBSTRAP", "1"); err != nil {
+		panic(err)
+	}
+	os.Exit(m.Run())
 }
 
 func TestPresetCommandRemoved(t *testing.T) {
@@ -46,7 +38,7 @@ func TestRootHelpMentionsCommandSurface(t *testing.T) {
 	got := out.String()
 	for _, needle := range []string{
 		"mirage <command> [flags]",
-		"rootfs          generate or inspect built-in rootfs templates",
+		"rootfs          bootstrap a Debian rootfs",
 		"network-policy  list bundled example network policy files",
 		"package         assemble a standalone release bundle",
 	} {
@@ -67,8 +59,7 @@ func TestRootfsHelpIncludesSubcommands(t *testing.T) {
 	got := out.String()
 	for _, needle := range []string{
 		"mirage rootfs <subcommand> [flags]",
-		"init            generate a rootfs from a built-in template",
-		"list-template   list built-in template names and descriptions",
+		"init            bootstrap a Debian rootfs",
 	} {
 		if !strings.Contains(got, needle) {
 			t.Fatalf("expected rootfs help to contain %q, got %q", needle, got)
@@ -87,23 +78,6 @@ func TestRunHelpExplainsPids(t *testing.T) {
 	got := out.String()
 	if !strings.Contains(got, "--pids controls the maximum number of processes/threads in the sandbox process tree") {
 		t.Fatalf("expected run help to explain --pids, got %q", got)
-	}
-}
-
-func TestRootfsListTemplateShowsDescriptions(t *testing.T) {
-	var out bytes.Buffer
-	var errBuf bytes.Buffer
-
-	if err := Run([]string{"rootfs", "list-template"}, &out, &errBuf); err != nil {
-		t.Fatalf("Run returned error: %v", err)
-	}
-
-	got := out.String()
-	if !strings.Contains(got, "mirage rootfs list-template") {
-		t.Fatalf("expected list-template banner, got %q", got)
-	}
-	if !strings.Contains(got, "- basic: ") {
-		t.Fatalf("expected built-in template description, got %q", got)
 	}
 }
 
@@ -140,7 +114,6 @@ func TestPackageHelpIncludesBundleLayout(t *testing.T) {
 	for _, needle := range []string{
 		"Assemble a standalone Mirage release bundle.",
 		"mirage package --output <path> [--binary <path>]",
-		"share/mirage/rootfs/templates",
 		"share/mirage/network-policies",
 		"share/mirage/presets",
 	} {
@@ -167,7 +140,6 @@ func TestPackageCreatesDirectoryBundle(t *testing.T) {
 
 	for _, relPath := range []string{
 		"bin/mirage",
-		"share/mirage/rootfs/templates/basic.yaml",
 		"share/mirage/network-policies/offline.yaml",
 		"share/mirage/presets/openclaw-offline.yaml",
 	} {
@@ -181,7 +153,6 @@ func TestPackageCreatesDirectoryBundle(t *testing.T) {
 	for _, needle := range []string{
 		"mirage package",
 		"format: dir",
-		"rootfs-templates: ",
 		"network-policies: 3",
 		"presets: 2",
 	} {
@@ -200,7 +171,7 @@ func TestSubcommandHelpTopics(t *testing.T) {
 		{
 			name: "rootfs_init_help_topic",
 			args: []string{"rootfs", "help", "init"},
-			want: "Generate a rootfs from a built-in template.",
+			want: "Bootstrap a Debian minbase rootfs.",
 		},
 		{
 			name: "network_policy_list_help_topic",
@@ -523,7 +494,6 @@ func TestRootfsInit(t *testing.T) {
 	err := Run([]string{
 		"rootfs",
 		"init",
-		"--template", "basic",
 		"--output", outputRoot,
 	}, &out, &errBuf)
 	if err != nil {
@@ -531,10 +501,19 @@ func TestRootfsInit(t *testing.T) {
 	}
 
 	got := out.String()
-	if !strings.Contains(got, "mirage rootfs init") || !strings.Contains(got, "template: basic") {
+	if !strings.Contains(got, "mirage rootfs init") {
 		t.Fatalf("expected rootfs init output, got %q", got)
 	}
-	for _, target := range []string{"bin/ls", "bin/sh", "proc", "tmp", "run"} {
+	for _, needle := range []string{
+		"command: mmdebstrap",
+		"command: sudo tee",
+		"APT::Install-Recommends \"false\";",
+	} {
+		if !strings.Contains(got, needle) {
+			t.Fatalf("expected rootfs init output to contain %q, got %q", needle, got)
+		}
+	}
+	for _, target := range []string{"bin/ls", "bin/sh", "proc", "tmp", "run", "etc/apt/apt.conf.d/99sandbox-minimal"} {
 		if _, err := os.Stat(filepath.Join(outputRoot, target)); err != nil {
 			t.Fatalf("expected generated target %q to exist: %v", target, err)
 		}
@@ -542,19 +521,6 @@ func TestRootfsInit(t *testing.T) {
 }
 
 func TestRootfsInitAllowOverwrite(t *testing.T) {
-	const templateName = "test-allow-overwrite"
-	rootfs.BuiltInTemplates[templateName] = rootfs.Template{
-		Version:     rootfs.TemplateVersionV1,
-		Name:        templateName,
-		Description: "Test template for overwrite behavior",
-		GeneratedFiles: []rootfs.GeneratedFile{
-			{TargetPath: "/etc/demo.conf", Content: "updated=yes\n", Mode: 0o600},
-		},
-	}
-	t.Cleanup(func() {
-		delete(rootfs.BuiltInTemplates, templateName)
-	})
-
 	outputRoot := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(outputRoot, "etc"), 0o755); err != nil {
 		t.Fatalf("create existing etc dir: %v", err)
@@ -568,7 +534,6 @@ func TestRootfsInitAllowOverwrite(t *testing.T) {
 	err := Run([]string{
 		"rootfs",
 		"init",
-		"--template", templateName,
 		"--output", outputRoot,
 		"--allow-overwrite",
 	}, &out, &errBuf)
@@ -576,49 +541,12 @@ func TestRootfsInitAllowOverwrite(t *testing.T) {
 		t.Fatalf("Run returned error: %v", err)
 	}
 
-	data, err := os.ReadFile(filepath.Join(outputRoot, "etc", "demo.conf"))
-	if err != nil {
-		t.Fatalf("read overwritten file: %v", err)
+	_, err = os.ReadFile(filepath.Join(outputRoot, "etc", "demo.conf"))
+	if !os.IsNotExist(err) {
+		t.Fatalf("expected overwrite rebuild to remove previous file, got %v", err)
 	}
-	if string(data) != "updated=yes\n" {
-		t.Fatalf("expected overwritten file content, got %q", string(data))
-	}
-}
-
-func TestRootfsInitReportsMissingAssets(t *testing.T) {
-	const templateName = "test-missing-assets"
-	installBuiltInTemplate(t, rootfs.Template{
-		Version:     rootfs.TemplateVersionV1,
-		Name:        templateName,
-		Description: "Test template for missing host assets",
-		Directories: []rootfs.Directory{{Path: "/work", Mode: 0o755}},
-		RuntimeFiles: []rootfs.RuntimeFile{
-			{
-				HostPath:   filepath.Join(t.TempDir(), "missing-hosts"),
-				TargetPath: "/etc/hosts",
-			},
-		},
-	})
-
-	var out bytes.Buffer
-	var errBuf bytes.Buffer
-	outputRoot := filepath.Join(t.TempDir(), "rootfs")
-	err := Run([]string{
-		"rootfs",
-		"init",
-		"--template", templateName,
-		"--output", outputRoot,
-	}, &out, &errBuf)
-	if err != nil {
-		t.Fatalf("Run returned error: %v", err)
-	}
-
-	got := out.String()
-	if !strings.Contains(got, "warnings: 1") {
-		t.Fatalf("expected rootfs init output to include warning count, got %q", got)
-	}
-	if !strings.Contains(got, `warning: missing host asset "`) || !strings.Contains(got, `for "/etc/hosts"`) {
-		t.Fatalf("expected rootfs init output to report missing asset, got %q", got)
+	if _, err := os.Stat(filepath.Join(outputRoot, "etc", "apt", "apt.conf.d", "99sandbox-minimal")); err != nil {
+		t.Fatalf("expected rebuilt rootfs apt config to exist: %v", err)
 	}
 }
 
@@ -634,77 +562,6 @@ func TestPrintGenerateWarningsIncludesGenericWarnings(t *testing.T) {
 	}
 	if !strings.Contains(got, `warning: file capability "security.capability" from "/bin/ping" could not be preserved on "/bin/ping"`) {
 		t.Fatalf("expected generic warning text, got %q", got)
-	}
-}
-
-func TestEnsurePresetRootfsAutoGeneratesTemplate(t *testing.T) {
-	const templateName = "test-preset-template"
-	installBuiltInTemplate(t, rootfs.Template{
-		Version:     rootfs.TemplateVersionV1,
-		Name:        templateName,
-		Description: "Test template for preset-generated rootfs",
-		Directories: []rootfs.Directory{{Path: "/workspace", Mode: 0o755}},
-		GeneratedFiles: []rootfs.GeneratedFile{
-			{TargetPath: "/etc/demo.conf", Content: "demo=yes\n", Mode: 0o644},
-		},
-	})
-
-	rootfsPath := filepath.Join(t.TempDir(), "preset-rootfs")
-	cfg := spec.Config{
-		RootFS:     rootfsPath,
-		PresetFile: "preset.yaml",
-	}
-	preset := spec.Preset{
-		Rootfs: spec.RootfsPreset{Template: templateName},
-	}
-
-	var errBuf bytes.Buffer
-	if err := ensurePresetRootfs(cfg, preset, &errBuf); err != nil {
-		t.Fatalf("ensurePresetRootfs returned error: %v", err)
-	}
-
-	for _, target := range []string{"workspace", "etc/demo.conf"} {
-		if _, err := os.Stat(filepath.Join(rootfsPath, target)); err != nil {
-			t.Fatalf("expected generated target %q to exist: %v", target, err)
-		}
-	}
-}
-
-func TestEnsurePresetRootfsReportsMissingAssets(t *testing.T) {
-	const templateName = "test-preset-missing-assets"
-	installBuiltInTemplate(t, rootfs.Template{
-		Version:     rootfs.TemplateVersionV1,
-		Name:        templateName,
-		Description: "Test template for preset-generated missing assets",
-		Directories: []rootfs.Directory{{Path: "/work", Mode: 0o755}},
-		RuntimeFiles: []rootfs.RuntimeFile{
-			{
-				HostPath:   filepath.Join(t.TempDir(), "missing-hosts"),
-				TargetPath: "/etc/hosts",
-			},
-		},
-	})
-
-	rootfsPath := filepath.Join(t.TempDir(), "preset-rootfs")
-	cfg := spec.Config{
-		RootFS:     rootfsPath,
-		PresetFile: "preset.yaml",
-	}
-	preset := spec.Preset{
-		Rootfs: spec.RootfsPreset{Template: templateName},
-	}
-
-	var errBuf bytes.Buffer
-	if err := ensurePresetRootfs(cfg, preset, &errBuf); err != nil {
-		t.Fatalf("ensurePresetRootfs returned error: %v", err)
-	}
-
-	got := errBuf.String()
-	if !strings.Contains(got, "warnings: 1") {
-		t.Fatalf("expected preset rootfs warning count, got %q", got)
-	}
-	if !strings.Contains(got, "warning: preset rootfs missing host asset") {
-		t.Fatalf("expected preset rootfs warning output, got %q", got)
 	}
 }
 
@@ -727,12 +584,8 @@ func TestDoctorValidatesRootfsCommand(t *testing.T) {
 	var errBuf bytes.Buffer
 
 	rootfsPath := filepath.Join(t.TempDir(), "rootfs")
-	template, ok := rootfs.LookupTemplate("basic")
-	if !ok {
-		t.Fatal("expected basic template to exist")
-	}
-	if err := rootfs.Generate(rootfsPath, template); err != nil {
-		t.Fatalf("Generate returned error: %v", err)
+	if err := rootfs.Bootstrap(rootfsPath); err != nil {
+		t.Fatalf("Bootstrap returned error: %v", err)
 	}
 
 	err := Run([]string{
@@ -760,12 +613,8 @@ func TestDoctorPrintsDeduplicatedPresetCommands(t *testing.T) {
 	var errBuf bytes.Buffer
 
 	rootfsPath := filepath.Join(t.TempDir(), "rootfs")
-	template, ok := rootfs.LookupTemplate("basic")
-	if !ok {
-		t.Fatal("expected basic template to exist")
-	}
-	if err := rootfs.Generate(rootfsPath, template); err != nil {
-		t.Fatalf("Generate returned error: %v", err)
+	if err := rootfs.Bootstrap(rootfsPath); err != nil {
+		t.Fatalf("Bootstrap returned error: %v", err)
 	}
 
 	presetFile := writePresetFile(t, `rootfs:
@@ -810,19 +659,14 @@ func TestDoctorUsesPresetRootfsRequirements(t *testing.T) {
 	var errBuf bytes.Buffer
 
 	rootfsPath := filepath.Join(t.TempDir(), "rootfs")
-	template, ok := rootfs.LookupTemplate("basic")
-	if !ok {
-		t.Fatal("expected basic template to exist")
-	}
-	if err := rootfs.Generate(rootfsPath, template); err != nil {
-		t.Fatalf("Generate returned error: %v", err)
+	if err := rootfs.Bootstrap(rootfsPath); err != nil {
+		t.Fatalf("Bootstrap returned error: %v", err)
 	}
 
 	err := Run([]string{
 		"doctor",
 		"--preset-file", writePresetFile(t, `rootfs:
   path: `+rootfsPath+`
-  template: openclaw-developer
   required_commands:
     - node
 networkPolicy:
@@ -841,10 +685,6 @@ networkPolicy:
 		t.Fatal("expected preset rootfs validation to fail on missing node")
 	}
 
-	got := out.String()
-	if !strings.Contains(got, "preset rootfs template: openclaw-developer") {
-		t.Fatalf("expected preset template hint, got %q", got)
-	}
 	if !strings.Contains(err.Error(), `command "node"`) {
 		t.Fatalf("expected missing preset command error, got %v", err)
 	}

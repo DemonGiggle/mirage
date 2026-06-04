@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/DemonGiggle/mirage/examples"
-	"github.com/DemonGiggle/mirage/internal/rootfs"
 )
 
 type PackageOptions struct {
@@ -104,20 +103,16 @@ func createArchivePackage(outputPath, packageRoot, binaryPath string, binaryMode
 
 func populatePackage(packageRoot, binaryPath string, binaryMode fs.FileMode) error {
 	binDir := filepath.Join(packageRoot, "bin")
-	templateDir := filepath.Join(packageRoot, "share", "mirage", "rootfs", "templates")
 	networkPolicyDir := filepath.Join(packageRoot, "share", "mirage", "network-policies")
 	presetDir := filepath.Join(packageRoot, "share", "mirage", "presets")
 
-	for _, dir := range []string{binDir, templateDir, networkPolicyDir, presetDir} {
+	for _, dir := range []string{binDir, networkPolicyDir, presetDir} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return fmt.Errorf("create package directory %q: %w", dir, err)
 		}
 	}
 
 	if err := copyFile(binaryPath, filepath.Join(binDir, "mirage"), binaryMode); err != nil {
-		return err
-	}
-	if err := rootfs.ExportBuiltInTemplates(templateDir); err != nil {
 		return err
 	}
 	if err := examples.ExportNetworkPolicies(networkPolicyDir); err != nil {

@@ -104,7 +104,7 @@ Usage:
 Commands:
   run             launch a sandboxed workload
   doctor          inspect host capabilities and optionally validate a rootfs
-  rootfs          generate or inspect built-in rootfs templates
+  rootfs          bootstrap a Debian rootfs
   network-policy  list bundled example network policy files
   package         assemble a standalone release bundle
   version         print version
@@ -116,8 +116,7 @@ Help:
   mirage help package
 
 Examples:
-  mirage rootfs list-template
-  mirage rootfs init --template basic --output /srv/mirage/basic-rootfs
+  mirage rootfs init --output /srv/mirage/basic-rootfs
   mirage network-policy list
   mirage package --output ./dist/mirage-linux-amd64.tar.gz --binary ./bin/mirage
   mirage doctor --rootfs /srv/mirage/basic-rootfs --command /bin/ls
@@ -137,8 +136,6 @@ func runRootfs(args []string, stdout, stderr io.Writer) error {
 	switch args[0] {
 	case "init":
 		return runRootfsInit(args[1:], stdout, stderr)
-	case "list-template", "list-templates":
-		return runRootfsListTemplates(args[1:], stdout)
 	default:
 		return fmt.Errorf("unknown rootfs subcommand %q", args[0])
 	}
@@ -153,9 +150,6 @@ func runRootfsHelp(args []string, stdout io.Writer) error {
 	case "init":
 		printRootfsInitHelp(stdout)
 		return nil
-	case "list-template", "list-templates":
-		printRootfsListTemplatesHelp(stdout)
-		return nil
 	default:
 		return fmt.Errorf("unknown rootfs help topic %q", args[0])
 	}
@@ -168,16 +162,13 @@ Usage:
   mirage rootfs <subcommand> [flags]
 
 Subcommands:
-  init            generate a rootfs from a built-in template
-  list-template   list built-in template names and descriptions
+  init            bootstrap a Debian rootfs
 
 Help:
   mirage rootfs init --help
-  mirage rootfs list-template --help
 
 Examples:
-  mirage rootfs list-template
-  mirage rootfs init --template basic --output /srv/mirage/basic-rootfs
+  mirage rootfs init --output /srv/mirage/basic-rootfs
 `)
 }
 
@@ -190,19 +181,14 @@ func runRootfsInit(args []string, stdout, stderr io.Writer) error {
 	fs := flag.NewFlagSet("rootfs init", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 
-	var templateName string
 	var outputRoot string
 	var allowOverwrite bool
 
-	fs.StringVar(&templateName, "template", "", "Built-in rootfs template name. Use `mirage rootfs list-template` to inspect choices.")
 	fs.StringVar(&outputRoot, "output", "", "Path to the generated rootfs directory.")
 	fs.BoolVar(&allowOverwrite, "allow-overwrite", false, "Allow writing into an existing non-empty output directory.")
 
 	if err := fs.Parse(args); err != nil {
 		return err
-	}
-	if templateName == "" {
-		return errors.New("rootfs init requires --template")
 	}
 	if outputRoot == "" {
 		return errors.New("rootfs init requires --output")
@@ -211,73 +197,33 @@ func runRootfsInit(args []string, stdout, stderr io.Writer) error {
 		return fmt.Errorf("rootfs init does not accept positional arguments: %s", strings.Join(fs.Args(), " "))
 	}
 
-	template, ok := rootfs.LookupTemplate(templateName)
-	if !ok {
-		return fmt.Errorf("unknown rootfs template %q", templateName)
-	}
-	report, err := rootfs.GenerateWithReportWithOptions(outputRoot, template, rootfs.GenerateOptions{
+	_, _ = fmt.Fprintln(stdout, "mirage rootfs init")
+	_, _ = fmt.Fprintf(stdout, "output: %s\n", outputRoot)
+	report, err := rootfs.BootstrapWithReportWithOptions(outputRoot, rootfs.GenerateOptions{
 		AllowOverwrite: allowOverwrite,
+		LogOutput:      stdout,
 	})
 	if err != nil {
 		return err
 	}
-
-	_, _ = fmt.Fprintln(stdout, "mirage rootfs init")
-	_, _ = fmt.Fprintf(stdout, "template: %s\n", template.Name)
-	_, _ = fmt.Fprintf(stdout, "description: %s\n", template.Description)
-	_, _ = fmt.Fprintf(stdout, "output: %s\n", outputRoot)
-	_, _ = fmt.Fprintf(stdout, "directories: %d\n", len(template.Directories))
-	_, _ = fmt.Fprintf(stdout, "binaries: %d\n", len(template.Binaries))
-	_, _ = fmt.Fprintf(stdout, "runtime-files: %d\n", len(template.RuntimeFiles))
-	_, _ = fmt.Fprintf(stdout, "generated-files: %d\n", len(template.GeneratedFiles))
 	printGenerateWarnings(stdout, report, "")
 	return nil
 }
 
 func printRootfsInitHelp(w io.Writer) {
-	_, _ = fmt.Fprint(w, `Generate a rootfs from a built-in template.
+	_, _ = fmt.Fprint(w, `Bootstrap a Debian minbase rootfs.
 
 Usage:
-  mirage rootfs init --template <name> --output <path> [--allow-overwrite]
+  mirage rootfs init --output <path> [--allow-overwrite]
 
 Notes:
-  - Use mirage rootfs list-template to inspect available templates first.
+  - The rootfs is created with mmdebstrap.
+  - --allow-overwrite clears the existing output directory before rebuilding it.
   - Generated rootfs trees can be validated later with mirage doctor --rootfs ....
 
 Examples:
-  mirage rootfs init --template basic --output /srv/mirage/basic-rootfs
-  mirage rootfs init --template openclaw-work --output /srv/mirage/work --allow-overwrite
-`)
-}
-
-func runRootfsListTemplates(args []string, stdout io.Writer) error {
-	if containsHelpFlag(args) {
-		printRootfsListTemplatesHelp(stdout)
-		return nil
-	}
-	if len(args) > 0 {
-		return fmt.Errorf("rootfs list-template does not accept positional arguments: %s", strings.Join(args, " "))
-	}
-
-	_, _ = fmt.Fprintln(stdout, "mirage rootfs list-template")
-	for _, name := range rootfs.TemplateNames() {
-		template, ok := rootfs.LookupTemplate(name)
-		if !ok {
-			continue
-		}
-		_, _ = fmt.Fprintf(stdout, "- %s: %s\n", template.Name, template.Description)
-	}
-	return nil
-}
-
-func printRootfsListTemplatesHelp(w io.Writer) {
-	_, _ = fmt.Fprint(w, `List built-in rootfs template names and descriptions.
-
-Usage:
-  mirage rootfs list-template
-
-Examples:
-  mirage rootfs list-template
+  mirage rootfs init --output /srv/mirage/basic-rootfs
+  mirage rootfs init --output /srv/mirage/work --allow-overwrite
 `)
 }
 
@@ -335,7 +281,6 @@ func runPackage(args []string, stdout, stderr io.Writer) error {
 	_, _ = fmt.Fprintf(stdout, "output: %s\n", report.OutputPath)
 	_, _ = fmt.Fprintf(stdout, "binary: %s\n", report.BinaryPath)
 	_, _ = fmt.Fprintf(stdout, "package-root: %s\n", report.PackageRoot)
-	_, _ = fmt.Fprintf(stdout, "rootfs-templates: %d\n", len(rootfs.TemplateNames()))
 	_, _ = fmt.Fprintf(stdout, "network-policies: %d\n", len(networkPolicies))
 	_, _ = fmt.Fprintf(stdout, "presets: %d\n", len(presets))
 	return nil
@@ -350,7 +295,7 @@ Usage:
 Notes:
   - If --output ends with .tar.gz or .tgz, Mirage writes a compressed release archive.
   - Otherwise Mirage writes an unpacked directory bundle.
-  - The package includes bin/mirage plus share/mirage/rootfs/templates, share/mirage/network-policies, and share/mirage/presets.
+  - The package includes bin/mirage plus share/mirage/network-policies and share/mirage/presets.
 
 Examples:
   mirage package --output ./dist/mirage-linux-amd64.tar.gz --binary ./bin/mirage
@@ -426,9 +371,6 @@ func runDoctor(args []string, stdout, stderr io.Writer) error {
 	_, _ = fmt.Fprintln(stdout, "rootfs analysis:")
 	if presetFile != "" {
 		_, _ = fmt.Fprintf(stdout, "- preset-file: %s\n", presetFile)
-		if preset.Rootfs.Template != "" {
-			_, _ = fmt.Fprintf(stdout, "- preset rootfs template: %s\n", preset.Rootfs.Template)
-		}
 		if len(presetRequiredCommands) > 0 {
 			_, _ = fmt.Fprintf(stdout, "- preset required rootfs commands: %s\n", strings.Join(presetRequiredCommands, ", "))
 		}
@@ -566,11 +508,8 @@ func runSandbox(args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 
-	resolved, preset, err := spec.ApplyPresetFile(cfg)
+	resolved, _, err := spec.ApplyPresetFile(cfg)
 	if err != nil {
-		return err
-	}
-	if err := ensurePresetRootfs(resolved, preset, stderr); err != nil {
 		return err
 	}
 	if err := spec.Validate(resolved); err != nil {
@@ -681,50 +620,6 @@ Usage:
 Examples:
   mirage network-policy list
 `)
-}
-
-func ensurePresetRootfs(cfg spec.Config, preset spec.Preset, stderr io.Writer) error {
-	if cfg.RootFS == "" {
-		return nil
-	}
-	templateName := preset.Rootfs.Template
-	if templateName == "" {
-		return nil
-	}
-
-	info, err := os.Stat(cfg.RootFS)
-	switch {
-	case err == nil:
-		if !info.IsDir() {
-			return nil
-		}
-		entries, err := os.ReadDir(cfg.RootFS)
-		if err != nil {
-			return fmt.Errorf("read rootfs %q: %w", cfg.RootFS, err)
-		}
-		if len(entries) > 0 {
-			report, err := rootfs.EnsureNSSRuntimeWithReport(cfg.RootFS)
-			if err != nil {
-				return err
-			}
-			printGenerateWarnings(stderr, report, "preset rootfs ")
-			return nil
-		}
-	case errors.Is(err, os.ErrNotExist):
-	default:
-		return fmt.Errorf("stat rootfs %q: %w", cfg.RootFS, err)
-	}
-
-	template, ok := rootfs.LookupTemplate(templateName)
-	if !ok {
-		return fmt.Errorf("unknown rootfs template %q", templateName)
-	}
-	report, err := rootfs.GenerateWithReport(cfg.RootFS, template)
-	if err != nil {
-		return fmt.Errorf("prepare rootfs %q from preset file %q template %q: %w", cfg.RootFS, cfg.PresetFile, templateName, err)
-	}
-	printGenerateWarnings(stderr, report, "preset rootfs ")
-	return nil
 }
 
 func printGenerateWarnings(w io.Writer, report rootfs.GenerateReport, prefix string) {

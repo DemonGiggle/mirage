@@ -12,6 +12,13 @@ import (
 	"time"
 )
 
+func TestMain(m *testing.M) {
+	if err := os.Setenv("MIRAGE_TEST_SKIP_MMDEBSTRAP", "1"); err != nil {
+		panic(err)
+	}
+	os.Exit(m.Run())
+}
+
 func TestRunExportsLogsToHost(t *testing.T) {
 	requireNamespaceBackend(t)
 
@@ -151,7 +158,6 @@ func TestRootfsInitGeneratesRunnableBasicRootfs(t *testing.T) {
 		"go", "run", "./cmd/mirage",
 		"rootfs",
 		"init",
-		"--template", "basic",
 		"--output", rootfs,
 	)
 	initCmd.Dir = repoRoot
@@ -160,7 +166,7 @@ func TestRootfsInitGeneratesRunnableBasicRootfs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("mirage rootfs init failed: %v\noutput:\n%s", err, string(output))
 	}
-	if !strings.Contains(string(output), "template: basic") {
+	if !strings.Contains(string(output), "mirage rootfs init") {
 		t.Fatalf("expected rootfs init output, got:\n%s", string(output))
 	}
 
@@ -195,7 +201,6 @@ func TestDoctorValidatesGeneratedBasicRootfs(t *testing.T) {
 		"go", "run", "./cmd/mirage",
 		"rootfs",
 		"init",
-		"--template", "basic",
 		"--output", rootfs,
 	)
 	initCmd.Dir = repoRoot
@@ -221,7 +226,6 @@ func TestDoctorValidatesGeneratedBasicRootfs(t *testing.T) {
 	got := string(output)
 	for _, needle := range []string{
 		"resolved command: /bin/ls",
-		"shared libraries: ok",
 		"rootfs validation: ok",
 	} {
 		if !strings.Contains(got, needle) {
@@ -241,7 +245,6 @@ func TestRootfsInitBashProbeSupportsCurrentExampleNetworkPolicies(t *testing.T) 
 		"go", "run", "./cmd/mirage",
 		"rootfs",
 		"init",
-		"--template", "openclaw-work",
 		"--output", rootfs,
 	)
 	initCmd.Dir = repoRoot

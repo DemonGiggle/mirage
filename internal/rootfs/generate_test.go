@@ -12,6 +12,13 @@ import (
 
 var errRecursiveSymlink = errors.New("recursive symlink")
 
+func TestMain(m *testing.M) {
+	if err := os.Setenv(testSkipBootstrapEnv, "1"); err != nil {
+		panic(err)
+	}
+	os.Exit(m.Run())
+}
+
 func TestParseLDDOutput(t *testing.T) {
 	output := []byte(`
 linux-vdso.so.1 (0x00007ffd0d1f0000)
@@ -52,6 +59,101 @@ func TestParseLDDOutputCollectsMissingDependency(t *testing.T) {
 	}
 	if len(got.missing) != 1 || got.missing[0] != "libmissing.so.1" {
 		t.Fatalf("expected missing dependency to be collected, got %v", got.missing)
+	}
+}
+
+func TestBootstrapRequiresRootOutsideTestBypass(t *testing.T) {
+	if err := os.Unsetenv(testSkipBootstrapEnv); err != nil {
+		t.Fatalf("unset test skip env: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.Setenv(testSkipBootstrapEnv, "1"); err != nil {
+			t.Fatalf("restore test skip env: %v", err)
+		}
+	})
+
+	previous := currentEUID
+	currentEUID = func() int { return 1000 }
+	t.Cleanup(func() {
+		currentEUID = previous
+	})
+
+	_, err := BootstrapWithReport(filepath.Join(t.TempDir(), "rootfs"))
+	if err == nil || !strings.Contains(err.Error(), "rootfs init requires root privileges") {
+		t.Fatalf("expected root privilege error, got %v", err)
+	}
+}
+
+func TestBootstrapRejectsEmptyOutputRoot(t *testing.T) {
+	_, err := BootstrapWithReport("")
+	if err == nil || !strings.Contains(err.Error(), "output rootfs path cannot be empty") {
+		t.Fatalf("expected empty output root error, got %v", err)
+	}
+}
+
+func TestBootstrapRejectsCriticalSystemDirectory(t *testing.T) {
+	_, err := BootstrapWithReport("/tmp")
+	if err == nil || !strings.Contains(err.Error(), `refusing to use critical system directory "/tmp" as rootfs`) {
+		t.Fatalf("expected critical directory rejection, got %v", err)
+	}
+}
+
+func TestClearDirectoryRejectsNestedMounts(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "rootfs")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatalf("create rootfs: %v", err)
+	}
+
+	previous := readMountInfo
+	readMountInfo = func(string) ([]byte, error) {
+		return []byte("24 23 0:22 / " + root + " rw - ext4 /dev/root rw\n25 24 0:23 / " + filepath.Join(root, "proc") + " rw - proc proc rw\n"), nil
+	}
+	t.Cleanup(func() {
+		readMountInfo = previous
+	})
+
+	err := clearDirectory(root)
+	if err == nil || !strings.Contains(err.Error(), "contains active mount points") {
+		t.Fatalf("expected active mount rejection, got %v", err)
+	}
+}
+
+func TestBootstrapCapturesMmdebstrapStderrWithoutLogOutput(t *testing.T) {
+	if err := os.Unsetenv(testSkipBootstrapEnv); err != nil {
+		t.Fatalf("unset test skip env: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.Setenv(testSkipBootstrapEnv, "1"); err != nil {
+			t.Fatalf("restore test skip env: %v", err)
+		}
+	})
+
+	previousEUID := currentEUID
+	currentEUID = func() int { return 0 }
+	t.Cleanup(func() {
+		currentEUID = previousEUID
+	})
+
+	tempDir := t.TempDir()
+	fakeMMDebstrap := filepath.Join(tempDir, "mmdebstrap")
+	script := "#!/bin/sh\nprintf 'boom stderr\\n' >&2\nexit 1\n"
+	if err := os.WriteFile(fakeMMDebstrap, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake mmdebstrap: %v", err)
+	}
+
+	previousPath := os.Getenv("PATH")
+	if err := os.Setenv("PATH", tempDir+string(os.PathListSeparator)+previousPath); err != nil {
+		t.Fatalf("set PATH: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.Setenv("PATH", previousPath); err != nil {
+			t.Fatalf("restore PATH: %v", err)
+		}
+	})
+
+	_, err := BootstrapWithReport(filepath.Join(tempDir, "rootfs"))
+	if err == nil || !strings.Contains(err.Error(), "boom stderr") {
+		t.Fatalf("expected stderr in bootstrap error, got %v", err)
 	}
 }
 
@@ -442,28 +544,46 @@ func TestGenerateCopiesNSSModulesReferencedByNSSwitch(t *testing.T) {
 }
 
 func TestGenerateHonorsCopyDependenciesFlag(t *testing.T) {
-	shellPath, err := exec.LookPath("sh")
-	if err != nil {
-		t.Skip("host PATH does not contain sh")
+	bootstrapRoot := filepath.Join(t.TempDir(), "bootstrap-rootfs")
+	if err := Bootstrap(bootstrapRoot); err != nil {
+		t.Fatalf("Bootstrap returned error: %v", err)
 	}
 
-	dependencies, err := lddDependencies(shellPath)
-	if err != nil {
-		t.Fatalf("lddDependencies returned error: %v", err)
+	var binaryPath string
+	var uniqueDependency string
+	for _, candidate := range []string{"python3", "git", "tar", "find", "env"} {
+		resolved, err := exec.LookPath(candidate)
+		if err != nil {
+			continue
+		}
+		dependencies, err := lddDependencies(resolved)
+		if err != nil || len(dependencies) == 0 {
+			continue
+		}
+		for _, dep := range dependencies {
+			if _, err := os.Stat(filepath.Join(bootstrapRoot, strings.TrimPrefix(dep, "/"))); errors.Is(err, os.ErrNotExist) {
+				binaryPath = resolved
+				uniqueDependency = dep
+				break
+			}
+		}
+		if binaryPath != "" {
+			break
+		}
 	}
-	if len(dependencies) == 0 {
-		t.Fatalf("expected %q to have at least one dynamic dependency", shellPath)
+	if binaryPath == "" {
+		t.Skip("could not find host binary with a dependency absent from the bootstrapped test rootfs")
 	}
 
 	outputRoot := filepath.Join(t.TempDir(), "rootfs")
-	err = Generate(outputRoot, Template{
+	err := Generate(outputRoot, Template{
 		Version:     TemplateVersionV1,
 		Name:        "custom",
 		Description: "Custom template",
 		Binaries: []Binary{
 			{
-				HostPath:         shellPath,
-				TargetPath:       "/bin/sh",
+				HostPath:         binaryPath,
+				TargetPath:       "/bin/custom",
 				CopyDependencies: false,
 			},
 		},
@@ -472,11 +592,11 @@ func TestGenerateHonorsCopyDependenciesFlag(t *testing.T) {
 		t.Fatalf("Generate returned error: %v", err)
 	}
 
-	if _, err := os.Stat(filepath.Join(outputRoot, "bin", "sh")); err != nil {
-		t.Fatalf("expected copied shell to exist: %v", err)
+	if _, err := os.Stat(filepath.Join(outputRoot, "bin", "custom")); err != nil {
+		t.Fatalf("expected copied binary to exist: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(outputRoot, strings.TrimPrefix(dependencies[0], "/"))); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("expected dependency %q to be skipped when copy_dependencies is false, stat err=%v", dependencies[0], err)
+	if _, err := os.Stat(filepath.Join(outputRoot, strings.TrimPrefix(uniqueDependency, "/"))); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected dependency %q to be skipped when copy_dependencies is false, stat err=%v", uniqueDependency, err)
 	}
 }
 
@@ -496,7 +616,7 @@ func TestGenerateRejectsNonEmptyOutputRoot(t *testing.T) {
 	}
 }
 
-func TestGenerateWithAllowOverwriteReusesNonEmptyOutputRoot(t *testing.T) {
+func TestGenerateWithAllowOverwriteClearsNonEmptyOutputRoot(t *testing.T) {
 	outputRoot := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(outputRoot, "etc"), 0o755); err != nil {
 		t.Fatalf("create existing etc dir: %v", err)
@@ -527,8 +647,8 @@ func TestGenerateWithAllowOverwriteReusesNonEmptyOutputRoot(t *testing.T) {
 	if string(data) != "new=yes\n" {
 		t.Fatalf("expected overwritten file content, got %q", string(data))
 	}
-	if _, err := os.Stat(filepath.Join(outputRoot, "keep.txt")); err != nil {
-		t.Fatalf("expected unrelated file to remain: %v", err)
+	if _, err := os.Stat(filepath.Join(outputRoot, "keep.txt")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected unrelated file to be removed during overwrite bootstrap, got %v", err)
 	}
 }
 
@@ -557,7 +677,7 @@ func TestGenerateWithAllowOverwriteReplacesFileWithDirectory(t *testing.T) {
 	}
 }
 
-func TestGenerateWithAllowOverwriteRejectsDirectoryAtFileTarget(t *testing.T) {
+func TestGenerateWithAllowOverwriteReplacesDirectoryAtFileTarget(t *testing.T) {
 	outputRoot := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(outputRoot, "etc", "demo.conf"), 0o755); err != nil {
 		t.Fatalf("create existing conflicting directory: %v", err)
@@ -571,8 +691,16 @@ func TestGenerateWithAllowOverwriteRejectsDirectoryAtFileTarget(t *testing.T) {
 			{TargetPath: "/etc/demo.conf", Content: "new=yes\n", Mode: 0o600},
 		},
 	}, GenerateOptions{AllowOverwrite: true})
-	if err == nil || !strings.Contains(err.Error(), `target path "/etc/demo.conf" already exists and is a directory`) {
-		t.Fatalf("expected existing directory rejection, got %v", err)
+	if err != nil {
+		t.Fatalf("GenerateWithOptions returned error: %v", err)
+	}
+
+	info, err := os.Stat(filepath.Join(outputRoot, "etc", "demo.conf"))
+	if err != nil {
+		t.Fatalf("stat replaced file target: %v", err)
+	}
+	if info.IsDir() {
+		t.Fatalf("expected file target to replace existing directory")
 	}
 }
 

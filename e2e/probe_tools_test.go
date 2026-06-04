@@ -13,6 +13,20 @@ import (
 	"time"
 )
 
+func makeSandboxWritable(t *testing.T, path string) {
+	t.Helper()
+	if err := os.Chmod(path, 0o777); err != nil {
+		t.Fatalf("chmod sandbox-writable %q: %v", path, err)
+	}
+}
+
+func makeSandboxReadable(t *testing.T, path string) {
+	t.Helper()
+	if err := os.Chmod(path, 0o755); err != nil {
+		t.Fatalf("chmod sandbox-readable %q: %v", path, err)
+	}
+}
+
 // Verifies that a workload can spawn child processes without leaving the same
 // sandbox-owned process tree.
 func TestProbeSpawnChildStaysInSandboxTree(t *testing.T) {
@@ -47,6 +61,7 @@ func TestProbeSpawnChildWorksInPreparedRootfs(t *testing.T) {
 
 	repoRoot := projectRoot(t)
 	rootfs := t.TempDir()
+	makeSandboxWritable(t, rootfs)
 	buildProbeIntoRootfs(t, repoRoot, "./cmd/probe-spawn-child", rootfs, "probe-spawn-child")
 
 	output, err := runMirage(t, repoRoot,
@@ -75,6 +90,7 @@ func TestProbeOpenPTMXWorksInPreparedRootfs(t *testing.T) {
 
 	repoRoot := projectRoot(t)
 	rootfs := t.TempDir()
+	makeSandboxWritable(t, rootfs)
 	buildProbeIntoRootfs(t, repoRoot, "./cmd/probe-open-ptmx", rootfs, "probe-open-ptmx")
 
 	output, err := runMirage(t, repoRoot,
@@ -99,6 +115,7 @@ func TestProbeFileReadRespectsRootfsBoundary(t *testing.T) {
 
 	repoRoot := projectRoot(t)
 	rootfs := t.TempDir()
+	makeSandboxWritable(t, rootfs)
 	buildProbeIntoRootfs(t, repoRoot, "./cmd/probe-file-read", rootfs, "probe-file-read")
 
 	insidePath := filepath.Join(rootfs, "inside.txt")
@@ -150,6 +167,7 @@ func TestProbeFileWriteRespectsRootfsBoundary(t *testing.T) {
 
 	repoRoot := projectRoot(t)
 	rootfs := t.TempDir()
+	makeSandboxWritable(t, rootfs)
 	buildProbeIntoRootfs(t, repoRoot, "./cmd/probe-file-write", rootfs, "probe-file-write")
 
 	output, err := runMirage(t, repoRoot,
@@ -451,6 +469,7 @@ func TestProbeListProcsReflectsSandboxPIDNamespace(t *testing.T) {
 
 	repoRoot := projectRoot(t)
 	rootfs := t.TempDir()
+	makeSandboxWritable(t, rootfs)
 	buildProbeIntoRootfs(t, repoRoot, "./cmd/probe-list-procs", rootfs, "probe-list-procs")
 
 	output, err := runMirage(t, repoRoot,
@@ -480,6 +499,7 @@ func TestProbeReadlinkReportsSymlinkTarget(t *testing.T) {
 
 	repoRoot := projectRoot(t)
 	rootfs := t.TempDir()
+	makeSandboxWritable(t, rootfs)
 	buildProbeIntoRootfs(t, repoRoot, "./cmd/probe-readlink", rootfs, "probe-readlink")
 
 	if err := os.WriteFile(filepath.Join(rootfs, "target.txt"), []byte("target"), 0o644); err != nil {
@@ -555,11 +575,14 @@ func TestProbeBindMountReadOnlyBoundary(t *testing.T) {
 
 	repoRoot := projectRoot(t)
 	rootfs := t.TempDir()
+	makeSandboxWritable(t, rootfs)
 	buildProbeIntoRootfs(t, repoRoot, "./cmd/probe-file-read", rootfs, "probe-file-read")
 	buildProbeIntoRootfs(t, repoRoot, "./cmd/probe-file-write", rootfs, "probe-file-write")
 
 	hostReadOnly := t.TempDir()
 	hostWritable := t.TempDir()
+	makeSandboxReadable(t, hostReadOnly)
+	makeSandboxWritable(t, hostWritable)
 
 	if err := os.WriteFile(filepath.Join(hostReadOnly, "fixture.txt"), []byte("ro-data"), 0o644); err != nil {
 		t.Fatalf("write read-only fixture: %v", err)
