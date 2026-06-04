@@ -22,6 +22,8 @@ const (
 	mmdebstrapIncludePackageList = "apt,ca-certificates,bash,coreutils,util-linux,procps,psmisc,iproute2,curl,tar,gzip,xz-utils,git"
 )
 
+var currentEUID = os.Geteuid
+
 type MissingAsset struct {
 	Source     string
 	TargetPath string
@@ -48,6 +50,7 @@ type GenerateReport struct {
 
 type GenerateOptions struct {
 	AllowOverwrite bool
+	LogOutput      io.Writer
 }
 
 func (report *GenerateReport) addMissing(asset MissingAsset) {
@@ -68,6 +71,45 @@ func Generate(outputRoot string, template Template) error {
 	return err
 }
 
+func Bootstrap(outputRoot string) error {
+	_, err := BootstrapWithReportWithOptions(outputRoot, GenerateOptions{})
+	return err
+}
+
+func BootstrapWithOptions(outputRoot string, options GenerateOptions) error {
+	_, err := BootstrapWithReportWithOptions(outputRoot, options)
+	return err
+}
+
+func BootstrapWithReport(outputRoot string) (GenerateReport, error) {
+	return BootstrapWithReportWithOptions(outputRoot, GenerateOptions{})
+}
+
+func BootstrapWithReportWithOptions(outputRoot string, options GenerateOptions) (GenerateReport, error) {
+	if os.Getenv(testSkipBootstrapEnv) != "1" && currentEUID() != 0 {
+		return GenerateReport{}, errors.New("rootfs init requires root privileges; run via sudo PATH=$PATH ./bin/mirage rootfs init ...")
+	}
+	root, err := filepath.Abs(outputRoot)
+	if err != nil {
+		return GenerateReport{}, fmt.Errorf("resolve output rootfs %q: %w", outputRoot, err)
+	}
+	if err := prepareOutputRoot(root, options.AllowOverwrite); err != nil {
+		return GenerateReport{}, err
+	}
+	if err := bootstrapDebianBaseRootfs(root, options.LogOutput); err != nil {
+		return GenerateReport{}, err
+	}
+	if err := writeMinimalAptConfig(root, options.LogOutput); err != nil {
+		return GenerateReport{}, err
+	}
+
+	report, err := EnsureNSSRuntimeWithReport(root)
+	if err != nil {
+		return GenerateReport{}, err
+	}
+	return report, nil
+}
+
 func GenerateWithReport(outputRoot string, template Template) (GenerateReport, error) {
 	return GenerateWithReportWithOptions(outputRoot, template, GenerateOptions{})
 }
@@ -82,23 +124,19 @@ func GenerateWithReportWithOptions(outputRoot string, template Template, options
 		return GenerateReport{}, err
 	}
 
+	report, err := BootstrapWithReportWithOptions(outputRoot, options)
+	if err != nil {
+		return report, err
+	}
 	root, err := filepath.Abs(outputRoot)
 	if err != nil {
-		return GenerateReport{}, fmt.Errorf("resolve output rootfs %q: %w", outputRoot, err)
-	}
-	if err := prepareOutputRoot(root, options.AllowOverwrite); err != nil {
-		return GenerateReport{}, err
-	}
-	if err := bootstrapDebianBaseRootfs(root); err != nil {
-		return GenerateReport{}, err
-	}
-	if err := writeMinimalAptConfig(root); err != nil {
-		return GenerateReport{}, err
+		return report, fmt.Errorf("resolve output rootfs %q: %w", outputRoot, err)
 	}
 
 	generator := generator{
 		outputRoot:      root,
-		allowOverwrite:  options.AllowOverwrite,
+		allowOverwrite:  true,
+		report:          report,
 		copiedTargets:   make(map[string]struct{}),
 		copiedTrees:     make(map[string]struct{}),
 		missingReported: make(map[string]struct{}),
@@ -190,13 +228,28 @@ func clearDirectory(root string) error {
 	return nil
 }
 
-func bootstrapDebianBaseRootfs(root string) error {
+func bootstrapDebianBaseRootfs(root string, logOutput io.Writer) error {
+	logCommand(logOutput, "mmdebstrap",
+		"--variant=minbase",
+		`--aptopt=APT::Install-Recommends "false"`,
+		"--include="+mmdebstrapIncludePackageList,
+		debianRelease,
+		root,
+		debianMirror,
+	)
 	if os.Getenv(testSkipBootstrapEnv) == "1" {
-		for _, dir := range []string{"proc", "tmp", "run", "dev", "etc/apt/apt.conf.d"} {
+		for _, dir := range []string{"proc", "tmp", "run", "dev", "etc/apt/apt.conf.d", "bin"} {
 			if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
 				return fmt.Errorf("prepare fake bootstrap directory %q: %w", dir, err)
 			}
 		}
+		for _, cmd := range []string{"sh", "bash", "ls"} {
+			target := filepath.Join(root, "bin", cmd)
+			if err := os.WriteFile(target, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+				return fmt.Errorf("prepare fake bootstrap command %q: %w", cmd, err)
+			}
+		}
+		logLine(logOutput, "output: [test mode] skipped mmdebstrap execution")
 		return nil
 	}
 
@@ -209,22 +262,21 @@ func bootstrapDebianBaseRootfs(root string) error {
 		debianMirror,
 	}
 	cmd := exec.Command("mmdebstrap", args...)
-	output, err := cmd.CombinedOutput()
+	cmd.Stdout = logWriterOrDiscard(logOutput)
+	cmd.Stderr = logWriterOrDiscard(logOutput)
+	err := cmd.Run()
 	if err != nil {
 		if errors.Is(err, exec.ErrNotFound) {
 			return errors.New("mmdebstrap is required on the host to initialize a rootfs")
 		}
-		message := strings.TrimSpace(string(output))
-		if message == "" {
-			return fmt.Errorf("bootstrap rootfs with mmdebstrap: %w", err)
-		}
-		return fmt.Errorf("bootstrap rootfs with mmdebstrap: %w\n%s", err, message)
+		return fmt.Errorf("bootstrap rootfs with mmdebstrap: %w", err)
 	}
 	return nil
 }
 
-func writeMinimalAptConfig(root string) error {
+func writeMinimalAptConfig(root string, logOutput io.Writer) error {
 	target := filepath.Join(root, filepath.FromSlash(strings.TrimPrefix(minimalAptConfigPath, "/")))
+	logAptConfigCommand(logOutput, target)
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return fmt.Errorf("create apt config directory for %q: %w", minimalAptConfigPath, err)
 	}
@@ -232,6 +284,53 @@ func writeMinimalAptConfig(root string) error {
 		return fmt.Errorf("write apt config %q: %w", minimalAptConfigPath, err)
 	}
 	return nil
+}
+
+func logWriterOrDiscard(w io.Writer) io.Writer {
+	if w == nil {
+		return io.Discard
+	}
+	return w
+}
+
+func logCommand(w io.Writer, name string, args ...string) {
+	if w == nil {
+		return
+	}
+	parts := append([]string{name}, args...)
+	var rendered []string
+	for _, part := range parts {
+		rendered = append(rendered, strconvQuote(part))
+	}
+	_, _ = fmt.Fprintf(w, "command: %s\n", strings.Join(rendered, " "))
+}
+
+func logLine(w io.Writer, message string) {
+	if w == nil {
+		return
+	}
+	_, _ = fmt.Fprintln(w, message)
+}
+
+func logAptConfigCommand(w io.Writer, target string) {
+	if w == nil {
+		return
+	}
+	_, _ = fmt.Fprintf(w, "command: sudo tee %s >/dev/null <<'EOF'\n", strconvQuote(target))
+	_, _ = fmt.Fprint(w, minimalAptConfigContent)
+	_, _ = fmt.Fprintln(w, "EOF")
+}
+
+func strconvQuote(s string) string {
+	if s == "" {
+		return `""`
+	}
+	if strings.IndexFunc(s, func(r rune) bool {
+		return r == ' ' || r == '\t' || r == '\n' || r == '"' || r == '\''
+	}) >= 0 {
+		return fmt.Sprintf("%q", s)
+	}
+	return s
 }
 
 func (g *generator) ensureDirectory(dir Directory) error {

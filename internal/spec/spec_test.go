@@ -11,7 +11,6 @@ func TestLoadPresetFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "preset.yaml")
 	if err := os.WriteFile(path, []byte(`rootfs:
   path: /srv/rootfs
-  template: openclaw-developer
   required_commands:
     - node
 networkPolicy:
@@ -43,9 +42,6 @@ description: Team preset
 	}
 	if preset.Rootfs.Path != "/srv/rootfs" {
 		t.Fatalf("unexpected rootfs path: %#v", preset.Rootfs)
-	}
-	if preset.Rootfs.Template != "openclaw-developer" {
-		t.Fatalf("unexpected rootfs template: %#v", preset.Rootfs)
 	}
 	if len(preset.Rootfs.RequiredCommands) != 1 || preset.Rootfs.RequiredCommands[0] != "node" {
 		t.Fatalf("unexpected required commands: %#v", preset.Rootfs)
@@ -130,7 +126,6 @@ func TestApplyPresetFileMergesConfig(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "preset.yaml")
 	if err := os.WriteFile(path, []byte(`rootfs:
   path: /srv/rootfs
-  template: basic
   required_commands:
     - /bin/sh
 networkPolicy:
@@ -176,7 +171,7 @@ runAsRoot: true
 	if len(cfg.Env) != 1 || cfg.Env[0] != "FOO=bar" {
 		t.Fatalf("unexpected env: %#v", cfg)
 	}
-	if preset.Rootfs.Template != "basic" || len(preset.Rootfs.RequiredCommands) != 1 {
+	if len(preset.Rootfs.RequiredCommands) != 1 {
 		t.Fatalf("unexpected preset metadata: %#v", preset)
 	}
 }

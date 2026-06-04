@@ -24,7 +24,6 @@ project.
 - `runner`: the Linux backend that applies namespaces, mounts, network setup,
   cgroups, and final `exec`
 - `rootfs`: the filesystem tree used as guest `/`
-- `rootfs template`: a reusable description for generated rootfs content
 - `preset file`: a YAML bundle of rootfs, network, bind mount, and runtime
   defaults
 
@@ -38,7 +37,6 @@ The CLI layer is responsible for:
 - loading preset files
 - loading standalone network policy files
 - validating mutually exclusive inputs
-- generating rootfs trees from preset templates when needed
 - printing dry-run summaries and plan notes
 
 This layer decides what should happen. It does not enforce the sandbox itself.
@@ -47,9 +45,8 @@ This layer decides what should happen. It does not enforce the sandbox itself.
 
 The rootfs layer:
 
-- loads built-in templates from embedded YAML
-- validates template structure
-- generates rootfs trees from host files and binaries
+- bootstraps Debian rootfs trees with `mmdebstrap`
+- writes the minimal guest apt policy file
 - validates generated rootfs paths and command resolution for `mirage doctor`
 
 ### Runner
@@ -72,12 +69,11 @@ The high-level sequence is:
 1. parse flags
 2. load preset and network policy data
 3. validate the final config
-4. optionally auto-generate the preset rootfs
-5. print a run preview
-6. enter the runtime backend
-7. prepare namespaces, mounts, and optional cgroup limits
-8. configure the selected network backend
-9. `exec` the workload as sandbox PID 1
+4. print a run preview
+5. enter the runtime backend
+6. prepare namespaces, mounts, and optional cgroup limits
+7. configure the selected network backend
+8. `exec` the workload as sandbox PID 1
 
 ## Runtime Construction
 

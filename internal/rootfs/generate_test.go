@@ -62,6 +62,28 @@ func TestParseLDDOutputCollectsMissingDependency(t *testing.T) {
 	}
 }
 
+func TestBootstrapRequiresRootOutsideTestBypass(t *testing.T) {
+	if err := os.Unsetenv(testSkipBootstrapEnv); err != nil {
+		t.Fatalf("unset test skip env: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.Setenv(testSkipBootstrapEnv, "1"); err != nil {
+			t.Fatalf("restore test skip env: %v", err)
+		}
+	})
+
+	previous := currentEUID
+	currentEUID = func() int { return 1000 }
+	t.Cleanup(func() {
+		currentEUID = previous
+	})
+
+	_, err := BootstrapWithReport(filepath.Join(t.TempDir(), "rootfs"))
+	if err == nil || !strings.Contains(err.Error(), "rootfs init requires root privileges") {
+		t.Fatalf("expected root privilege error, got %v", err)
+	}
+}
+
 func TestGenerateCopiesFilesAndDependencies(t *testing.T) {
 	shellPath, err := exec.LookPath("sh")
 	if err != nil {

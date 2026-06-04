@@ -1,7 +1,7 @@
 # Usage
 
-This document describes the current operator-facing CLI. For rootfs template
-details, see [rootfs.md](rootfs.md). For current isolation boundaries, see
+This document describes the current operator-facing CLI. For rootfs details,
+see [rootfs.md](rootfs.md). For current isolation boundaries, see
 [isolation.md](isolation.md). For internal runtime structure, see
 [architecture.md](architecture.md).
 
@@ -45,7 +45,6 @@ Current top-level commands:
 - `mirage run`
 - `mirage doctor`
 - `mirage rootfs init`
-- `mirage rootfs list-template`
 - `mirage network-policy list`
 - `mirage package`
 - `mirage version`
@@ -54,7 +53,6 @@ Useful first commands:
 
 ```bash
 ./bin/mirage doctor
-./bin/mirage rootfs list-template
 ./bin/mirage network-policy list
 ```
 
@@ -62,24 +60,26 @@ Current operational note:
 
 - use `sudo PATH=$PATH ./bin/mirage rootfs init ...` for generated rootfs work
 - use `sudo ./bin/mirage run ...` for sandbox execution
-- `./bin/mirage doctor`, `./bin/mirage rootfs list-template`, and
-  `./bin/mirage network-policy list` remain normal non-`sudo` commands
+- `./bin/mirage doctor` and `./bin/mirage network-policy list` remain normal
+  non-`sudo` commands
 
 ## Common Flows
 
 Generate and validate a basic rootfs:
 
 ```bash
-sudo PATH=$PATH ./bin/mirage rootfs init --template basic --output /srv/mirage/basic-rootfs
+sudo PATH=$PATH ./bin/mirage rootfs init --output /srv/mirage/basic-rootfs
 ./bin/mirage doctor --rootfs /srv/mirage/basic-rootfs --command /bin/ls
 ```
+
+`mirage rootfs init` prints the exact bootstrap command and streams the
+underlying tool output while it runs.
 
 Allow Mirage to reuse a non-empty output directory only when you intend to
 clear and rebuild the rootfs:
 
 ```bash
 sudo PATH=$PATH ./bin/mirage rootfs init \
-  --template basic \
   --output /srv/mirage/basic-rootfs \
   --allow-overwrite
 ```
@@ -158,7 +158,6 @@ sudo ./bin/mirage run \
 `--preset-file` loads one YAML document that can bundle:
 
 - `rootfs.path`
-- `rootfs.template`
 - `rootfs.required_commands`
 - `networkPolicy` or `networkPolicyFile`
 - `roBind`
@@ -176,7 +175,6 @@ Example:
 ```yaml
 rootfs:
   path: /srv/mirage/openclaw-rootfs
-  template: openclaw-developer
   required_commands:
     - node
 networkPolicyFile: ../network-policies/offline.yaml
@@ -188,8 +186,6 @@ Notes:
 
 - Use exactly one of `networkPolicy` or `networkPolicyFile`.
 - Relative `networkPolicyFile` paths are resolved relative to the preset file.
-- If `rootfs.path` is missing or empty on disk and `rootfs.template` is set,
-  Mirage will generate that rootfs before the run starts.
 - `rootfs.required_commands` is validated by `mirage doctor --preset-file ...`.
 
 Validate a preset-managed rootfs:
@@ -226,7 +222,6 @@ Current backend behavior:
 `mirage package` writes a release bundle containing:
 
 - `bin/mirage`
-- `share/mirage/rootfs/templates`
 - `share/mirage/network-policies`
 - `share/mirage/presets`
 

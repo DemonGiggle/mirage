@@ -51,7 +51,6 @@ func validatePreset(preset Preset, source string) (Preset, error) {
 	preset.Memory = strings.TrimSpace(preset.Memory)
 	preset.NetworkPolicyFile = strings.TrimSpace(preset.NetworkPolicyFile)
 	preset.Rootfs.Path = strings.TrimSpace(preset.Rootfs.Path)
-	preset.Rootfs.Template = strings.TrimSpace(preset.Rootfs.Template)
 	preset.Rootfs.RequiredCommands = normalizeRequiredCommands(preset.Rootfs.RequiredCommands)
 
 	switch {

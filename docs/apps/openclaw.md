@@ -5,35 +5,30 @@ It focuses on host prerequisites and a repeatable copy-paste flow.
 
 ## Host Prerequisites
 
-Mirage's OpenClaw-oriented rootfs templates copy host tools into the generated
-rootfs. For OpenClaw, the important host commands are:
+Mirage now bootstraps a plain Debian rootfs. For OpenClaw, install Node.js
+inside that rootfs after initialization.
 
-- `node`
-- `npm`
-- `npx`
-
-On Debian or Ubuntu, a quick host setup is:
+On the host, a quick setup is:
 
 ```bash
 sudo apt update
-sudo apt install -y nodejs npm
-node --version
-npm --version
-npx --version
+sudo apt install -y mmdebstrap
 ```
-
-If your distro ships a Node.js release that is too old for your OpenClaw
-workflow, install a newer Node.js toolchain first, then regenerate the rootfs.
 
 ## Generate The Rootfs
 
-`openclaw-developer` is the default general-purpose template. It includes
-Node.js-oriented tooling plus common development utilities.
+```bash
+sudo PATH=$PATH ./bin/mirage rootfs init --output /srv/mirage/openclaw-rootfs
+```
+
+Install Node.js and npm inside the guest rootfs:
 
 ```bash
-sudo PATH=$PATH ./bin/mirage rootfs init \
-  --template openclaw-developer \
-  --output /srv/mirage/openclaw-rootfs
+sudo ./bin/mirage run \
+  --rootfs /srv/mirage/openclaw-rootfs \
+  --run-as-root \
+  --network-policy-file ./examples/network-policies/allow-all.yaml \
+  -- /bin/bash -lc 'apt-get update && apt-get install -y nodejs npm'
 ```
 
 Validate the generated rootfs and the required commands:
@@ -79,8 +74,7 @@ sudo ./bin/mirage run \
 
 ## Notes
 
-- If you upgrade host Node.js, rerun `mirage rootfs init` so the rootfs picks
-  up the new binaries and libraries.
-- `openclaw-chat-only`, `openclaw-work`, `openclaw-admin`, `openclaw-root`,
-  `openclaw`, and `openclaw-systemd` are available when you need a smaller or
-  more specialized rootfs. See [rootfs.md](../rootfs.md).
+- If you need newer Node.js builds than Debian provides, install them inside
+  the guest rootfs before running OpenClaw.
+- The example presets still help with network policy defaults and rootfs
+  command validation, but they no longer build the rootfs for you.
