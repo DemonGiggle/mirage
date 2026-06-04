@@ -23,6 +23,7 @@ const (
 )
 
 var currentEUID = os.Geteuid
+var readMountInfo = os.ReadFile
 
 type MissingAsset struct {
 	Source     string
@@ -89,9 +90,15 @@ func BootstrapWithReportWithOptions(outputRoot string, options GenerateOptions) 
 	if os.Getenv(testSkipBootstrapEnv) != "1" && currentEUID() != 0 {
 		return GenerateReport{}, errors.New("rootfs init requires root privileges; run via sudo PATH=$PATH ./bin/mirage rootfs init ...")
 	}
+	if strings.TrimSpace(outputRoot) == "" {
+		return GenerateReport{}, errors.New("output rootfs path cannot be empty")
+	}
 	root, err := filepath.Abs(outputRoot)
 	if err != nil {
 		return GenerateReport{}, fmt.Errorf("resolve output rootfs %q: %w", outputRoot, err)
+	}
+	if err := validateBootstrapTarget(root); err != nil {
+		return GenerateReport{}, err
 	}
 	if err := prepareOutputRoot(root, options.AllowOverwrite); err != nil {
 		return GenerateReport{}, err
@@ -216,6 +223,13 @@ func prepareOutputRoot(root string, allowOverwrite bool) error {
 }
 
 func clearDirectory(root string) error {
+	mounted, err := hasNestedMounts(root)
+	if err != nil {
+		return fmt.Errorf("check active mounts in %q: %w", root, err)
+	}
+	if mounted {
+		return fmt.Errorf("refusing to clear directory %q because it contains active mount points; please unmount them first", root)
+	}
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		return fmt.Errorf("read output rootfs %q: %w", root, err)
@@ -226,6 +240,68 @@ func clearDirectory(root string) error {
 		}
 	}
 	return nil
+}
+
+func validateBootstrapTarget(root string) error {
+	root = filepath.Clean(root)
+	switch root {
+	case "/",
+		"/bin",
+		"/boot",
+		"/dev",
+		"/etc",
+		"/home",
+		"/lib",
+		"/lib64",
+		"/media",
+		"/mnt",
+		"/opt",
+		"/proc",
+		"/root",
+		"/run",
+		"/sbin",
+		"/srv",
+		"/sys",
+		"/tmp",
+		"/usr",
+		"/var":
+		return fmt.Errorf("refusing to use critical system directory %q as rootfs", root)
+	default:
+		return nil
+	}
+}
+
+func hasNestedMounts(root string) (bool, error) {
+	data, err := readMountInfo("/proc/self/mountinfo")
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		return false, err
+	}
+
+	root = filepath.Clean(root)
+	rootPrefix := root + string(filepath.Separator)
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	for scanner.Scan() {
+		fields := strings.Fields(scanner.Text())
+		if len(fields) < 5 {
+			continue
+		}
+		mountpoint := filepath.Clean(unescapeMountInfoPath(fields[4]))
+		if mountpoint != root && strings.HasPrefix(mountpoint, rootPrefix) {
+			return true, nil
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return false, err
+	}
+	return false, nil
+}
+
+func unescapeMountInfoPath(raw string) string {
+	replacer := strings.NewReplacer(`\040`, " ", `\011`, "\t", `\012`, "\n", `\134`, `\`)
+	return replacer.Replace(raw)
 }
 
 func bootstrapDebianBaseRootfs(root string, logOutput io.Writer) error {
@@ -243,10 +319,22 @@ func bootstrapDebianBaseRootfs(root string, logOutput io.Writer) error {
 				return fmt.Errorf("prepare fake bootstrap directory %q: %w", dir, err)
 			}
 		}
-		for _, cmd := range []string{"sh", "bash", "ls"} {
-			target := filepath.Join(root, "bin", cmd)
-			if err := os.WriteFile(target, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
-				return fmt.Errorf("prepare fake bootstrap command %q: %w", cmd, err)
+		generator := generator{
+			outputRoot:      root,
+			allowOverwrite:  true,
+			copiedTargets:   make(map[string]struct{}),
+			copiedTrees:     make(map[string]struct{}),
+			missingReported: make(map[string]struct{}),
+			shebangCache:    make(map[string]shebangCacheEntry),
+			lddCache:        make(map[string]lddCacheEntry),
+		}
+		for _, name := range []string{"sh", "bash", "ls"} {
+			source, err := exec.LookPath(name)
+			if err != nil {
+				return fmt.Errorf("resolve fake bootstrap command %q: %w", name, err)
+			}
+			if err := generator.copyHostBinary(source, filepath.Join("/bin", name), true); err != nil {
+				return fmt.Errorf("prepare fake bootstrap command %q: %w", name, err)
 			}
 		}
 		logLine(logOutput, "output: [test mode] skipped mmdebstrap execution")
@@ -261,13 +349,21 @@ func bootstrapDebianBaseRootfs(root string, logOutput io.Writer) error {
 		root,
 		debianMirror,
 	}
+	var stderrBuf bytes.Buffer
 	cmd := exec.Command("mmdebstrap", args...)
-	cmd.Stdout = logWriterOrDiscard(logOutput)
-	cmd.Stderr = logWriterOrDiscard(logOutput)
+	if logOutput != nil {
+		cmd.Stdout = logOutput
+		cmd.Stderr = logOutput
+	} else {
+		cmd.Stderr = &stderrBuf
+	}
 	err := cmd.Run()
 	if err != nil {
 		if errors.Is(err, exec.ErrNotFound) {
 			return errors.New("mmdebstrap is required on the host to initialize a rootfs")
+		}
+		if stderr := strings.TrimSpace(stderrBuf.String()); stderr != "" {
+			return fmt.Errorf("bootstrap rootfs with mmdebstrap: %w: %s", err, stderr)
 		}
 		return fmt.Errorf("bootstrap rootfs with mmdebstrap: %w", err)
 	}
