@@ -326,6 +326,11 @@ func (g *generator) copyHostBinary(sourcePath string, targetPath string, copyDep
 }
 
 func (g *generator) copyHostBinaryWithVisited(sourcePath string, targetPath string, copyDependencies bool, visited map[string]struct{}) error {
+	effectiveTargetPath, err := g.rewriteTargetPathForHostAncestorSymlinks(sourcePath, targetPath)
+	if err != nil {
+		return err
+	}
+
 	if _, seen := visited[sourcePath]; seen {
 		return fmt.Errorf("circular shebang dependency involving %q", sourcePath)
 	}
@@ -335,13 +340,13 @@ func (g *generator) copyHostBinaryWithVisited(sourcePath string, targetPath stri
 	linkInfo, err := os.Lstat(sourcePath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			g.recordMissing(sourcePath, targetPath, "binary")
+			g.recordMissing(sourcePath, effectiveTargetPath, "binary")
 			return nil
 		}
 		return fmt.Errorf("lstat host file %q: %w", sourcePath, err)
 	}
 	if linkInfo.Mode()&os.ModeSymlink != 0 {
-		nextTarget := translatedSymlinkTarget(targetPath, sourcePath)
+		nextTarget := translatedSymlinkTarget(effectiveTargetPath, sourcePath)
 		resolvedSource, err := filepath.EvalSymlinks(sourcePath)
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
@@ -350,16 +355,16 @@ func (g *generator) copyHostBinaryWithVisited(sourcePath string, targetPath stri
 			}
 			return fmt.Errorf("resolve symlink %q: %w", sourcePath, err)
 		}
-		if nextTarget == targetPath {
-			return g.copyHostBinaryWithVisited(resolvedSource, targetPath, copyDependencies, visited)
+		if nextTarget == effectiveTargetPath {
+			return g.copyHostBinaryWithVisited(resolvedSource, effectiveTargetPath, copyDependencies, visited)
 		}
-		if err := g.copyHostSymlink(sourcePath, targetPath); err != nil {
+		if err := g.copyHostSymlink(sourcePath, effectiveTargetPath); err != nil {
 			return err
 		}
 		return g.copyHostBinaryWithVisited(resolvedSource, nextTarget, copyDependencies, visited)
 	}
 
-	if err := g.copyHostFile(sourcePath, targetPath, false); err != nil {
+	if err := g.copyHostFile(sourcePath, effectiveTargetPath, false); err != nil {
 		return err
 	}
 
@@ -837,35 +842,30 @@ func (g *generator) rewriteTargetPathForHostAncestorSymlinks(sourcePath string, 
 		return targetPath, nil
 	}
 
-	sourceParts := splitAbsolutePath(sourcePath)
 	targetParts := splitAbsolutePath(targetPath)
-	maxDepth := len(sourceParts)
-	if len(targetParts) < maxDepth {
-		maxDepth = len(targetParts)
-	}
+	maxDepth := len(targetParts)
 	if maxDepth <= 1 {
 		return targetPath, nil
 	}
 
 	for depth := 1; depth < maxDepth-1; depth++ {
-		sourcePrefix := joinAbsolutePath(sourceParts[:depth+1])
-		info, err := os.Lstat(sourcePrefix)
+		targetPrefix := joinAbsolutePath(targetParts[:depth+1])
+		info, err := os.Lstat(targetPrefix)
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
 				return targetPath, nil
 			}
-			return "", fmt.Errorf("lstat host ancestor %q: %w", sourcePrefix, err)
+			return "", fmt.Errorf("lstat host ancestor %q: %w", targetPrefix, err)
 		}
 		if info.Mode()&os.ModeSymlink == 0 {
 			continue
 		}
 
-		targetPrefix := joinAbsolutePath(targetParts[:depth+1])
-		if err := g.copyHostSymlink(sourcePrefix, targetPrefix); err != nil {
+		if err := g.copyHostSymlink(targetPrefix, targetPrefix); err != nil {
 			return "", err
 		}
 
-		translatedPrefix := translatedSymlinkTarget(targetPrefix, sourcePrefix)
+		translatedPrefix := translatedSymlinkTarget(targetPrefix, targetPrefix)
 		if depth+1 >= len(targetParts) {
 			return translatedPrefix, nil
 		}

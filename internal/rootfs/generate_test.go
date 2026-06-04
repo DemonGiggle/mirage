@@ -165,6 +165,47 @@ func TestGeneratePreservesMergedUsrLibrarySymlinkAncestors(t *testing.T) {
 	}
 }
 
+func TestGeneratePreservesMergedUsrTargetSymlinkAncestors(t *testing.T) {
+	shellPath, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("host PATH does not contain sh")
+	}
+
+	binInfo, err := os.Lstat("/bin")
+	if err != nil {
+		t.Fatalf("lstat /bin: %v", err)
+	}
+	if binInfo.Mode()&os.ModeSymlink == 0 {
+		t.Skip("host /bin is not a symlink")
+	}
+
+	outputRoot := filepath.Join(t.TempDir(), "rootfs")
+	template := Template{
+		Version:     TemplateVersionV1,
+		Name:        "custom",
+		Description: "Custom template",
+		Binaries: []Binary{
+			{
+				HostPath:         shellPath,
+				TargetPath:       "/bin/sh",
+				CopyDependencies: true,
+			},
+		},
+	}
+
+	if err := Generate(outputRoot, template); err != nil {
+		t.Fatalf("Generate returned error: %v", err)
+	}
+
+	info, err := os.Lstat(filepath.Join(outputRoot, "bin"))
+	if err != nil {
+		t.Fatalf("lstat generated /bin: %v", err)
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		t.Fatal("expected generated /bin to remain a symlink")
+	}
+}
+
 func TestGenerateWithReportReportsMissingAssetsWithoutFailing(t *testing.T) {
 	scriptPath := filepath.Join(t.TempDir(), "demo-script")
 	if err := os.WriteFile(scriptPath, []byte("#!/definitely/missing/interpreter\nexit 0\n"), 0o755); err != nil {
