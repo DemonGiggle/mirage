@@ -42,6 +42,8 @@ directories:
       mode: 493
     - path: /etc/apt/trusted.gpg.d
       mode: 493
+    - path: /usr/local
+      mode: 493
 binaries:
     - target_path: /bin/sh
       lookup_name: sh
@@ -130,6 +132,10 @@ binaries:
     - target_path: /usr/bin/grep
       lookup_name: grep
       copy_dependencies: true
+    - target_path: /usr/bin/locale
+      lookup_name: locale
+      copy_dependencies: true
+      optional: true
     - target_path: /usr/bin/find
       lookup_name: find
       copy_dependencies: true
@@ -142,8 +148,26 @@ binaries:
     - target_path: /usr/bin/cut
       lookup_name: cut
       copy_dependencies: true
+    - target_path: /usr/bin/dirname
+      lookup_name: dirname
+      copy_dependencies: true
+    - target_path: /usr/bin/expr
+      lookup_name: expr
+      copy_dependencies: true
     - target_path: /usr/bin/getent
       lookup_name: getent
+      copy_dependencies: true
+    - target_path: /usr/bin/head
+      lookup_name: head
+      copy_dependencies: true
+    - target_path: /usr/bin/install
+      lookup_name: install
+      copy_dependencies: true
+    - target_path: /usr/bin/md5sum
+      lookup_name: md5sum
+      copy_dependencies: true
+    - target_path: /usr/bin/mkfifo
+      lookup_name: mkfifo
       copy_dependencies: true
     - target_path: /usr/bin/cmp
       lookup_name: cmp
@@ -154,11 +178,29 @@ binaries:
     - target_path: /usr/bin/sort
       lookup_name: sort
       copy_dependencies: true
+    - target_path: /usr/bin/sha256sum
+      lookup_name: sha256sum
+      copy_dependencies: true
+    - target_path: /usr/bin/tail
+      lookup_name: tail
+      copy_dependencies: true
+    - target_path: /usr/bin/tee
+      lookup_name: tee
+      copy_dependencies: true
+    - target_path: /usr/bin/tr
+      lookup_name: tr
+      copy_dependencies: true
+    - target_path: /usr/bin/uniq
+      lookup_name: uniq
+      copy_dependencies: true
     - target_path: /usr/bin/wc
       lookup_name: wc
       copy_dependencies: true
     - target_path: /usr/bin/which
       lookup_name: which
+      copy_dependencies: true
+    - target_path: /usr/bin/xargs
+      lookup_name: xargs
       copy_dependencies: true
     - target_path: /usr/bin/id
       lookup_name: id
