@@ -12,6 +12,13 @@ import (
 	"time"
 )
 
+func TestMain(m *testing.M) {
+	if err := os.Setenv("MIRAGE_TEST_SKIP_MMDEBSTRAP", "1"); err != nil {
+		panic(err)
+	}
+	os.Exit(m.Run())
+}
+
 func TestRunExportsLogsToHost(t *testing.T) {
 	requireNamespaceBackend(t)
 

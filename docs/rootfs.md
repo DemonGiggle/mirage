@@ -1,7 +1,7 @@
 # Rootfs and Templates
 
 This document explains what Mirage expects from `--rootfs`, how `mirage rootfs
-init` builds generated root filesystems, and which built-in templates exist
+init` bootstraps generated root filesystems, and which built-in templates exist
 today.
 
 ## Rootfs Modes
@@ -36,7 +36,7 @@ sudo PATH=$PATH ./bin/mirage rootfs init --template basic --output /srv/mirage/b
 ```
 
 Reuse an existing non-empty output directory only when you intentionally want
-Mirage to replace generated files:
+Mirage to clear and rebuild the rootfs:
 
 ```bash
 sudo PATH=$PATH ./bin/mirage rootfs init \
@@ -53,7 +53,37 @@ Validate a rootfs and a command inside it:
 
 ## What `rootfs init` Does
 
-A built-in template can declare:
+`rootfs init` now performs two layers of setup:
+
+- bootstrap a Debian `bookworm` `minbase` rootfs with `mmdebstrap`
+- apply the selected Mirage template as an overlay on top of that base
+
+The bootstrap step currently uses this package set:
+
+- `apt`
+- `ca-certificates`
+- `bash`
+- `coreutils`
+- `util-linux`
+- `procps`
+- `psmisc`
+- `iproute2`
+- `curl`
+- `tar`
+- `gzip`
+- `xz-utils`
+- `git`
+
+After the bootstrap, Mirage writes `/etc/apt/apt.conf.d/99sandbox-minimal`
+inside the guest with:
+
+```conf
+APT::Install-Recommends "false";
+APT::Install-Suggests "false";
+APT::Sandbox::User "root";
+```
+
+A built-in template can additionally declare:
 
 - directories to create
 - binaries to copy from an absolute host path or from host `PATH`
@@ -64,9 +94,8 @@ A built-in template can declare:
 
 Common behavior across generated rootfs trees:
 
-- Mirage creates baseline runtime directories such as `/proc`, `/tmp`, and
-  `/run`.
-- Mirage copies declared binaries and their dependency closures when requested.
+- Mirage creates a Debian base userspace first.
+- Mirage copies declared template binaries and their dependency closures when requested.
 - Script entrypoints keep their shebang interpreters.
 - Missing required host assets are reported as warnings while the rest of the
   rootfs is still written.
@@ -76,7 +105,11 @@ At runtime, dedicated rootfs runs also receive a managed device layout under
 `/dev`, including `/dev/shm` and `/dev/pts`.
 
 `rootfs init` currently runs through `sudo`, and `PATH` should be preserved as
-`sudo PATH=$PATH ...` so host `PATH` lookups used by the template still work.
+`sudo PATH=$PATH ...` so Mirage can find `mmdebstrap` and any host `PATH`
+lookups used by the template overlay.
+
+When you pass `--allow-overwrite`, Mirage clears the existing output directory
+before running `mmdebstrap` again.
 
 ## Template Schema
 

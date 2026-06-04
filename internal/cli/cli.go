@@ -235,12 +235,14 @@ func runRootfsInit(args []string, stdout, stderr io.Writer) error {
 }
 
 func printRootfsInitHelp(w io.Writer) {
-	_, _ = fmt.Fprint(w, `Generate a rootfs from a built-in template.
+	_, _ = fmt.Fprint(w, `Bootstrap a Debian minbase rootfs and apply a built-in Mirage template overlay.
 
 Usage:
   mirage rootfs init --template <name> --output <path> [--allow-overwrite]
 
 Notes:
+  - The base rootfs is created with mmdebstrap and then extended with the selected template.
+  - --allow-overwrite clears the existing output directory before rebuilding it.
   - Use mirage rootfs list-template to inspect available templates first.
   - Generated rootfs trees can be validated later with mirage doctor --rootfs ....
 

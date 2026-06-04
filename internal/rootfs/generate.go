@@ -13,6 +13,15 @@ import (
 	"strings"
 )
 
+const (
+	testSkipBootstrapEnv         = "MIRAGE_TEST_SKIP_MMDEBSTRAP"
+	debianRelease                = "bookworm"
+	debianMirror                 = "http://deb.debian.org/debian"
+	minimalAptConfigPath         = "/etc/apt/apt.conf.d/99sandbox-minimal"
+	minimalAptConfigContent      = "APT::Install-Recommends \"false\";\nAPT::Install-Suggests \"false\";\nAPT::Sandbox::User \"root\";\n"
+	mmdebstrapIncludePackageList = "apt,ca-certificates,bash,coreutils,util-linux,procps,psmisc,iproute2,curl,tar,gzip,xz-utils,git"
+)
+
 type MissingAsset struct {
 	Source     string
 	TargetPath string
@@ -80,6 +89,12 @@ func GenerateWithReportWithOptions(outputRoot string, template Template, options
 	if err := prepareOutputRoot(root, options.AllowOverwrite); err != nil {
 		return GenerateReport{}, err
 	}
+	if err := bootstrapDebianBaseRootfs(root); err != nil {
+		return GenerateReport{}, err
+	}
+	if err := writeMinimalAptConfig(root); err != nil {
+		return GenerateReport{}, err
+	}
 
 	generator := generator{
 		outputRoot:      root,
@@ -142,7 +157,7 @@ func prepareOutputRoot(root string, allowOverwrite bool) error {
 			return fmt.Errorf("output rootfs %q is not a directory", root)
 		}
 		if allowOverwrite {
-			return nil
+			return clearDirectory(root)
 		}
 		entries, err := os.ReadDir(root)
 		if err != nil {
@@ -160,6 +175,63 @@ func prepareOutputRoot(root string, allowOverwrite bool) error {
 	default:
 		return fmt.Errorf("stat output rootfs %q: %w", root, err)
 	}
+}
+
+func clearDirectory(root string) error {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return fmt.Errorf("read output rootfs %q: %w", root, err)
+	}
+	for _, entry := range entries {
+		if err := os.RemoveAll(filepath.Join(root, entry.Name())); err != nil {
+			return fmt.Errorf("clear output rootfs %q: remove %q: %w", root, entry.Name(), err)
+		}
+	}
+	return nil
+}
+
+func bootstrapDebianBaseRootfs(root string) error {
+	if os.Getenv(testSkipBootstrapEnv) == "1" {
+		for _, dir := range []string{"proc", "tmp", "run", "dev", "etc/apt/apt.conf.d"} {
+			if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
+				return fmt.Errorf("prepare fake bootstrap directory %q: %w", dir, err)
+			}
+		}
+		return nil
+	}
+
+	args := []string{
+		"--variant=minbase",
+		`--aptopt=APT::Install-Recommends "false"`,
+		"--include=" + mmdebstrapIncludePackageList,
+		debianRelease,
+		root,
+		debianMirror,
+	}
+	cmd := exec.Command("mmdebstrap", args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		if errors.Is(err, exec.ErrNotFound) {
+			return errors.New("mmdebstrap is required on the host to initialize a rootfs")
+		}
+		message := strings.TrimSpace(string(output))
+		if message == "" {
+			return fmt.Errorf("bootstrap rootfs with mmdebstrap: %w", err)
+		}
+		return fmt.Errorf("bootstrap rootfs with mmdebstrap: %w\n%s", err, message)
+	}
+	return nil
+}
+
+func writeMinimalAptConfig(root string) error {
+	target := filepath.Join(root, filepath.FromSlash(strings.TrimPrefix(minimalAptConfigPath, "/")))
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return fmt.Errorf("create apt config directory for %q: %w", minimalAptConfigPath, err)
+	}
+	if err := os.WriteFile(target, []byte(minimalAptConfigContent), 0o644); err != nil {
+		return fmt.Errorf("write apt config %q: %w", minimalAptConfigPath, err)
+	}
+	return nil
 }
 
 func (g *generator) ensureDirectory(dir Directory) error {

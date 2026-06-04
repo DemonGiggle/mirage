@@ -11,6 +11,13 @@ import (
 	"github.com/DemonGiggle/mirage/internal/spec"
 )
 
+func TestMain(m *testing.M) {
+	if err := os.Setenv("MIRAGE_TEST_SKIP_MMDEBSTRAP", "1"); err != nil {
+		panic(err)
+	}
+	os.Exit(m.Run())
+}
+
 func installBuiltInTemplate(t *testing.T, template rootfs.Template) {
 	t.Helper()
 
@@ -200,7 +207,7 @@ func TestSubcommandHelpTopics(t *testing.T) {
 		{
 			name: "rootfs_init_help_topic",
 			args: []string{"rootfs", "help", "init"},
-			want: "Generate a rootfs from a built-in template.",
+			want: "Bootstrap a Debian minbase rootfs and apply a built-in Mirage template overlay.",
 		},
 		{
 			name: "network_policy_list_help_topic",

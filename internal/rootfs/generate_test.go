@@ -12,6 +12,13 @@ import (
 
 var errRecursiveSymlink = errors.New("recursive symlink")
 
+func TestMain(m *testing.M) {
+	if err := os.Setenv(testSkipBootstrapEnv, "1"); err != nil {
+		panic(err)
+	}
+	os.Exit(m.Run())
+}
+
 func TestParseLDDOutput(t *testing.T) {
 	output := []byte(`
 linux-vdso.so.1 (0x00007ffd0d1f0000)
@@ -405,7 +412,7 @@ func TestGenerateRejectsNonEmptyOutputRoot(t *testing.T) {
 	}
 }
 
-func TestGenerateWithAllowOverwriteReusesNonEmptyOutputRoot(t *testing.T) {
+func TestGenerateWithAllowOverwriteClearsNonEmptyOutputRoot(t *testing.T) {
 	outputRoot := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(outputRoot, "etc"), 0o755); err != nil {
 		t.Fatalf("create existing etc dir: %v", err)
@@ -436,8 +443,8 @@ func TestGenerateWithAllowOverwriteReusesNonEmptyOutputRoot(t *testing.T) {
 	if string(data) != "new=yes\n" {
 		t.Fatalf("expected overwritten file content, got %q", string(data))
 	}
-	if _, err := os.Stat(filepath.Join(outputRoot, "keep.txt")); err != nil {
-		t.Fatalf("expected unrelated file to remain: %v", err)
+	if _, err := os.Stat(filepath.Join(outputRoot, "keep.txt")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected unrelated file to be removed during overwrite bootstrap, got %v", err)
 	}
 }
 
@@ -466,7 +473,7 @@ func TestGenerateWithAllowOverwriteReplacesFileWithDirectory(t *testing.T) {
 	}
 }
 
-func TestGenerateWithAllowOverwriteRejectsDirectoryAtFileTarget(t *testing.T) {
+func TestGenerateWithAllowOverwriteReplacesDirectoryAtFileTarget(t *testing.T) {
 	outputRoot := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(outputRoot, "etc", "demo.conf"), 0o755); err != nil {
 		t.Fatalf("create existing conflicting directory: %v", err)
@@ -480,8 +487,16 @@ func TestGenerateWithAllowOverwriteRejectsDirectoryAtFileTarget(t *testing.T) {
 			{TargetPath: "/etc/demo.conf", Content: "new=yes\n", Mode: 0o600},
 		},
 	}, GenerateOptions{AllowOverwrite: true})
-	if err == nil || !strings.Contains(err.Error(), `target path "/etc/demo.conf" already exists and is a directory`) {
-		t.Fatalf("expected existing directory rejection, got %v", err)
+	if err != nil {
+		t.Fatalf("GenerateWithOptions returned error: %v", err)
+	}
+
+	info, err := os.Stat(filepath.Join(outputRoot, "etc", "demo.conf"))
+	if err != nil {
+		t.Fatalf("stat replaced file target: %v", err)
+	}
+	if info.IsDir() {
+		t.Fatalf("expected file target to replace existing directory")
 	}
 }
 

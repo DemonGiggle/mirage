@@ -9,6 +9,7 @@ details, see [rootfs.md](rootfs.md). For current isolation boundaries, see
 
 - Linux
 - Go `1.24.4` or newer if you build from source
+- `mmdebstrap` on `PATH` when you use `mirage rootfs init`
 - `unshare` on `PATH`
 - `newuidmap` and `newgidmap` from the host `uidmap` package
 - `ip` on `PATH`
@@ -20,7 +21,7 @@ On Debian or Ubuntu:
 
 ```bash
 sudo apt update
-sudo apt install -y util-linux uidmap iproute2 iptables systemd
+sudo apt install -y mmdebstrap util-linux uidmap iproute2 iptables systemd
 ```
 
 Run `./bin/mirage doctor` after installation to verify the host environment.
@@ -74,7 +75,7 @@ sudo PATH=$PATH ./bin/mirage rootfs init --template basic --output /srv/mirage/b
 ```
 
 Allow Mirage to reuse a non-empty output directory only when you intend to
-replace generated files:
+clear and rebuild the rootfs:
 
 ```bash
 sudo PATH=$PATH ./bin/mirage rootfs init \
