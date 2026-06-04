@@ -314,9 +314,18 @@ func bootstrapDebianBaseRootfs(root string, logOutput io.Writer) error {
 		debianMirror,
 	)
 	if os.Getenv(testSkipBootstrapEnv) == "1" {
-		for _, dir := range []string{"proc", "tmp", "run", "dev", "etc/apt/apt.conf.d", "bin"} {
+		for _, dir := range []string{"proc", "tmp", "run", "dev", "etc/apt/apt.conf.d", "usr/bin", "usr/lib", "usr/lib64"} {
 			if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
 				return fmt.Errorf("prepare fake bootstrap directory %q: %w", dir, err)
+			}
+		}
+		for linkPath, linkTarget := range map[string]string{
+			"bin":   "usr/bin",
+			"lib":   "usr/lib",
+			"lib64": "usr/lib64",
+		} {
+			if err := os.Symlink(linkTarget, filepath.Join(root, linkPath)); err != nil && !errors.Is(err, os.ErrExist) {
+				return fmt.Errorf("prepare fake bootstrap symlink %q: %w", linkPath, err)
 			}
 		}
 		for _, name := range []string{"sh", "bash", "ls"} {
