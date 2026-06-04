@@ -333,7 +333,11 @@ func bootstrapDebianBaseRootfs(root string, logOutput io.Writer) error {
 			if err != nil {
 				return fmt.Errorf("resolve fake bootstrap command %q: %w", name, err)
 			}
-			if err := generator.copyHostBinary(source, filepath.Join("/bin", name), true); err != nil {
+			resolvedSource, err := filepath.EvalSymlinks(source)
+			if err != nil {
+				return fmt.Errorf("resolve fake bootstrap command symlink %q: %w", name, err)
+			}
+			if err := generator.copyHostBinary(resolvedSource, filepath.Join("/bin", name), true); err != nil {
 				return fmt.Errorf("prepare fake bootstrap command %q: %w", name, err)
 			}
 		}
