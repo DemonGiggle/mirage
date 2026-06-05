@@ -11,7 +11,7 @@ container platform.
 - explicit rootfs and bind-mount exposure
 - reviewable network policy files and presets
 - one foreground workload per sandbox
-- simple release bundles with bundled templates and example policies
+- simple release bundles with bundled presets and example policies
 
 ## Quick Start
 
@@ -42,7 +42,7 @@ cd mirage
 mkdir -p ./bin /srv/mirage
 go build -o ./bin/mirage ./cmd/mirage
 ./bin/mirage doctor
-sudo PATH=$PATH ./bin/mirage rootfs init --template basic --output /srv/mirage/basic-rootfs
+sudo PATH=$PATH ./bin/mirage rootfs init --output /srv/mirage/basic-rootfs
 ./bin/mirage doctor --rootfs /srv/mirage/basic-rootfs --command /bin/ls
 sudo ./bin/mirage run --rootfs /srv/mirage/basic-rootfs --network-policy-file ./examples/network-policies/offline.yaml -- /bin/ls /
 ```
@@ -64,7 +64,7 @@ through `sudo` as well.
 ## Docs
 
 - [docs/usage.md](docs/usage.md): command reference and operator workflows
-- [docs/rootfs.md](docs/rootfs.md): rootfs behavior, template catalog, and generation rules
+- [docs/rootfs.md](docs/rootfs.md): rootfs behavior and generation rules
 - [docs/isolation.md](docs/isolation.md): current guarantees and caveats
 - [docs/apps/openclaw.md](docs/apps/openclaw.md): short OpenClaw setup flow
 - [docs/apps/hermes.md](docs/apps/hermes.md): short Hermes Agent setup flow
