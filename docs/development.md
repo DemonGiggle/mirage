@@ -38,6 +38,16 @@ go test ./...
 Some end-to-end tests require namespace, uidmap, and local socket capabilities
 that may be unavailable in restricted environments.
 
+## Releases
+
+Push a version tag like `v0.1.0` to publish a GitHub release. The release
+workflow:
+
+- runs `go test ./...`
+- builds `./bin/mirage`
+- runs `./bin/mirage package --output ./dist/mirage-<version>-linux-amd64.tar.gz`
+- uploads the package archive plus `SHA256SUMS.txt` to the GitHub release page
+
 ## Formatting
 
 Format Go files with:
