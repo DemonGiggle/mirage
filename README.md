@@ -19,7 +19,17 @@ On Debian or Ubuntu, install the required host tools:
 
 ```bash
 sudo apt update
-sudo apt install -y util-linux uidmap iproute2 iptables systemd ca-certificates curl tar
+sudo apt install -y \
+    util-linux \
+    uidmap \
+    iproute2 \
+    iptables \
+    systemd \
+    ca-certificates \
+    curl \
+    tar \
+    debian-archive-keyring \
+    mmdebstrap
 ```
 
 Mirage currently builds with Go `1.24.4` or newer. If you do not already have
@@ -45,6 +55,14 @@ go build -o ./bin/mirage ./cmd/mirage
 sudo PATH=$PATH ./bin/mirage rootfs init --template basic --output /srv/mirage/basic-rootfs
 ./bin/mirage doctor --rootfs /srv/mirage/basic-rootfs --command /bin/ls
 sudo ./bin/mirage run --rootfs /srv/mirage/basic-rootfs --network-policy-file ./examples/network-policies/offline.yaml -- /bin/ls /
+```
+
+If you failed to generate a rootfs, the keyring might be too old to verify the debian rootfs.
+You need to download and install it manually.
+
+```
+wget http://deb.debian.org/debian/pool/main/d/debian-archive-keyring/debian-archive-keyring_2023.3+deb12u2_all.deb
+sudo dpkg -i debian-archive-keyring_2023.3+deb12u2_all.deb
 ```
 
 `rootfs init` currently needs `sudo` plus the caller `PATH` preserved so Mirage
