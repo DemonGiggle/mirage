@@ -107,5 +107,6 @@ Preset files can declare:
 
 ## Application Flows
 
-For a short OpenClaw-specific setup sequence, see
+For a short Application-specific setup sequence, see
 [apps/openclaw.md](apps/openclaw.md).
+[apps/hermes.md](apps/hermes.md).

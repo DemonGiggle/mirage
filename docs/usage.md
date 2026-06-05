@@ -259,6 +259,7 @@ sudo ./bin/mirage run \
 - [rootfs.md](rootfs.md)
 - [isolation.md](isolation.md)
 - [apps/openclaw.md](apps/openclaw.md)
+- [apps/hermes.md](apps/hermes.md)
 - [cgroups.md](cgroups.md)
 - [architecture.md](architecture.md)
 - [development.md](development.md)
