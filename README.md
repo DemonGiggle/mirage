@@ -85,6 +85,7 @@ through `sudo` as well.
 - [docs/rootfs.md](docs/rootfs.md): rootfs behavior, template catalog, and generation rules
 - [docs/isolation.md](docs/isolation.md): current guarantees and caveats
 - [docs/apps/openclaw.md](docs/apps/openclaw.md): short OpenClaw setup flow
+- [docs/apps/hermes.md](docs/apps/hermes.md): short Hermes Agent setup flow
 - [docs/cgroups.md](docs/cgroups.md): delegated memory and PID limits
 - [docs/architecture.md](docs/architecture.md): runtime structure and run flow
 - [docs/network-rule-model.md](docs/network-rule-model.md): network policy schema and semantics
