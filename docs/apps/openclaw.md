@@ -1,20 +1,17 @@
 # OpenClaw
 
-This guide is the shortest verified path for installing OpenClaw inside Mirage.
-It records the exact command sequence used to get from a fresh Debian rootfs to
-the start of `openclaw onboard`.
+This is the shortest verified path for installing OpenClaw inside Mirage.
 
 ## Host Prerequisites
 
-Mirage bootstraps a plain Debian rootfs. For current OpenClaw releases, the
-Debian `nodejs` package is not new enough, so you need a newer Node.js build
-inside the rootfs before running `npm install -g openclaw`.
-
-On the host, a quick setup is:
+On the host, make sure Mirage itself can be built and that you have
+`mmdebstrap` available:
 
 ```bash
 sudo apt update
-sudo apt install -y mmdebstrap
+sudo apt install -y \
+    debian-archive-keyring \
+    mmdebstrap
 ```
 
 ## Generate The Rootfs
@@ -29,82 +26,88 @@ sudo install -m 755 ./bin/mirage /usr/local/bin/mirage
 Then bootstrap a fresh rootfs:
 
 ```bash
-sudo /usr/local/bin/mirage rootfs init \
+sudo mirage rootfs init \
   --output /tmp/mirage-openclaw-rootfs \
   --allow-overwrite
 ```
 
-## Install Node.js In The Rootfs
-
-Install the Debian packages Mirage needs for a basic Node/npm toolchain:
-
-```bash
-sudo /usr/local/bin/mirage run \
-  --rootfs /tmp/mirage-openclaw-rootfs \
-  --network-policy-file ./examples/network-policies/allow-all.yaml \
-  --run-as-root \
-  -- /bin/bash -lc 'apt-get update && apt-get install -y nodejs npm'
-```
-
-Replace the Debian Node build with a newer release that satisfies OpenClaw:
+If you failed to generate a rootfs, the keyring might be too old to verify the debian rootfs.
+You need to download and install it manually.
 
 ```bash
-sudo /usr/local/bin/mirage run \
-  --rootfs /tmp/mirage-openclaw-rootfs \
-  --network-policy-file ./examples/network-policies/allow-all.yaml \
-  --run-as-root \
-  -- /bin/bash -lc 'set -euo pipefail; mkdir -p /opt/node-v22.19.0; cd /tmp; curl -fsSLO https://nodejs.org/dist/v22.19.0/node-v22.19.0-linux-x64.tar.xz; tar -xJf node-v22.19.0-linux-x64.tar.xz -C /opt/node-v22.19.0 --strip-components=1; /opt/node-v22.19.0/bin/node --version; /opt/node-v22.19.0/bin/npm --version'
+wget http://deb.debian.org/debian/pool/main/d/debian-archive-keyring/debian-archive-keyring_2023.3+deb12u2_all.deb
+sudo dpkg -i debian-archive-keyring_2023.3+deb12u2_all.deb
 ```
 
 ## Install OpenClaw
 
-Install the package with the newer Node build on `PATH`:
+Use the official installer inside the Mirage rootfs. The installer script
+handles the package installation and the default post-install flow:
 
 ```bash
-sudo /usr/local/bin/mirage run \
+sudo mirage run \
   --rootfs /tmp/mirage-openclaw-rootfs \
-  --network-policy-file ./examples/network-policies/allow-all.yaml \
+  --network-policy-file ./examples/network-policies/block-local-egress.yaml \
   --run-as-root \
-  -- /bin/bash -lc 'export PATH=/opt/node-v22.19.0/bin:$PATH; npm install -g openclaw'
+  -- /bin/bash -lc 'curl -fsSL https://openclaw.ai/install.sh | bash -s -- --no-onboard'
 ```
 
-Start onboarding in non-interactive mode so it can stop after the initial
-setup without walking through every prompt:
+## Onboard 
+
 
 ```bash
-sudo /usr/local/bin/mirage run \
+sudo mirage run \
   --rootfs /tmp/mirage-openclaw-rootfs \
-  --network-policy-file ./examples/network-policies/allow-all.yaml \
-  --run-as-root \
-  -- /bin/bash -lc 'export PATH=/opt/node-v22.19.0/bin:$PATH; openclaw onboard --non-interactive --accept-risk --auth-choice skip --skip-ui --skip-skills --skip-channels --skip-daemon --skip-health --skip-hooks --skip-search --skip-bootstrap'
+  --network-policy-file ./examples/network-policies/block-local-egress.yaml \
+  -- openclaw onboard
 ```
 
 ## Run OpenClaw
 
-For local-only work:
-
-```bash
-sudo /usr/local/bin/mirage run \
-  --rootfs /tmp/mirage-openclaw-rootfs \
-  --network-policy-file ./examples/network-policies/offline.yaml \
-  --run-as-root \
-  -- openclaw
-```
-
 To run the local gateway:
 
 ```bash
-sudo /usr/local/bin/mirage run \
+sudo mirage run \
   --rootfs /tmp/mirage-openclaw-rootfs \
-  --network-policy-file ./examples/network-policies/allow-all.yaml \
-  --run-as-root \
+  --network-policy-file ./examples/network-policies/block-local-egress.yaml \
   -- openclaw gateway --port 18789
 ```
 
-## Notes
+## Approval
 
-- The verified onboarding command writes the initial config to
-  `~/.openclaw/openclaw.json` and initializes the workspace and session
-  directories.
-- If you want the fully guided TUI, drop `--non-interactive` and the `--skip-*`
-  flags.
+(I only use telegram, I don't know the behavior from other clients.)
+
+The first time you add the bot into your telegram, you would receive
+a message like this:
+
+```
+Your Telegram user id: YYYYYY
+Pairing code:
+  XXXXX
+```
+
+Then you could open another terminal to run the approval as below. You
+don't need to terminate the running OpenClaw first.
+
+```bash
+sudo mirage run \
+  --rootfs /tmp/mirage-openclaw-rootfs \
+  --network-policy-file ./examples/network-policies/block-local-egress.yaml \
+  -- openclaw pairing approve telegram XXXXX
+```
+
+The running OpenClaw would hotload the approval.
+
+
+## Note
+
+If you want to give your claw more control on its sandbox, you could run it as root.
+In this case, it could install package on its own. But use it with caution.
+
+```bash
+sudo mirage run \
+  --run-as-root \
+  --rootfs /tmp/mirage-openclaw-rootfs \
+  --network-policy-file ./examples/network-policies/block-local-egress.yaml \
+  -- openclaw gateway --port 18789
+```
