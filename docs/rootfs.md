@@ -26,22 +26,22 @@ A dedicated rootfs is the preferred mode when you care about:
 Generate a rootfs:
 
 ```bash
-sudo PATH=$PATH ./bin/mirage rootfs init --output /srv/mirage/basic-rootfs
+sudo ./bin/mirage rootfs init --output /tmp/mirage/basic-rootfs
 ```
 
 Reuse an existing non-empty output directory only when you intentionally want
 Mirage to clear and rebuild the rootfs:
 
 ```bash
-sudo PATH=$PATH ./bin/mirage rootfs init \
-  --output /srv/mirage/basic-rootfs \
+sudo ./bin/mirage rootfs init \
+  --output /tmp/mirage/basic-rootfs \
   --allow-overwrite
 ```
 
 Validate a rootfs and a command inside it:
 
 ```bash
-./bin/mirage doctor --rootfs /srv/mirage/basic-rootfs --command /bin/ls
+./bin/mirage doctor --rootfs /tmp/mirage/basic-rootfs --command /bin/ls
 ```
 
 ## What `rootfs init` Does
@@ -89,8 +89,7 @@ Common behavior across generated rootfs trees:
 At runtime, dedicated rootfs runs also receive a managed device layout under
 `/dev`, including `/dev/shm` and `/dev/pts`.
 
-`rootfs init` currently runs through `sudo`, and `PATH` should be preserved as
-`sudo PATH=$PATH ...` so Mirage can find `mmdebstrap`.
+`rootfs init` currently runs through `sudo`.
 
 When you pass `--allow-overwrite`, Mirage clears the existing output directory
 before running `mmdebstrap` again.

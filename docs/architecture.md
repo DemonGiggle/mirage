@@ -87,6 +87,31 @@ this order:
 5. hand off with `chroot`
 6. execute the workload
 
+That `chroot` handoff gives the workload the selected rootfs as its normal
+path-based filesystem view, but Mirage does not claim the same rootfs model as
+a full container runtime with a more complete root filesystem switch.
+
+## Current Rootfs Tradeoff
+
+Mirage uses a dedicated mount namespace and prepares a dedicated rootfs tree,
+including a fresh `/proc`, tmpfs-backed runtime paths, and managed parts of
+`/dev`. The final filesystem handoff currently uses `chroot`.
+
+This gives Mirage a practical and lightweight rootfs boundary for local tools,
+but it is not the same model used by a full container runtime that performs a
+more complete root filesystem switch.
+
+Current implications:
+
+- Mirage should not be treated as providing container-runtime-equivalent rootfs
+  isolation.
+- The filesystem boundary is simpler, but also less complete, than a fuller
+  container rootfs handoff.
+- The main risk areas are bind mounts, symlink handling, mount layout, and
+  unexpected host path visibility if Mirage gets those details wrong.
+- Mirage is intended for practical sandboxing of local tools and agents, not as
+  a hardened container security boundary.
+
 For `--rootfs /`, Mirage skips the dedicated root mount layout. That keeps the
 host root and host procfs visible inside the sandbox.
 

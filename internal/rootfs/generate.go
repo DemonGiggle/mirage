@@ -88,7 +88,7 @@ func BootstrapWithReport(outputRoot string) (GenerateReport, error) {
 
 func BootstrapWithReportWithOptions(outputRoot string, options GenerateOptions) (GenerateReport, error) {
 	if os.Getenv(testSkipBootstrapEnv) != "1" && currentEUID() != 0 {
-		return GenerateReport{}, errors.New("rootfs init requires root privileges; run via sudo PATH=$PATH ./bin/mirage rootfs init ...")
+		return GenerateReport{}, errors.New("rootfs init requires root privileges; run via sudo ./bin/mirage rootfs init ...")
 	}
 	if strings.TrimSpace(outputRoot) == "" {
 		return GenerateReport{}, errors.New("output rootfs path cannot be empty")

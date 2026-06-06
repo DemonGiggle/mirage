@@ -116,11 +116,11 @@ Help:
   mirage help package
 
 Examples:
-  mirage rootfs init --output /srv/mirage/basic-rootfs
+  mirage rootfs init --output /tmp/mirage/basic-rootfs
   mirage network-policy list
   mirage package --output ./dist/mirage-linux-amd64.tar.gz --binary ./bin/mirage
-  mirage doctor --rootfs /srv/mirage/basic-rootfs --command /bin/ls
-  mirage run --rootfs /srv/rootfs --network-policy-file ./examples/network-policies/offline.yaml -- app
+  mirage doctor --rootfs /tmp/mirage/basic-rootfs --command /bin/ls
+  mirage run --rootfs /tmp/mirage/basic-rootfs --network-policy-file ./examples/network-policies/offline.yaml -- app
   mirage run --preset-file ./examples/presets/openclaw-offline.yaml -- app
 `)
 }
@@ -168,7 +168,7 @@ Help:
   mirage rootfs init --help
 
 Examples:
-  mirage rootfs init --output /srv/mirage/basic-rootfs
+  mirage rootfs init --output /tmp/mirage/basic-rootfs
 `)
 }
 
@@ -222,8 +222,8 @@ Notes:
   - Generated rootfs trees can be validated later with mirage doctor --rootfs ....
 
 Examples:
-  mirage rootfs init --output /srv/mirage/basic-rootfs
-  mirage rootfs init --output /srv/mirage/work --allow-overwrite
+  mirage rootfs init --output /tmp/mirage/basic-rootfs
+  mirage rootfs init --output /tmp/mirage/work --allow-overwrite
 `)
 }
 
@@ -434,8 +434,8 @@ What it reports:
 
 Examples:
   mirage doctor
-  mirage doctor --rootfs /srv/mirage/basic-rootfs
-  mirage doctor --rootfs /srv/mirage/basic-rootfs --command /bin/ls
+  mirage doctor --rootfs /tmp/mirage/basic-rootfs
+  mirage doctor --rootfs /tmp/mirage/basic-rootfs --command /bin/ls
   mirage doctor --preset-file ./examples/presets/openclaw-offline.yaml
 `)
 }
@@ -543,9 +543,9 @@ Notes:
   - --pids controls the maximum number of processes/threads in the sandbox process tree.
 
 Examples:
-  mirage run --rootfs /srv/rootfs --network-policy-file ./examples/network-policies/offline.yaml -- /bin/sh
-  mirage run --rootfs /srv/rootfs --run-as-root -- /bin/sh
-  mirage run --rootfs /srv/rootfs --memory 512M --pids 64 -- /usr/bin/node app.js
+  mirage run --rootfs /tmp/mirage/basic-rootfs --network-policy-file ./examples/network-policies/offline.yaml -- /bin/sh
+  mirage run --rootfs /tmp/mirage/basic-rootfs --run-as-root -- /bin/sh
+  mirage run --rootfs /tmp/mirage/basic-rootfs --memory 512M --pids 64 -- /usr/bin/node app.js
   mirage run --preset-file ./examples/presets/openclaw-offline.yaml -- app
 `)
 }

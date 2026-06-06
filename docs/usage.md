@@ -58,7 +58,7 @@ Useful first commands:
 
 Current operational note:
 
-- use `sudo PATH=$PATH ./bin/mirage rootfs init ...` for generated rootfs work
+- use `sudo ./bin/mirage rootfs init ...` for generated rootfs work
 - use `sudo ./bin/mirage run ...` for sandbox execution
 - `./bin/mirage doctor` and `./bin/mirage network-policy list` remain normal
   non-`sudo` commands
@@ -68,8 +68,8 @@ Current operational note:
 Generate and validate a basic rootfs:
 
 ```bash
-sudo PATH=$PATH ./bin/mirage rootfs init --output /srv/mirage/basic-rootfs
-./bin/mirage doctor --rootfs /srv/mirage/basic-rootfs --command /bin/ls
+sudo ./bin/mirage rootfs init --output /tmp/mirage/basic-rootfs
+./bin/mirage doctor --rootfs /tmp/mirage/basic-rootfs --command /bin/ls
 ```
 
 `mirage rootfs init` prints the exact bootstrap command and streams the
@@ -79,8 +79,8 @@ Allow Mirage to reuse a non-empty output directory only when you intend to
 clear and rebuild the rootfs:
 
 ```bash
-sudo PATH=$PATH ./bin/mirage rootfs init \
-  --output /srv/mirage/basic-rootfs \
+sudo ./bin/mirage rootfs init \
+  --output /tmp/mirage/basic-rootfs \
   --allow-overwrite
 ```
 
@@ -89,7 +89,7 @@ Preview a run without executing it:
 ```bash
 sudo ./bin/mirage run \
   --dry-run \
-  --rootfs /srv/mirage/basic-rootfs \
+  --rootfs /tmp/mirage/basic-rootfs \
   --network-policy-file ./examples/network-policies/offline.yaml \
   -- /bin/ls /
 ```
@@ -148,7 +148,7 @@ Example:
 
 ```bash
 sudo ./bin/mirage run \
-  --rootfs /srv/mirage/basic-rootfs \
+  --rootfs /tmp/mirage/basic-rootfs \
   --network-policy-file ./examples/network-policies/offline.yaml \
   -- /bin/sh
 ```
@@ -174,7 +174,7 @@ Example:
 
 ```yaml
 rootfs:
-  path: /srv/mirage/openclaw-rootfs
+  path: /tmp/mirage/openclaw-rootfs
   required_commands:
     - node
 networkPolicyFile: ../network-policies/offline.yaml
@@ -247,7 +247,7 @@ to the terminal:
 
 ```bash
 sudo ./bin/mirage run \
-  --rootfs /srv/mirage/basic-rootfs \
+  --rootfs /tmp/mirage/basic-rootfs \
   --network-policy-file ./examples/network-policies/allow-all.yaml \
   --stdout-log /tmp/app.out \
   --stderr-log /tmp/app.err \

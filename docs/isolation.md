@@ -86,7 +86,12 @@ Today you should assume:
 
 - `--rootfs /` exposes the host filesystem as the guest root
 - `--rootfs /` does not provide a fresh procfs view
-- dedicated rootfs handoff still ends with `chroot`, not `pivot_root`
+- dedicated rootfs runs use a `chroot`-based handoff rather than a full
+  container-style root filesystem switch
+- dedicated rootfs runs should be treated as practical filesystem isolation,
+  not container-runtime-equivalent rootfs isolation
+- the main rootfs risk areas are bind mounts, symlink handling, mount layout,
+  and accidental host path exposure if the runtime gets those details wrong
 - allow-all policy intentionally uses host network passthrough
 - domain-backed selectors fail closed because the runtime does not enforce them
 

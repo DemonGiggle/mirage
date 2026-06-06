@@ -1,17 +1,19 @@
 # mirage
 
 `mirage` is a lightweight Linux sandbox launcher for local tools and agent
-workloads. It gives you a direct CLI for rootfs selection, bind mounts,
-policy-first networking, and delegated cgroup limits without introducing a full
-container platform.
+workloads. It is designed to be easier to set up than heavier sandbox or
+container stacks while still providing useful filesystem, process, and
+networking isolation on Linux. Mirage gives you a direct CLI for running one
+foreground workload with explicit rootfs, bind mounts, network policy, and
+optional cgroup limits.
 
 ## Why Mirage
 
-- Linux-first sandboxing with normal kernel primitives
-- explicit rootfs and bind-mount exposure
-- reviewable network policy files and presets
-- one foreground workload per sandbox
-- simple release bundles with bundled presets and example policies
+- lightweight compared to full container or VM-based sandbox stacks
+- practical filesystem and process isolation for local tools and agents
+- workable network isolation with reviewable policy files and presets
+- explicit rootfs and bind-mount configuration instead of hidden runtime behavior
+- simple setup and direct CLI workflows
 
 ## Quick Start
 
@@ -32,49 +34,67 @@ sudo apt install -y \
     mmdebstrap
 ```
 
-Mirage currently builds with Go `1.24.4` or newer. If you do not already have
-that on `PATH`, install it from the official release site:
+Mirage requires Go `1.24.4` or newer.
+
+Check your installed version with:
 
 ```bash
-curl -LO https://go.dev/dl/go1.24.4.linux-amd64.tar.gz
-sudo rm -rf /usr/local/go
-sudo tar -C /usr/local -xzf go1.24.4.linux-amd64.tar.gz
-export PATH=/usr/local/go/bin:$PATH
 go version
 ```
 
-Build Mirage, verify the host, generate a basic rootfs, and run a first
-command:
+If your Go version is older than `1.24.4`, install a newer release from the
+official Go downloads page:
+
+```text
+https://go.dev/dl/
+```
+
+Build Mirage:
 
 ```bash
 git clone https://github.com/DemonGiggle/mirage.git
 cd mirage
-mkdir -p ./bin /srv/mirage
+mkdir -p ./bin /tmp/mirage
 go build -o ./bin/mirage ./cmd/mirage
+```
+
+Verify the host:
+
+```bash
 ./bin/mirage doctor
-sudo PATH=$PATH ./bin/mirage rootfs init --output /srv/mirage/basic-rootfs
-./bin/mirage doctor --rootfs /srv/mirage/basic-rootfs --command /bin/ls
-sudo ./bin/mirage run --rootfs /srv/mirage/basic-rootfs --network-policy-file ./examples/network-policies/offline.yaml -- /bin/ls /
 ```
 
-If you failed to generate a rootfs, the keyring might be too old to verify the debian rootfs.
-You need to download and install it manually.
+Generate and validate a basic rootfs:
 
+```bash
+sudo ./bin/mirage rootfs init --output /tmp/mirage/basic-rootfs
+./bin/mirage doctor --rootfs /tmp/mirage/basic-rootfs --command /bin/ls
 ```
+
+Run a first sandboxed command:
+
+```bash
+sudo ./bin/mirage run --rootfs /tmp/mirage/basic-rootfs --network-policy-file ./examples/network-policies/offline.yaml -- /bin/ls /
+```
+
+`rootfs init` currently requires `sudo`. `run` currently executes through
+`sudo` as well.
+
+If `rootfs init` fails because the Debian keyring is too old, update it
+manually and retry:
+
+```bash
 wget http://deb.debian.org/debian/pool/main/d/debian-archive-keyring/debian-archive-keyring_2023.3+deb12u2_all.deb
 sudo dpkg -i debian-archive-keyring_2023.3+deb12u2_all.deb
 ```
-
-`rootfs init` currently needs `sudo` plus the caller `PATH` preserved so Mirage
-can resolve host binaries for the generated rootfs. `run` currently executes
-through `sudo` as well.
 
 ## Limits
 
 - `mirage run` launches one direct foreground workload; it is not an init or
   orchestration system.
-- Dedicated rootfs runs prepare runtime mounts and then hand off with `chroot`,
-  not `pivot_root`.
+- Dedicated rootfs runs use `chroot`-based filesystem isolation, not a full
+  container-style root filesystem switch. See
+  [docs/architecture.md](docs/architecture.md) for details.
 - `--rootfs /` is a convenience mode and does not provide a fresh filesystem or
   `/proc` view.
 - Domain-backed network selectors are still intentionally unsupported.

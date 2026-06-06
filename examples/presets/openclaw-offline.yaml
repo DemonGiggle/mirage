@@ -1,5 +1,5 @@
 rootfs:
-  path: /srv/mirage/openclaw-rootfs
+  path: /tmp/mirage/openclaw-rootfs
   required_commands:
     - node
 networkPolicyFile: ../network-policies/offline.yaml
