@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 )
@@ -24,6 +25,7 @@ const (
 
 var currentEUID = os.Geteuid
 var readMountInfo = os.ReadFile
+var detectBootstrapHostArchitecture = defaultDetectBootstrapHostArchitecture
 
 type MissingAsset struct {
 	Source     string
@@ -45,6 +47,7 @@ func (asset MissingAsset) Message() string {
 }
 
 type GenerateReport struct {
+	Architecture  string
 	MissingAssets []MissingAsset
 	Warnings      []string
 }
@@ -52,6 +55,7 @@ type GenerateReport struct {
 type GenerateOptions struct {
 	AllowOverwrite bool
 	LogOutput      io.Writer
+	Architecture   string
 }
 
 func (report *GenerateReport) addMissing(asset MissingAsset) {
@@ -93,27 +97,33 @@ func BootstrapWithReportWithOptions(outputRoot string, options GenerateOptions) 
 	if strings.TrimSpace(outputRoot) == "" {
 		return GenerateReport{}, errors.New("output rootfs path cannot be empty")
 	}
+	architecture, err := resolveBootstrapArchitecture(options.Architecture)
+	if err != nil {
+		return GenerateReport{}, err
+	}
+	report := GenerateReport{Architecture: architecture}
 	root, err := filepath.Abs(outputRoot)
 	if err != nil {
-		return GenerateReport{}, fmt.Errorf("resolve output rootfs %q: %w", outputRoot, err)
+		return report, fmt.Errorf("resolve output rootfs %q: %w", outputRoot, err)
 	}
 	if err := validateBootstrapTarget(root); err != nil {
-		return GenerateReport{}, err
+		return report, err
 	}
 	if err := prepareOutputRoot(root, options.AllowOverwrite); err != nil {
-		return GenerateReport{}, err
+		return report, err
 	}
-	if err := bootstrapDebianBaseRootfs(root, options.LogOutput); err != nil {
-		return GenerateReport{}, err
+	if err := bootstrapDebianBaseRootfs(root, architecture, options.LogOutput); err != nil {
+		return report, err
 	}
 	if err := writeMinimalAptConfig(root, options.LogOutput); err != nil {
-		return GenerateReport{}, err
+		return report, err
 	}
 
-	report, err := EnsureNSSRuntimeWithReport(root)
+	nssReport, err := EnsureNSSRuntimeWithReport(root)
 	if err != nil {
-		return GenerateReport{}, err
+		return report, err
 	}
+	report.merge(nssReport)
 	return report, nil
 }
 
@@ -304,8 +314,9 @@ func unescapeMountInfoPath(raw string) string {
 	return replacer.Replace(raw)
 }
 
-func bootstrapDebianBaseRootfs(root string, logOutput io.Writer) error {
+func bootstrapDebianBaseRootfs(root string, architecture string, logOutput io.Writer) error {
 	logCommand(logOutput, "mmdebstrap",
+		"--architectures="+architecture,
 		"--variant=minbase",
 		`--aptopt=APT::Install-Recommends "false"`,
 		"--include="+mmdebstrapIncludePackageList,
@@ -346,6 +357,7 @@ func bootstrapDebianBaseRootfs(root string, logOutput io.Writer) error {
 	}
 
 	args := []string{
+		"--architectures=" + architecture,
 		"--variant=minbase",
 		`--aptopt=APT::Install-Recommends "false"`,
 		"--include=" + mmdebstrapIncludePackageList,
@@ -372,6 +384,85 @@ func bootstrapDebianBaseRootfs(root string, logOutput io.Writer) error {
 		return fmt.Errorf("bootstrap rootfs with mmdebstrap: %w", err)
 	}
 	return nil
+}
+
+func resolveBootstrapArchitecture(requested string) (string, error) {
+	value := strings.TrimSpace(requested)
+	if value == "" {
+		hostArchitecture, err := detectBootstrapHostArchitecture()
+		if err != nil {
+			return "", err
+		}
+		value = hostArchitecture
+	}
+	return normalizeBootstrapArchitecture(value)
+}
+
+func normalizeBootstrapArchitecture(raw string) (string, error) {
+	value := strings.ToLower(strings.TrimSpace(raw))
+	switch value {
+	case "amd64", "x86_64", "x64":
+		return "amd64", nil
+	case "arm64", "aarch64":
+		return "arm64", nil
+	case "armhf", "armv7l", "armv7", "armv6l", "armv6", "arm32", "arm":
+		return "armhf", nil
+	case "armel", "i386", "i686", "386", "x86":
+		if value == "i686" || value == "386" || value == "x86" {
+			return "i386", nil
+		}
+		return value, nil
+	case "ppc64el", "ppc64le":
+		return "ppc64el", nil
+	case "riscv64", "s390x", "loong64":
+		return value, nil
+	}
+	if !looksLikeDebianArchitecture(value) {
+		return "", fmt.Errorf("unsupported architecture %q", raw)
+	}
+	return value, nil
+}
+
+func looksLikeDebianArchitecture(value string) bool {
+	if value == "" {
+		return false
+	}
+	for i, r := range value {
+		isAlnum := r >= 'a' && r <= 'z' || r >= '0' && r <= '9'
+		if isAlnum {
+			continue
+		}
+		if r == '-' && i > 0 && i < len(value)-1 {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func defaultDetectBootstrapHostArchitecture() (string, error) {
+	if dpkgPath, err := exec.LookPath("dpkg"); err == nil {
+		output, err := exec.Command(dpkgPath, "--print-architecture").Output()
+		if err == nil {
+			return strings.TrimSpace(string(output)), nil
+		}
+	}
+	switch runtime.GOARCH {
+	case "amd64":
+		return "amd64", nil
+	case "arm64":
+		return "arm64", nil
+	case "386":
+		return "i386", nil
+	case "arm":
+		return "armhf", nil
+	case "ppc64le":
+		return "ppc64el", nil
+	case "riscv64", "s390x", "loong64":
+		return runtime.GOARCH, nil
+	default:
+		return "", fmt.Errorf("could not detect a supported host architecture from GOARCH=%q; pass --architecture explicitly", runtime.GOARCH)
+	}
 }
 
 func copyBootstrapBinary(root string, sourcePath string, targetPath string) error {

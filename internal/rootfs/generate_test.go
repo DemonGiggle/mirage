@@ -1,6 +1,7 @@
 package rootfs
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -154,6 +155,70 @@ func TestBootstrapCapturesMmdebstrapStderrWithoutLogOutput(t *testing.T) {
 	_, err := BootstrapWithReport(filepath.Join(tempDir, "rootfs"))
 	if err == nil || !strings.Contains(err.Error(), "boom stderr") {
 		t.Fatalf("expected stderr in bootstrap error, got %v", err)
+	}
+}
+
+func TestResolveBootstrapArchitectureNormalizesAliases(t *testing.T) {
+	for _, tc := range []struct {
+		input string
+		want  string
+	}{
+		{input: "x86_64", want: "amd64"},
+		{input: "amd64", want: "amd64"},
+		{input: "aarch64", want: "arm64"},
+		{input: "arm32", want: "armhf"},
+		{input: "ppc64le", want: "ppc64el"},
+		{input: "mips64el", want: "mips64el"},
+	} {
+		got, err := normalizeBootstrapArchitecture(tc.input)
+		if err != nil {
+			t.Fatalf("normalizeBootstrapArchitecture(%q) returned error: %v", tc.input, err)
+		}
+		if got != tc.want {
+			t.Fatalf("normalizeBootstrapArchitecture(%q) = %q, want %q", tc.input, got, tc.want)
+		}
+	}
+}
+
+func TestResolveBootstrapArchitectureRejectsInvalidValue(t *testing.T) {
+	_, err := normalizeBootstrapArchitecture("x86/64")
+	if err == nil || !strings.Contains(err.Error(), "unsupported architecture") {
+		t.Fatalf("expected invalid architecture error, got %v", err)
+	}
+}
+
+func TestResolveBootstrapArchitectureUsesHostDetectorByDefault(t *testing.T) {
+	previous := detectBootstrapHostArchitecture
+	detectBootstrapHostArchitecture = func() (string, error) { return "aarch64", nil }
+	t.Cleanup(func() {
+		detectBootstrapHostArchitecture = previous
+	})
+
+	got, err := resolveBootstrapArchitecture("")
+	if err != nil {
+		t.Fatalf("resolveBootstrapArchitecture returned error: %v", err)
+	}
+	if got != "arm64" {
+		t.Fatalf("resolveBootstrapArchitecture() = %q, want %q", got, "arm64")
+	}
+}
+
+func TestBootstrapLogsNormalizedArchitecture(t *testing.T) {
+	var out bytes.Buffer
+	root := filepath.Join(t.TempDir(), "rootfs")
+
+	report, err := BootstrapWithReportWithOptions(root, GenerateOptions{
+		Architecture: "x86_64",
+		LogOutput:    &out,
+	})
+	if err != nil {
+		t.Fatalf("BootstrapWithReportWithOptions returned error: %v", err)
+	}
+	if report.Architecture != "amd64" {
+		t.Fatalf("report.Architecture = %q, want %q", report.Architecture, "amd64")
+	}
+	if !strings.Contains(out.String(), "--architectures=amd64") {
+		t.Fatalf("expected bootstrap log to contain normalized architecture flag, got %q", out.String())
 	}
 }
 

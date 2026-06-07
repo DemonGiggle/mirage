@@ -519,6 +519,7 @@ func TestRootfsInit(t *testing.T) {
 		"command: mmdebstrap",
 		"command: sudo tee",
 		"APT::Install-Recommends \"false\";",
+		"architecture:",
 	} {
 		if !strings.Contains(got, needle) {
 			t.Fatalf("expected rootfs init output to contain %q, got %q", needle, got)
@@ -558,6 +559,47 @@ func TestRootfsInitAllowOverwrite(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(outputRoot, "etc", "apt", "apt.conf.d", "99sandbox-minimal")); err != nil {
 		t.Fatalf("expected rebuilt rootfs apt config to exist: %v", err)
+	}
+}
+
+func TestRootfsInitWithArchitectureAlias(t *testing.T) {
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+
+	outputRoot := filepath.Join(t.TempDir(), "rootfs")
+	err := Run([]string{
+		"rootfs",
+		"init",
+		"--output", outputRoot,
+		"--architecture", "x86_64",
+	}, &out, &errBuf)
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	got := out.String()
+	for _, needle := range []string{
+		"--architectures=amd64",
+		"architecture: amd64",
+	} {
+		if !strings.Contains(got, needle) {
+			t.Fatalf("expected rootfs init output to contain %q, got %q", needle, got)
+		}
+	}
+}
+
+func TestRootfsInitRejectsInvalidArchitecture(t *testing.T) {
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+
+	err := Run([]string{
+		"rootfs",
+		"init",
+		"--output", filepath.Join(t.TempDir(), "rootfs"),
+		"--architecture", "x86/64",
+	}, &out, &errBuf)
+	if err == nil || !strings.Contains(err.Error(), `unsupported architecture "x86/64"`) {
+		t.Fatalf("expected invalid architecture error, got %v", err)
 	}
 }
 
