@@ -29,6 +29,12 @@ Generate a rootfs:
 sudo ./bin/mirage rootfs init --output /tmp/mirage/basic-rootfs
 ```
 
+Generate a rootfs for a specific target architecture:
+
+```bash
+sudo ./bin/mirage rootfs init --output /tmp/mirage/arm64-rootfs --arch arm64
+```
+
 Reuse an existing non-empty output directory only when you intentionally want
 Mirage to clear and rebuild the rootfs:
 
@@ -52,6 +58,17 @@ Validate a rootfs and a command inside it:
 During `rootfs init`, Mirage prints the underlying bootstrap command, streams
 its output, and then prints the apt config write step it performs inside the
 rootfs.
+
+`--arch` accepts these values:
+
+- `x86_64`
+- `arm64`
+- `arm32`
+- `riscv64`
+
+Mirage translates those user-facing names into the Debian architecture name
+used by `mmdebstrap`. If you omit `--arch`, Mirage detects the host
+architecture and uses that by default.
 
 The bootstrap step currently uses this package set:
 
