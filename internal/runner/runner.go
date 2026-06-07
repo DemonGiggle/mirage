@@ -27,6 +27,7 @@ const (
 	defaultSandboxPath = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 	defaultSandboxUser = "mirage"
 	defaultSandboxHome = "/home/mirage"
+	defaultSandboxHost = "oasis"
 	defaultRootUser    = "root"
 	defaultRootHome    = "/root"
 	sandboxUID         = 1000
@@ -53,6 +54,7 @@ func execute(cfg spec.Config, stdout, stderr io.Writer) error {
 	if runtimeUnsupported() {
 		return errors.New("sandbox backend currently supports Linux only")
 	}
+	cfg = applyConfigDefaults(cfg)
 
 	if cfg.NetworkPolicy == nil {
 		return errors.New("network policy backend plan is missing")
@@ -281,6 +283,13 @@ func execute(cfg spec.Config, stdout, stderr io.Writer) error {
 		return fmt.Errorf("backend command failed: %w", err)
 	}
 	return nil
+}
+
+func applyConfigDefaults(cfg spec.Config) spec.Config {
+	if strings.TrimSpace(cfg.Hostname) == "" {
+		cfg.Hostname = defaultSandboxHost
+	}
+	return cfg
 }
 
 func RunCgroupHelper(args []string, stdout, stderr io.Writer) error {
