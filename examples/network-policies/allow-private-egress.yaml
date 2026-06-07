@@ -1,0 +1,40 @@
+networkPolicy:
+  version: 1
+  loopback:
+    default: allow
+  ingress:
+    default: deny
+    rules: []
+  egress:
+    default: deny
+    rules:
+      - name: allow-private-v4-10
+        action: allow
+        destination:
+          cidr: 10.0.0.0/8
+        protocol: any
+      - name: allow-private-v4-172
+        action: allow
+        destination:
+          cidr: 172.16.0.0/12
+        protocol: any
+      - name: allow-private-v4-192
+        action: allow
+        destination:
+          cidr: 192.168.0.0/16
+        protocol: any
+      - name: allow-link-local-v4
+        action: allow
+        destination:
+          cidr: 169.254.0.0/16
+        protocol: any
+      - name: allow-ula-v6
+        action: allow
+        destination:
+          cidr: fc00::/7
+        protocol: any
+      - name: allow-link-local-v6
+        action: allow
+        destination:
+          cidr: fe80::/10
+        protocol: any

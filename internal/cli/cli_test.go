@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/DemonGiggle/mirage/examples"
 	"github.com/DemonGiggle/mirage/internal/rootfs"
 )
 
@@ -149,12 +151,21 @@ func TestPackageCreatesDirectoryBundle(t *testing.T) {
 		}
 	}
 
+	networkPolicies, err := examples.NetworkPolicyNames()
+	if err != nil {
+		t.Fatalf("NetworkPolicyNames returned error: %v", err)
+	}
+	presets, err := examples.PresetNames()
+	if err != nil {
+		t.Fatalf("PresetNames returned error: %v", err)
+	}
+
 	got := out.String()
 	for _, needle := range []string{
 		"mirage package",
 		"format: dir",
-		"network-policies: 3",
-		"presets: 2",
+		"network-policies: " + strconv.Itoa(len(networkPolicies)),
+		"presets: " + strconv.Itoa(len(presets)),
 	} {
 		if !strings.Contains(got, needle) {
 			t.Fatalf("expected package output to contain %q, got %q", needle, got)

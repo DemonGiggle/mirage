@@ -201,6 +201,9 @@ Mirage exposes a policy-first network surface. The current bundled examples are:
 - `./examples/network-policies/allow-all.yaml`: host network namespace passthrough
 - `./examples/network-policies/offline.yaml`: dedicated namespace with loopback
   only
+- `./examples/network-policies/allow-private-egress.yaml`: dedicated namespace
+  with a routed host uplink that allows only RFC1918 private IPv4 ranges,
+  IPv4 link-local, and IPv6 ULA or link-local destinations
 - `./examples/network-policies/block-local-egress.yaml`: dedicated namespace
   with a routed host uplink and local-network egress denies
 
