@@ -1,9 +1,12 @@
 package runner
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/DemonGiggle/mirage/internal/spec"
@@ -177,6 +180,41 @@ func TestBuildUnshareArgsUsesNetNamespaceForOfflineNetworkPolicy(t *testing.T) {
 	}
 }
 
+func TestSandboxIdentityFileContentsIncludeNSSFilesLookup(t *testing.T) {
+	contents := sandboxIdentityFileContents(sandboxIdentity{
+		UID:  1000,
+		GID:  1000,
+		User: "mirage",
+		Home: "/home/mirage",
+	})
+
+	passwd := contents["/etc/passwd"]
+	if !strings.Contains(passwd, "mirage:x:1000:1000:mirage:/home/mirage:/bin/sh") {
+		t.Fatalf("expected passwd entry for sandbox user, got %q", passwd)
+	}
+
+	nsswitch := contents["/etc/nsswitch.conf"]
+	for _, needle := range []string{
+		"passwd: files",
+		"group: files",
+		"shadow: files",
+		"gshadow: files",
+		"hosts: files dns",
+	} {
+		if !strings.Contains(nsswitch, needle) {
+			t.Fatalf("expected nsswitch.conf to contain %q, got %q", needle, nsswitch)
+		}
+	}
+	for target, needle := range map[string]string{
+		"/etc/shadow":  "mirage:!:1:0:99999:7:::",
+		"/etc/gshadow": "mirage:!::",
+	} {
+		if !strings.Contains(contents[target], needle) {
+			t.Fatalf("expected %s to contain %q, got %q", target, needle, contents[target])
+		}
+	}
+}
+
 func TestBuildUnshareArgsSkipsNetNamespaceForAllowAllNetworkPolicy(t *testing.T) {
 	args, err := buildUnshareArgs(false, backendNetworkPolicyHost)
 	if err != nil {
@@ -203,8 +241,11 @@ func TestBuildUnshareArgsSwitchesRootMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildUnshareArgs returned error for root mode: %v", err)
 	}
-	if !slicesContains(rootArgs, "--user") || !slicesContains(rootArgs, "--setgroups") {
+	if !slicesContains(rootArgs, "--user") {
 		t.Fatalf("expected root launch to configure an explicit user namespace map, got %#v", rootArgs)
+	}
+	if slicesContains(rootArgs, "--setgroups") {
+		t.Fatalf("expected root launch to keep setgroups available for supplementary-group cleanup, got %#v", rootArgs)
 	}
 	if slicesContains(rootArgs, "--map-root-user") {
 		t.Fatalf("expected root launch to avoid --map-root-user, got %#v", rootArgs)
@@ -484,7 +525,7 @@ func TestDefaultSandboxIdentityUsesHostRootSafeHome(t *testing.T) {
 }
 
 func TestWriteRuntimeIdentityFile(t *testing.T) {
-	path, err := writeRuntimeIdentityFile("demo\n")
+	path, err := writeRuntimeIdentityFile("demo\n", 0o644)
 	if err != nil {
 		t.Fatalf("writeRuntimeIdentityFile returned error: %v", err)
 	}
@@ -496,5 +537,107 @@ func TestWriteRuntimeIdentityFile(t *testing.T) {
 	}
 	if string(data) != "demo\n" {
 		t.Fatalf("unexpected runtime identity file content %q", string(data))
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat runtime identity file: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0o644 {
+		t.Fatalf("expected runtime identity file mode 0644, got %#o", got)
+	}
+}
+
+func TestSandboxIdentityFileMode(t *testing.T) {
+	if got := sandboxIdentityFileMode("/etc/passwd"); got != 0o644 {
+		t.Fatalf("expected passwd mode 0644, got %#o", got)
+	}
+	if got := sandboxIdentityFileMode("/etc/nsswitch.conf"); got != 0o644 {
+		t.Fatalf("expected nsswitch mode 0644, got %#o", got)
+	}
+	if got := sandboxIdentityFileMode("/etc/shadow"); got != 0o640 {
+		t.Fatalf("expected shadow mode 0640, got %#o", got)
+	}
+	if got := sandboxIdentityFileMode("/etc/gshadow"); got != 0o640 {
+		t.Fatalf("expected gshadow mode 0640, got %#o", got)
+	}
+}
+
+func TestApplySandboxIdentityClearsSupplementaryGroupsBeforeDroppingIDs(t *testing.T) {
+	restoreSetgroups := setgroupsFunc
+	restoreSetgid := setgidFunc
+	restoreSetuid := setuidFunc
+	var calls []string
+	setgroupsFunc = func(groups []int) error {
+		if groups != nil {
+			t.Fatalf("expected nil supplementary groups, got %#v", groups)
+		}
+		calls = append(calls, "setgroups")
+		return nil
+	}
+	setgidFunc = func(gid int) error {
+		calls = append(calls, fmt.Sprintf("setgid:%d", gid))
+		return nil
+	}
+	setuidFunc = func(uid int) error {
+		calls = append(calls, fmt.Sprintf("setuid:%d", uid))
+		return nil
+	}
+	t.Cleanup(func() {
+		setgroupsFunc = restoreSetgroups
+		setgidFunc = restoreSetgid
+		setuidFunc = restoreSetuid
+	})
+
+	if err := applySandboxIdentity(sandboxIdentity{UID: 1000, GID: 1000}); err != nil {
+		t.Fatalf("applySandboxIdentity returned error: %v", err)
+	}
+
+	want := []string{"setgroups", "setgid:1000", "setuid:1000"}
+	if len(calls) != len(want) {
+		t.Fatalf("unexpected call count: got %d want %d (%v)", len(calls), len(want), calls)
+	}
+	for idx, call := range want {
+		if calls[idx] != call {
+			t.Fatalf("unexpected call at %d: got %q want %q", idx, calls[idx], call)
+		}
+	}
+}
+
+func TestClearInheritedSupplementaryGroupsIgnoresEPERMWhenAlreadyEmpty(t *testing.T) {
+	restoreSetgroups := setgroupsFunc
+	restoreCurrentGroups := currentGroups
+	setgroupsFunc = func(groups []int) error {
+		return syscall.EPERM
+	}
+	currentGroups = func() ([]int, error) {
+		return nil, nil
+	}
+	t.Cleanup(func() {
+		setgroupsFunc = restoreSetgroups
+		currentGroups = restoreCurrentGroups
+	})
+
+	if err := clearInheritedSupplementaryGroups(); err != nil {
+		t.Fatalf("clearInheritedSupplementaryGroups returned error: %v", err)
+	}
+}
+
+func TestClearInheritedSupplementaryGroupsReturnsEPERMWhenGroupsRemain(t *testing.T) {
+	restoreSetgroups := setgroupsFunc
+	restoreCurrentGroups := currentGroups
+	setgroupsFunc = func(groups []int) error {
+		return syscall.EPERM
+	}
+	currentGroups = func() ([]int, error) {
+		return []int{0}, nil
+	}
+	t.Cleanup(func() {
+		setgroupsFunc = restoreSetgroups
+		currentGroups = restoreCurrentGroups
+	})
+
+	err := clearInheritedSupplementaryGroups()
+	if !errors.Is(err, syscall.EPERM) {
+		t.Fatalf("expected EPERM, got %v", err)
 	}
 }

@@ -18,7 +18,8 @@ var (
 )
 
 // EnsureNSSRuntime backfills the host lookup modules referenced by the guest
-// hosts database so hostname resolution continues to work inside generated rootfses.
+// NSS databases so identity and hostname resolution continue to work inside
+// generated rootfses.
 func EnsureNSSRuntime(rootfsPath string) error {
 	_, err := EnsureNSSRuntimeWithReport(rootfsPath)
 	return err
@@ -95,7 +96,9 @@ func requiredNSSModules(root string) ([]string, error) {
 		if !ok {
 			continue
 		}
-		if strings.TrimSpace(database) != "hosts" {
+		switch strings.TrimSpace(database) {
+		case "passwd", "group", "shadow", "hosts":
+		default:
 			continue
 		}
 		insideBracket := false
