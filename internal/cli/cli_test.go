@@ -153,7 +153,7 @@ func TestPackageCreatesDirectoryBundle(t *testing.T) {
 	for _, needle := range []string{
 		"mirage package",
 		"format: dir",
-		"network-policies: 3",
+		"network-policies: 4",
 		"presets: 2",
 	} {
 		if !strings.Contains(got, needle) {
