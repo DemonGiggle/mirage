@@ -59,10 +59,16 @@ During `rootfs init`, Mirage prints the underlying bootstrap command, streams
 its output, and then prints the apt config write step it performs inside the
 rootfs.
 
-If you pass `--arch`, Mirage normalizes common aliases such as
-`x86_64`, `amd64`, `aarch64`, `arm64`, or `arm32` into the Debian
-architecture name used for `mmdebstrap`. If you omit it, Mirage detects the
-host architecture and uses that by default.
+`--arch` accepts these values:
+
+- `x86_64`
+- `arm64`
+- `arm32`
+- `riscv64`
+
+Mirage translates those user-facing names into the Debian architecture name
+used by `mmdebstrap`. If you omit `--arch`, Mirage detects the host
+architecture and uses that by default.
 
 The bootstrap step currently uses this package set:
 

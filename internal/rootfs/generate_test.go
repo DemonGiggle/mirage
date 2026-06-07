@@ -158,52 +158,72 @@ func TestBootstrapCapturesMmdebstrapStderrWithoutLogOutput(t *testing.T) {
 	}
 }
 
-func TestResolveBootstrapArchitectureNormalizesAliases(t *testing.T) {
+func TestNormalizeRootfsArchitectureAcceptsSupportedValues(t *testing.T) {
+	for _, tc := range []struct {
+		input string
+		want  string
+	}{
+		{input: "x86_64", want: "x86_64"},
+		{input: "arm64", want: "arm64"},
+		{input: "arm32", want: "arm32"},
+		{input: "riscv64", want: "riscv64"},
+	} {
+		got, err := normalizeRootfsArchitecture(tc.input)
+		if err != nil {
+			t.Fatalf("normalizeRootfsArchitecture(%q) returned error: %v", tc.input, err)
+		}
+		if got != tc.want {
+			t.Fatalf("normalizeRootfsArchitecture(%q) = %q, want %q", tc.input, got, tc.want)
+		}
+	}
+}
+
+func TestNormalizeRootfsArchitectureRejectsAliasesAndInvalidValue(t *testing.T) {
+	for _, input := range []string{"amd64", "aarch64", "x86/64"} {
+		_, err := normalizeRootfsArchitecture(input)
+		if err == nil || !strings.Contains(err.Error(), "unsupported architecture") {
+			t.Fatalf("expected invalid architecture error for %q, got %v", input, err)
+		}
+	}
+}
+
+func TestDebianArchitectureForRootfsArchMapsSupportedValues(t *testing.T) {
 	for _, tc := range []struct {
 		input string
 		want  string
 	}{
 		{input: "x86_64", want: "amd64"},
-		{input: "amd64", want: "amd64"},
-		{input: "aarch64", want: "arm64"},
+		{input: "arm64", want: "arm64"},
 		{input: "arm32", want: "armhf"},
-		{input: "ppc64le", want: "ppc64el"},
-		{input: "mips64el", want: "mips64el"},
+		{input: "riscv64", want: "riscv64"},
 	} {
-		got, err := normalizeBootstrapArchitecture(tc.input)
+		got, err := debianArchitectureForRootfsArch(tc.input)
 		if err != nil {
-			t.Fatalf("normalizeBootstrapArchitecture(%q) returned error: %v", tc.input, err)
+			t.Fatalf("debianArchitectureForRootfsArch(%q) returned error: %v", tc.input, err)
 		}
 		if got != tc.want {
-			t.Fatalf("normalizeBootstrapArchitecture(%q) = %q, want %q", tc.input, got, tc.want)
+			t.Fatalf("debianArchitectureForRootfsArch(%q) = %q, want %q", tc.input, got, tc.want)
 		}
 	}
 }
 
-func TestResolveBootstrapArchitectureRejectsInvalidValue(t *testing.T) {
-	_, err := normalizeBootstrapArchitecture("x86/64")
-	if err == nil || !strings.Contains(err.Error(), "unsupported architecture") {
-		t.Fatalf("expected invalid architecture error, got %v", err)
-	}
-}
-
-func TestResolveBootstrapArchitectureUsesHostDetectorByDefault(t *testing.T) {
+func TestResolveRootfsArchitectureUsesHostDetectorByDefault(t *testing.T) {
 	previous := detectBootstrapHostArchitecture
-	detectBootstrapHostArchitecture = func() (string, error) { return "aarch64", nil }
+	detectBootstrapHostArchitecture = func() (string, error) { return "arm64", nil }
 	t.Cleanup(func() {
 		detectBootstrapHostArchitecture = previous
 	})
 
-	got, err := resolveBootstrapArchitecture("")
+	got, err := resolveRootfsArchitecture("")
 	if err != nil {
-		t.Fatalf("resolveBootstrapArchitecture returned error: %v", err)
+		t.Fatalf("resolveRootfsArchitecture returned error: %v", err)
 	}
 	if got != "arm64" {
-		t.Fatalf("resolveBootstrapArchitecture() = %q, want %q", got, "arm64")
+		t.Fatalf("resolveRootfsArchitecture() = %q, want %q", got, "arm64")
 	}
 }
 
-func TestBootstrapLogsNormalizedArchitecture(t *testing.T) {
+func TestBootstrapLogsDebianArchitectureForSelectedRootfsArch(t *testing.T) {
 	var out bytes.Buffer
 	root := filepath.Join(t.TempDir(), "rootfs")
 
@@ -214,11 +234,43 @@ func TestBootstrapLogsNormalizedArchitecture(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BootstrapWithReportWithOptions returned error: %v", err)
 	}
-	if report.Architecture != "amd64" {
-		t.Fatalf("report.Architecture = %q, want %q", report.Architecture, "amd64")
+	if report.Architecture != "x86_64" {
+		t.Fatalf("report.Architecture = %q, want %q", report.Architecture, "x86_64")
 	}
 	if !strings.Contains(out.String(), "--architectures=amd64") {
-		t.Fatalf("expected bootstrap log to contain normalized architecture flag, got %q", out.String())
+		t.Fatalf("expected bootstrap log to contain Debian architecture flag, got %q", out.String())
+	}
+}
+
+func TestDefaultDetectBootstrapHostArchitectureMapsDpkgArchitecture(t *testing.T) {
+	previousPath := os.Getenv("PATH")
+	tempDir := t.TempDir()
+	fakeDPKG := filepath.Join(tempDir, "dpkg")
+	if err := os.WriteFile(fakeDPKG, []byte("#!/bin/sh\necho armhf\n"), 0o755); err != nil {
+		t.Fatalf("write fake dpkg: %v", err)
+	}
+	if err := os.Setenv("PATH", tempDir+string(os.PathListSeparator)+previousPath); err != nil {
+		t.Fatalf("set PATH: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.Setenv("PATH", previousPath); err != nil {
+			t.Fatalf("restore PATH: %v", err)
+		}
+	})
+
+	got, err := defaultDetectBootstrapHostArchitecture()
+	if err != nil {
+		t.Fatalf("defaultDetectBootstrapHostArchitecture returned error: %v", err)
+	}
+	if got != "arm32" {
+		t.Fatalf("defaultDetectBootstrapHostArchitecture() = %q, want %q", got, "arm32")
+	}
+}
+
+func TestResolveRootfsArchitectureRejectsInvalidValue(t *testing.T) {
+	_, err := resolveRootfsArchitecture("x86/64")
+	if err == nil || !strings.Contains(err.Error(), "unsupported architecture") {
+		t.Fatalf("expected invalid architecture error, got %v", err)
 	}
 }
 

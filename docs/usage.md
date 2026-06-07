@@ -75,8 +75,9 @@ sudo ./bin/mirage rootfs init --output /tmp/mirage/basic-rootfs
 `mirage rootfs init` prints the exact bootstrap command and streams the
 underlying tool output while it runs.
 
-To target a different Debian architecture, pass `--arch`; if omitted,
-Mirage defaults to the host architecture:
+To target a different architecture, pass `--arch` with one of
+`x86_64`, `arm64`, `arm32`, or `riscv64`; if omitted, Mirage defaults to the
+host architecture:
 
 ```bash
 sudo ./bin/mirage rootfs init --output /tmp/mirage/arm64-rootfs --arch arm64

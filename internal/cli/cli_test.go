@@ -562,7 +562,7 @@ func TestRootfsInitAllowOverwrite(t *testing.T) {
 	}
 }
 
-func TestRootfsInitWithArchitectureAlias(t *testing.T) {
+func TestRootfsInitWithSupportedArchitecture(t *testing.T) {
 	var out bytes.Buffer
 	var errBuf bytes.Buffer
 
@@ -580,7 +580,7 @@ func TestRootfsInitWithArchitectureAlias(t *testing.T) {
 	got := out.String()
 	for _, needle := range []string{
 		"--architectures=amd64",
-		"architecture: amd64",
+		"architecture: x86_64",
 	} {
 		if !strings.Contains(got, needle) {
 			t.Fatalf("expected rootfs init output to contain %q, got %q", needle, got)
@@ -600,6 +600,25 @@ func TestRootfsInitRejectsInvalidArchitecture(t *testing.T) {
 	}, &out, &errBuf)
 	if err == nil || !strings.Contains(err.Error(), `unsupported architecture "x86/64"`) {
 		t.Fatalf("expected invalid architecture error, got %v", err)
+	}
+}
+
+func TestRootfsInitHelpListsSupportedArchitectures(t *testing.T) {
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+
+	if err := Run([]string{"rootfs", "init", "--help"}, &out, &errBuf); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	got := out.String()
+	for _, needle := range []string{
+		"Supported --arch values: x86_64, arm64, arm32, riscv64.",
+		"--arch <arch>",
+	} {
+		if !strings.Contains(got, needle) {
+			t.Fatalf("expected rootfs init help to contain %q, got %q", needle, got)
+		}
 	}
 }
 

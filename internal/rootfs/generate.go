@@ -58,6 +58,8 @@ type GenerateOptions struct {
 	Architecture   string
 }
 
+var supportedRootfsArchitectures = []string{"x86_64", "arm64", "arm32", "riscv64"}
+
 func (report *GenerateReport) addMissing(asset MissingAsset) {
 	report.MissingAssets = append(report.MissingAssets, asset)
 }
@@ -97,11 +99,15 @@ func BootstrapWithReportWithOptions(outputRoot string, options GenerateOptions) 
 	if strings.TrimSpace(outputRoot) == "" {
 		return GenerateReport{}, errors.New("output rootfs path cannot be empty")
 	}
-	architecture, err := resolveBootstrapArchitecture(options.Architecture)
+	architecture, err := resolveRootfsArchitecture(options.Architecture)
 	if err != nil {
 		return GenerateReport{}, err
 	}
 	report := GenerateReport{Architecture: architecture}
+	debianArchitecture, err := debianArchitectureForRootfsArch(architecture)
+	if err != nil {
+		return report, err
+	}
 	root, err := filepath.Abs(outputRoot)
 	if err != nil {
 		return report, fmt.Errorf("resolve output rootfs %q: %w", outputRoot, err)
@@ -112,7 +118,7 @@ func BootstrapWithReportWithOptions(outputRoot string, options GenerateOptions) 
 	if err := prepareOutputRoot(root, options.AllowOverwrite); err != nil {
 		return report, err
 	}
-	if err := bootstrapDebianBaseRootfs(root, architecture, options.LogOutput); err != nil {
+	if err := bootstrapDebianBaseRootfs(root, debianArchitecture, options.LogOutput); err != nil {
 		return report, err
 	}
 	if err := writeMinimalAptConfig(root, options.LogOutput); err != nil {
@@ -386,7 +392,7 @@ func bootstrapDebianBaseRootfs(root string, architecture string, logOutput io.Wr
 	return nil
 }
 
-func resolveBootstrapArchitecture(requested string) (string, error) {
+func resolveRootfsArchitecture(requested string) (string, error) {
 	value := strings.TrimSpace(requested)
 	if value == "" {
 		hostArchitecture, err := detectBootstrapHostArchitecture()
@@ -395,73 +401,61 @@ func resolveBootstrapArchitecture(requested string) (string, error) {
 		}
 		value = hostArchitecture
 	}
-	return normalizeBootstrapArchitecture(value)
+	return normalizeRootfsArchitecture(value)
 }
 
-func normalizeBootstrapArchitecture(raw string) (string, error) {
+func normalizeRootfsArchitecture(raw string) (string, error) {
 	value := strings.ToLower(strings.TrimSpace(raw))
 	switch value {
-	case "amd64", "x86_64", "x64":
-		return "amd64", nil
-	case "arm64", "aarch64":
-		return "arm64", nil
-	case "armhf", "armv7l", "armv7", "armv6l", "armv6", "arm32", "arm":
-		return "armhf", nil
-	case "armel", "i386", "i686", "386", "x86":
-		if value == "i686" || value == "386" || value == "x86" {
-			return "i386", nil
-		}
+	case "x86_64", "arm64", "arm32", "riscv64":
 		return value, nil
-	case "ppc64el", "ppc64le":
-		return "ppc64el", nil
-	case "riscv64", "s390x", "loong64":
-		return value, nil
+	default:
+		return "", fmt.Errorf("unsupported architecture %q (supported: %s)", raw, strings.Join(supportedRootfsArchitectures, ", "))
 	}
-	if !looksLikeDebianArchitecture(value) {
-		return "", fmt.Errorf("unsupported architecture %q", raw)
-	}
-	return value, nil
 }
 
-func looksLikeDebianArchitecture(value string) bool {
-	if value == "" {
-		return false
+func debianArchitectureForRootfsArch(architecture string) (string, error) {
+	switch architecture {
+	case "x86_64":
+		return "amd64", nil
+	case "arm64":
+		return "arm64", nil
+	case "arm32":
+		return "armhf", nil
+	case "riscv64":
+		return "riscv64", nil
+	default:
+		return "", fmt.Errorf("unsupported architecture %q (supported: %s)", architecture, strings.Join(supportedRootfsArchitectures, ", "))
 	}
-	for i, r := range value {
-		isAlnum := r >= 'a' && r <= 'z' || r >= '0' && r <= '9'
-		if isAlnum {
-			continue
-		}
-		if r == '-' && i > 0 && i < len(value)-1 {
-			continue
-		}
-		return false
-	}
-	return true
 }
 
 func defaultDetectBootstrapHostArchitecture() (string, error) {
 	if dpkgPath, err := exec.LookPath("dpkg"); err == nil {
 		output, err := exec.Command(dpkgPath, "--print-architecture").Output()
 		if err == nil {
-			return strings.TrimSpace(string(output)), nil
+			switch strings.TrimSpace(string(output)) {
+			case "amd64":
+				return "x86_64", nil
+			case "arm64":
+				return "arm64", nil
+			case "armhf":
+				return "arm32", nil
+			case "riscv64":
+				return "riscv64", nil
+			}
 		}
 	}
 	switch runtime.GOARCH {
 	case "amd64":
-		return "amd64", nil
+		return "x86_64", nil
 	case "arm64":
 		return "arm64", nil
-	case "386":
-		return "i386", nil
 	case "arm":
-		return "armhf", nil
-	case "ppc64le":
-		return "ppc64el", nil
-	case "riscv64", "s390x", "loong64":
-		return runtime.GOARCH, nil
+		return "arm32", nil
+	case "riscv64":
+		return "riscv64", nil
 	default:
-		return "", fmt.Errorf("could not detect a supported host architecture from GOARCH=%q; pass --arch explicitly", runtime.GOARCH)
+		return "", fmt.Errorf("could not detect a supported host architecture from GOARCH=%q; pass --arch explicitly (supported: %s)", runtime.GOARCH, strings.Join(supportedRootfsArchitectures, ", "))
 	}
 }
 

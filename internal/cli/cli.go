@@ -187,7 +187,7 @@ func runRootfsInit(args []string, stdout, stderr io.Writer) error {
 
 	fs.StringVar(&outputRoot, "output", "", "Path to the generated rootfs directory.")
 	fs.BoolVar(&allowOverwrite, "allow-overwrite", false, "Allow writing into an existing non-empty output directory.")
-	fs.StringVar(&architecture, "arch", "", "Target Debian architecture for the generated rootfs. Defaults to the host architecture.")
+	fs.StringVar(&architecture, "arch", "", "Target rootfs architecture. Supported: x86_64, arm64, arm32, riscv64. Defaults to the host architecture.")
 
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -222,7 +222,7 @@ Usage:
 
 Notes:
   - The rootfs is created with mmdebstrap.
-  - --arch accepts common aliases such as x86_64, amd64, arm64, or arm32.
+  - Supported --arch values: x86_64, arm64, arm32, riscv64.
   - If --arch is omitted, Mirage detects the host architecture and uses that.
   - --allow-overwrite clears the existing output directory before rebuilding it.
   - Generated rootfs trees can be validated later with mirage doctor --rootfs ....
