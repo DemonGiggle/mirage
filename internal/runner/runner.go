@@ -37,8 +37,12 @@ const (
 var (
 	currentUID         = os.Getuid
 	currentGID         = os.Getgid
+	currentGroups      = os.Getgroups
 	idMapCommandRunner = runIDMapCommand
 	procfsRoot         = "/proc"
+	setgroupsFunc      = syscall.Setgroups
+	setgidFunc         = syscall.Setgid
+	setuidFunc         = syscall.Setuid
 )
 
 func Execute(cfg spec.Config, stdout, stderr io.Writer) error {
@@ -127,6 +131,11 @@ func execute(cfg spec.Config, stdout, stderr io.Writer) error {
 	}
 	commandName = "unshare"
 	commandArgs = append(unshareArgs, backendArgs...)
+	if !cfg.RunAsRoot && currentUID() == 0 {
+		if err := clearInheritedSupplementaryGroups(); err != nil {
+			return err
+		}
+	}
 
 	stdoutCloser, stdoutTarget, err := prepareLogWriter(cfg.StdoutLog, stdout)
 	if err != nil {
@@ -698,7 +707,10 @@ func buildUnshareArgs(runAsRoot bool, networkBackend string) ([]string, error) {
 	default:
 		return nil, fmt.Errorf("unsupported backend network mode %q", networkBackend)
 	}
-	args = append(args, "--user", "--setgroups", "deny")
+	args = append(args, "--user")
+	if !runAsRoot {
+		args = append(args, "--setgroups", "deny")
+	}
 	return args, nil
 }
 
@@ -1402,12 +1414,9 @@ func sanitizePathComponent(value string) string {
 }
 
 func applySandboxIdentityFiles(rootfs string, identity sandboxIdentity) error {
-	contents := map[string]string{
-		"/etc/passwd": fmt.Sprintf("root:x:0:0:root:%s:/bin/sh\n%s:x:%d:%d:%s:%s:/bin/sh\n", defaultRootHome, identity.User, identity.UID, identity.GID, identity.User, identity.Home),
-		"/etc/group":  fmt.Sprintf("root:x:0:\n%s:x:%d:\n", identity.User, identity.GID),
-	}
+	contents := sandboxIdentityFileContents(identity)
 	for target, content := range contents {
-		sourcePath, err := writeRuntimeIdentityFile(content)
+		sourcePath, err := writeRuntimeIdentityFile(content, sandboxIdentityFileMode(target))
 		if err != nil {
 			return fmt.Errorf("prepare sandbox identity file %q: %w", target, err)
 		}
@@ -1421,7 +1430,39 @@ func applySandboxIdentityFiles(rootfs string, identity sandboxIdentity) error {
 	return nil
 }
 
-func writeRuntimeIdentityFile(content string) (string, error) {
+func sandboxIdentityFileMode(target string) os.FileMode {
+	switch target {
+	case "/etc/shadow", "/etc/gshadow":
+		return 0o640
+	default:
+		return 0o644
+	}
+}
+
+func sandboxIdentityFileContents(identity sandboxIdentity) map[string]string {
+	return map[string]string{
+		"/etc/passwd":  fmt.Sprintf("root:x:0:0:root:%s:/bin/sh\n%s:x:%d:%d:%s:%s:/bin/sh\n", defaultRootHome, identity.User, identity.UID, identity.GID, identity.User, identity.Home),
+		"/etc/group":   fmt.Sprintf("root:x:0:\n%s:x:%d:\n", identity.User, identity.GID),
+		"/etc/shadow":  fmt.Sprintf("root:!:1:0:99999:7:::\n%s:!:1:0:99999:7:::\n", identity.User),
+		"/etc/gshadow": fmt.Sprintf("root:!::\n%s:!::\n", identity.User),
+		"/etc/nsswitch.conf": strings.Join([]string{
+			"passwd: files",
+			"group: files",
+			"shadow: files",
+			"gshadow: files",
+			"hosts: files dns",
+			"networks: files",
+			"protocols: files",
+			"services: files",
+			"ethers: files",
+			"rpc: files",
+			"netgroup: files",
+			"",
+		}, "\n"),
+	}
+}
+
+func writeRuntimeIdentityFile(content string, mode os.FileMode) (string, error) {
 	file, err := os.CreateTemp("", "mirage-identity-*")
 	if err != nil {
 		return "", err
@@ -1432,6 +1473,10 @@ func writeRuntimeIdentityFile(content string) (string, error) {
 		return "", err
 	}
 	if err := file.Close(); err != nil {
+		_ = os.Remove(file.Name())
+		return "", err
+	}
+	if err := os.Chmod(file.Name(), mode); err != nil {
 		_ = os.Remove(file.Name())
 		return "", err
 	}
@@ -1496,11 +1541,27 @@ func applySandboxIdentity(identity sandboxIdentity) error {
 	if identity.UID == 0 && identity.GID == 0 {
 		return nil
 	}
-	if err := syscall.Setgid(identity.GID); err != nil {
+	if err := clearInheritedSupplementaryGroups(); err != nil {
+		return fmt.Errorf("clear supplementary groups: %w", err)
+	}
+	if err := setgidFunc(identity.GID); err != nil {
 		return fmt.Errorf("drop sandbox gid to %d: %w", identity.GID, err)
 	}
-	if err := syscall.Setuid(identity.UID); err != nil {
+	if err := setuidFunc(identity.UID); err != nil {
 		return fmt.Errorf("drop sandbox uid to %d: %w", identity.UID, err)
+	}
+	return nil
+}
+
+func clearInheritedSupplementaryGroups() error {
+	if err := setgroupsFunc(nil); err != nil {
+		if errors.Is(err, syscall.EPERM) {
+			groups, groupsErr := currentGroups()
+			if groupsErr == nil && len(groups) == 0 {
+				return nil
+			}
+		}
+		return err
 	}
 	return nil
 }
