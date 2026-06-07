@@ -461,7 +461,7 @@ func defaultDetectBootstrapHostArchitecture() (string, error) {
 	case "riscv64", "s390x", "loong64":
 		return runtime.GOARCH, nil
 	default:
-		return "", fmt.Errorf("could not detect a supported host architecture from GOARCH=%q; pass --architecture explicitly", runtime.GOARCH)
+		return "", fmt.Errorf("could not detect a supported host architecture from GOARCH=%q; pass --arch explicitly", runtime.GOARCH)
 	}
 }
 

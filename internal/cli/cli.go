@@ -187,7 +187,7 @@ func runRootfsInit(args []string, stdout, stderr io.Writer) error {
 
 	fs.StringVar(&outputRoot, "output", "", "Path to the generated rootfs directory.")
 	fs.BoolVar(&allowOverwrite, "allow-overwrite", false, "Allow writing into an existing non-empty output directory.")
-	fs.StringVar(&architecture, "architecture", "", "Target Debian architecture for the generated rootfs. Defaults to the host architecture.")
+	fs.StringVar(&architecture, "arch", "", "Target Debian architecture for the generated rootfs. Defaults to the host architecture.")
 
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -218,18 +218,18 @@ func printRootfsInitHelp(w io.Writer) {
 	_, _ = fmt.Fprint(w, `Bootstrap a Debian minbase rootfs.
 
 Usage:
-  mirage rootfs init --output <path> [--allow-overwrite] [--architecture <arch>]
+  mirage rootfs init --output <path> [--allow-overwrite] [--arch <arch>]
 
 Notes:
   - The rootfs is created with mmdebstrap.
-  - --architecture accepts common aliases such as x86_64, amd64, arm64, or arm32.
-  - If --architecture is omitted, Mirage detects the host architecture and uses that.
+  - --arch accepts common aliases such as x86_64, amd64, arm64, or arm32.
+  - If --arch is omitted, Mirage detects the host architecture and uses that.
   - --allow-overwrite clears the existing output directory before rebuilding it.
   - Generated rootfs trees can be validated later with mirage doctor --rootfs ....
 
 Examples:
   mirage rootfs init --output /tmp/mirage/basic-rootfs
-  mirage rootfs init --output /tmp/mirage/arm64-rootfs --architecture arm64
+  mirage rootfs init --output /tmp/mirage/arm64-rootfs --arch arm64
   mirage rootfs init --output /tmp/mirage/work --allow-overwrite
 `)
 }

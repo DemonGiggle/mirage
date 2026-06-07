@@ -571,7 +571,7 @@ func TestRootfsInitWithArchitectureAlias(t *testing.T) {
 		"rootfs",
 		"init",
 		"--output", outputRoot,
-		"--architecture", "x86_64",
+		"--arch", "x86_64",
 	}, &out, &errBuf)
 	if err != nil {
 		t.Fatalf("Run returned error: %v", err)
@@ -596,7 +596,7 @@ func TestRootfsInitRejectsInvalidArchitecture(t *testing.T) {
 		"rootfs",
 		"init",
 		"--output", filepath.Join(t.TempDir(), "rootfs"),
-		"--architecture", "x86/64",
+		"--arch", "x86/64",
 	}, &out, &errBuf)
 	if err == nil || !strings.Contains(err.Error(), `unsupported architecture "x86/64"`) {
 		t.Fatalf("expected invalid architecture error, got %v", err)
