@@ -170,6 +170,20 @@ func TestPlanNotesRunAsRoot(t *testing.T) {
 	}
 }
 
+func TestApplyConfigDefaultsSetsDefaultHostname(t *testing.T) {
+	cfg := applyConfigDefaults(spec.Config{})
+	if cfg.Hostname != defaultSandboxHost {
+		t.Fatalf("expected default hostname %q, got %q", defaultSandboxHost, cfg.Hostname)
+	}
+}
+
+func TestApplyConfigDefaultsPreservesExplicitHostname(t *testing.T) {
+	cfg := applyConfigDefaults(spec.Config{Hostname: "custom-host"})
+	if cfg.Hostname != "custom-host" {
+		t.Fatalf("expected explicit hostname to be preserved, got %q", cfg.Hostname)
+	}
+}
+
 func TestBuildUnshareArgsUsesNetNamespaceForOfflineNetworkPolicy(t *testing.T) {
 	args, err := buildUnshareArgs(false, backendNetworkPolicyIsolated)
 	if err != nil {
