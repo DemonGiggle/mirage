@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -115,9 +116,10 @@ func TestPackageHelpIncludesBundleLayout(t *testing.T) {
 	got := out.String()
 	for _, needle := range []string{
 		"Assemble a standalone Mirage release bundle.",
-		"mirage package --output <path> [--binary <path>]",
+		"mirage package --output <path> [--binary <path>] [--arch <arch>]",
 		"share/mirage/network-policies",
 		"share/mirage/presets",
+		"Supported --arch values: x86_64, arm64, arm32, riscv64.",
 	} {
 		if !strings.Contains(got, needle) {
 			t.Fatalf("expected package help to contain %q, got %q", needle, got)
@@ -170,6 +172,42 @@ func TestPackageCreatesDirectoryBundle(t *testing.T) {
 		if !strings.Contains(got, needle) {
 			t.Fatalf("expected package output to contain %q, got %q", needle, got)
 		}
+	}
+}
+
+func TestPackageBuildsRequestedArchitectureWhenBinaryOmitted(t *testing.T) {
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+
+	outputDir := filepath.Join(t.TempDir(), "release")
+	err := Run([]string{"package", "--output", outputDir, "--arch", "arm64"}, &out, &errBuf)
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(outputDir, "bin", "mirage")); err != nil {
+		t.Fatalf("expected packaged binary to exist: %v", err)
+	}
+
+	got := out.String()
+	if !strings.Contains(got, "architecture: arm64") {
+		t.Fatalf("expected package output to report architecture, got %q", got)
+	}
+}
+
+func TestPackageRejectsMismatchedBinaryArchitecture(t *testing.T) {
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+
+	binaryPath := buildLinuxMirageBinary(t, "x86_64")
+	err := Run([]string{
+		"package",
+		"--output", filepath.Join(t.TempDir(), "release"),
+		"--binary", binaryPath,
+		"--arch", "arm64",
+	}, &out, &errBuf)
+	if err == nil || !strings.Contains(err.Error(), "but --arch requested arm64") {
+		t.Fatalf("expected architecture mismatch error, got %v", err)
 	}
 }
 
@@ -620,6 +658,37 @@ func TestRootfsInitHelpListsSupportedArchitectures(t *testing.T) {
 			t.Fatalf("expected rootfs init help to contain %q, got %q", needle, got)
 		}
 	}
+}
+
+func buildLinuxMirageBinary(t *testing.T, architecture string) string {
+	t.Helper()
+
+	outputPath := filepath.Join(t.TempDir(), "mirage")
+	repoRoot, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatalf("resolve repo root: %v", err)
+	}
+
+	goarch := map[string]string{
+		"x86_64":  "amd64",
+		"arm64":   "arm64",
+		"arm32":   "arm",
+		"riscv64": "riscv64",
+	}[architecture]
+	if goarch == "" {
+		t.Fatalf("unsupported test architecture %q", architecture)
+	}
+
+	cmd := exec.Command("go", "build", "-o", outputPath, "./cmd/mirage")
+	cmd.Dir = repoRoot
+	cmd.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS=linux", "GOARCH="+goarch)
+	if architecture == "arm32" {
+		cmd.Env = append(cmd.Env, "GOARM=7")
+	}
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("build Linux mirage binary: %v\n%s", err, string(output))
+	}
+	return outputPath
 }
 
 func TestPrintGenerateWarningsIncludesGenericWarnings(t *testing.T) {

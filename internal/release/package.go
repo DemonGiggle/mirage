@@ -3,39 +3,68 @@ package release
 import (
 	"archive/tar"
 	"compress/gzip"
+	"debug/elf"
 	"fmt"
 	"io"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/DemonGiggle/mirage/examples"
+	"github.com/DemonGiggle/mirage/internal/rootfs"
 )
 
 type PackageOptions struct {
-	OutputPath string
-	BinaryPath string
+	OutputPath   string
+	BinaryPath   string
+	Architecture string
 }
 
 type PackageReport struct {
-	Format      string
-	OutputPath  string
-	BinaryPath  string
-	PackageRoot string
+	Format       string
+	OutputPath   string
+	BinaryPath   string
+	PackageRoot  string
+	Architecture string
 }
 
 func CreatePackage(opts PackageOptions) (PackageReport, error) {
 	if strings.TrimSpace(opts.OutputPath) == "" {
 		return PackageReport{}, fmt.Errorf("output path is required")
 	}
-	if strings.TrimSpace(opts.BinaryPath) == "" {
-		return PackageReport{}, fmt.Errorf("binary path is required")
+
+	architecture := strings.TrimSpace(opts.Architecture)
+	if architecture != "" {
+		var err error
+		architecture, err = rootfs.NormalizeArchitecture(architecture)
+		if err != nil {
+			return PackageReport{}, err
+		}
 	}
 
-	binaryPath, err := filepath.Abs(opts.BinaryPath)
+	binaryPath := strings.TrimSpace(opts.BinaryPath)
+	cleanup := func() {}
+	if binaryPath == "" {
+		var err error
+		if architecture == "" {
+			binaryPath, err = os.Executable()
+			if err != nil {
+				return PackageReport{}, fmt.Errorf("resolve current executable: %w", err)
+			}
+		} else {
+			binaryPath, cleanup, err = buildPackageBinaryForArchitecture(architecture)
+			if err != nil {
+				return PackageReport{}, err
+			}
+		}
+	}
+	defer cleanup()
+
+	binaryPath, err := filepath.Abs(binaryPath)
 	if err != nil {
-		return PackageReport{}, fmt.Errorf("resolve binary path %q: %w", opts.BinaryPath, err)
+		return PackageReport{}, fmt.Errorf("resolve binary path %q: %w", binaryPath, err)
 	}
 	info, err := os.Stat(binaryPath)
 	if err != nil {
@@ -51,8 +80,23 @@ func CreatePackage(opts PackageOptions) (PackageReport, error) {
 	}
 
 	report := PackageReport{
-		OutputPath: outputPath,
-		BinaryPath: binaryPath,
+		OutputPath:   outputPath,
+		BinaryPath:   binaryPath,
+		Architecture: architecture,
+	}
+
+	if report.Architecture == "" {
+		if detectedArchitecture, detectErr := detectLinuxBinaryArchitecture(binaryPath); detectErr == nil {
+			report.Architecture = detectedArchitecture
+		}
+	} else {
+		detectedArchitecture, err := detectLinuxBinaryArchitecture(binaryPath)
+		if err != nil {
+			return PackageReport{}, fmt.Errorf("inspect package binary architecture: %w", err)
+		}
+		if detectedArchitecture != report.Architecture {
+			return PackageReport{}, fmt.Errorf("package binary %q targets %s, but --arch requested %s", binaryPath, detectedArchitecture, report.Architecture)
+		}
 	}
 
 	if isArchivePath(outputPath) {
@@ -236,4 +280,88 @@ func archiveRootName(outputPath string) string {
 		return "mirage-release"
 	}
 	return base
+}
+
+func buildPackageBinaryForArchitecture(architecture string) (string, func(), error) {
+	goarch, goarm, err := rootfs.GoBuildTargetForArchitecture(architecture)
+	if err != nil {
+		return "", nil, err
+	}
+	moduleRoot, err := findModuleRoot()
+	if err != nil {
+		return "", nil, err
+	}
+
+	stagingRoot, err := os.MkdirTemp("", "mirage-package-build-*")
+	if err != nil {
+		return "", nil, fmt.Errorf("create package build staging directory: %w", err)
+	}
+	cleanup := func() {
+		_ = os.RemoveAll(stagingRoot)
+	}
+
+	outputPath := filepath.Join(stagingRoot, "mirage")
+	cmd := exec.Command("go", "build", "-o", outputPath, "./cmd/mirage")
+	cmd.Dir = moduleRoot
+	cmd.Env = append(os.Environ(),
+		"CGO_ENABLED=0",
+		"GOOS=linux",
+		"GOARCH="+goarch,
+	)
+	if goarm != "" {
+		cmd.Env = append(cmd.Env, "GOARM="+goarm)
+	}
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		cleanup()
+		return "", nil, fmt.Errorf("build mirage package binary for %s: %w\n%s", architecture, err, strings.TrimSpace(string(output)))
+	}
+	return outputPath, cleanup, nil
+}
+
+func findModuleRoot() (string, error) {
+	current, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("resolve working directory: %w", err)
+	}
+
+	for {
+		goModPath := filepath.Join(current, "go.mod")
+		cmdPath := filepath.Join(current, "cmd", "mirage")
+		if info, err := os.Stat(goModPath); err == nil && !info.IsDir() {
+			if cmdInfo, cmdErr := os.Stat(cmdPath); cmdErr == nil && cmdInfo.IsDir() {
+				return current, nil
+			}
+		}
+
+		parent := filepath.Dir(current)
+		if parent == current {
+			return "", fmt.Errorf("could not locate repository root containing ./cmd/mirage from %q", current)
+		}
+		current = parent
+	}
+}
+
+func detectLinuxBinaryArchitecture(binaryPath string) (string, error) {
+	file, err := elf.Open(binaryPath)
+	if err != nil {
+		return "", fmt.Errorf("open ELF binary %q: %w", binaryPath, err)
+	}
+	defer file.Close()
+
+	switch file.FileHeader.Machine {
+	case elf.EM_X86_64:
+		return "x86_64", nil
+	case elf.EM_AARCH64:
+		return "arm64", nil
+	case elf.EM_ARM:
+		return "arm32", nil
+	case elf.EM_RISCV:
+		if file.Class != elf.ELFCLASS64 {
+			return "", fmt.Errorf("unsupported RISC-V ELF class %v in %q", file.Class, binaryPath)
+		}
+		return "riscv64", nil
+	default:
+		return "", fmt.Errorf("unsupported ELF machine %v in %q", file.FileHeader.Machine, binaryPath)
+	}
 }

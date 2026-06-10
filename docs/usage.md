@@ -111,7 +111,13 @@ sudo ./bin/mirage run --preset-file ./examples/presets/openclaw-offline.yaml -- 
 Create a release bundle:
 
 ```bash
-./bin/mirage package --output ./dist/mirage-linux-amd64.tar.gz --binary ./bin/mirage
+./bin/mirage package --output ./dist/mirage-linux-x86_64.tar.gz --binary ./bin/mirage
+```
+
+Build and package a Linux bundle for another architecture from source:
+
+```bash
+./bin/mirage package --output ./dist/mirage-linux-arm64.tar.gz --arch arm64
 ```
 
 ## `mirage run`
@@ -238,6 +244,11 @@ Current backend behavior:
 
 If `--output` ends with `.tar.gz` or `.tgz`, Mirage writes a compressed
 archive. Otherwise it writes an unpacked directory tree.
+
+`--arch` accepts `x86_64`, `arm64`, `arm32`, and `riscv64`. When you pass
+`--arch` without `--binary`, Mirage cross-compiles a Linux `bin/mirage` from
+`./cmd/mirage`. When you pass both, Mirage verifies that the provided binary
+matches the requested architecture.
 
 Example unpacked bundle:
 

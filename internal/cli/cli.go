@@ -5,7 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"strings"
 
@@ -118,7 +117,7 @@ Help:
 Examples:
   mirage rootfs init --output /tmp/mirage/basic-rootfs
   mirage network-policy list
-  mirage package --output ./dist/mirage-linux-amd64.tar.gz --binary ./bin/mirage
+  mirage package --output ./dist/mirage-linux-x86_64.tar.gz --binary ./bin/mirage
   mirage doctor --rootfs /tmp/mirage/basic-rootfs --command /bin/ls
   mirage run --rootfs /tmp/mirage/basic-rootfs --network-policy-file ./examples/network-policies/offline.yaml -- app
   mirage run --preset-file ./examples/presets/openclaw-offline.yaml -- app
@@ -245,9 +244,11 @@ func runPackage(args []string, stdout, stderr io.Writer) error {
 
 	var outputPath string
 	var binaryPath string
+	var architecture string
 
 	fs.StringVar(&outputPath, "output", "", "Package output path. Use a directory path for an unpacked bundle or a .tar.gz/.tgz path for an archive.")
-	fs.StringVar(&binaryPath, "binary", "", "Path to the mirage executable to include. Defaults to the current executable.")
+	fs.StringVar(&binaryPath, "binary", "", "Path to the mirage executable to include. Defaults to the current executable unless --arch builds one from source.")
+	fs.StringVar(&architecture, "arch", "", "Target package architecture. Supported: x86_64, arm64, arm32, riscv64. When set without --binary, Mirage builds a Linux binary for that architecture from ./cmd/mirage.")
 
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -258,17 +259,10 @@ func runPackage(args []string, stdout, stderr io.Writer) error {
 	if len(fs.Args()) > 0 {
 		return fmt.Errorf("package does not accept positional arguments: %s", strings.Join(fs.Args(), " "))
 	}
-	if binaryPath == "" {
-		self, err := os.Executable()
-		if err != nil {
-			return fmt.Errorf("resolve current executable: %w", err)
-		}
-		binaryPath = self
-	}
-
 	report, err := release.CreatePackage(release.PackageOptions{
-		OutputPath: outputPath,
-		BinaryPath: binaryPath,
+		OutputPath:   outputPath,
+		BinaryPath:   binaryPath,
+		Architecture: architecture,
 	})
 	if err != nil {
 		return err
@@ -287,6 +281,9 @@ func runPackage(args []string, stdout, stderr io.Writer) error {
 	_, _ = fmt.Fprintf(stdout, "format: %s\n", report.Format)
 	_, _ = fmt.Fprintf(stdout, "output: %s\n", report.OutputPath)
 	_, _ = fmt.Fprintf(stdout, "binary: %s\n", report.BinaryPath)
+	if report.Architecture != "" {
+		_, _ = fmt.Fprintf(stdout, "architecture: %s\n", report.Architecture)
+	}
 	_, _ = fmt.Fprintf(stdout, "package-root: %s\n", report.PackageRoot)
 	_, _ = fmt.Fprintf(stdout, "network-policies: %d\n", len(networkPolicies))
 	_, _ = fmt.Fprintf(stdout, "presets: %d\n", len(presets))
@@ -297,15 +294,19 @@ func printPackageHelp(w io.Writer) {
 	_, _ = fmt.Fprint(w, `Assemble a standalone Mirage release bundle.
 
 Usage:
-  mirage package --output <path> [--binary <path>]
+  mirage package --output <path> [--binary <path>] [--arch <arch>]
 
 Notes:
   - If --output ends with .tar.gz or .tgz, Mirage writes a compressed release archive.
   - Otherwise Mirage writes an unpacked directory bundle.
+  - Supported --arch values: x86_64, arm64, arm32, riscv64.
+  - If --arch is set without --binary, Mirage cross-compiles a Linux mirage binary from ./cmd/mirage.
+  - If --arch is set with --binary, Mirage verifies that the binary matches the requested architecture.
   - The package includes bin/mirage plus share/mirage/network-policies and share/mirage/presets.
 
 Examples:
-  mirage package --output ./dist/mirage-linux-amd64.tar.gz --binary ./bin/mirage
+  mirage package --output ./dist/mirage-linux-x86_64.tar.gz --binary ./bin/mirage
+  mirage package --output ./dist/mirage-linux-arm64.tar.gz --arch arm64
   mirage package --output ./dist/mirage-release --binary ./bin/mirage
 `)
 }
