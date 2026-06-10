@@ -670,9 +670,9 @@ func buildLinuxMirageBinary(t *testing.T, architecture string) string {
 	}
 
 	goarch := map[string]string{
-		"x86_64": "amd64",
-		"arm64":  "arm64",
-		"arm32":  "arm",
+		"x86_64":  "amd64",
+		"arm64":   "arm64",
+		"arm32":   "arm",
 		"riscv64": "riscv64",
 	}[architecture]
 	if goarch == "" {
