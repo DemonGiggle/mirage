@@ -60,6 +60,29 @@ type GenerateOptions struct {
 
 var supportedRootfsArchitectures = []string{"x86_64", "arm64", "arm32", "riscv64"}
 
+func SupportedArchitectures() []string {
+	return append([]string(nil), supportedRootfsArchitectures...)
+}
+
+func NormalizeArchitecture(raw string) (string, error) {
+	return normalizeRootfsArchitecture(raw)
+}
+
+func GoBuildTargetForArchitecture(architecture string) (string, string, error) {
+	switch architecture {
+	case "x86_64":
+		return "amd64", "", nil
+	case "arm64":
+		return "arm64", "", nil
+	case "arm32":
+		return "arm", "7", nil
+	case "riscv64":
+		return "riscv64", "", nil
+	default:
+		return "", "", fmt.Errorf("unsupported architecture %q (supported: %s)", architecture, strings.Join(supportedRootfsArchitectures, ", "))
+	}
+}
+
 func (report *GenerateReport) addMissing(asset MissingAsset) {
 	report.MissingAssets = append(report.MissingAssets, asset)
 }

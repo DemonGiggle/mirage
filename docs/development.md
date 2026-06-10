@@ -45,7 +45,7 @@ workflow:
 
 - runs `go test ./...`
 - builds `./bin/mirage`
-- runs `./bin/mirage package --output ./dist/mirage-<version>-linux-amd64.tar.gz`
+- runs `./bin/mirage package --output ./dist/mirage-<version>-linux-<arch>.tar.gz --arch <arch>` for `x86_64`, `arm64`, `arm32`, and `riscv64`
 - uploads the package archive plus `SHA256SUMS.txt` to the GitHub release page
 
 ## Formatting
