@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -26,6 +27,8 @@ const (
 var currentEUID = os.Geteuid
 var readMountInfo = os.ReadFile
 var detectBootstrapHostArchitecture = defaultDetectBootstrapHostArchitecture
+var lookupHomeForUser = defaultLookupHomeForUser
+var lchownPath = os.Lchown
 
 type MissingAsset struct {
 	Source     string
@@ -131,7 +134,7 @@ func BootstrapWithReportWithOptions(outputRoot string, options GenerateOptions) 
 	if err != nil {
 		return report, err
 	}
-	root, err := filepath.Abs(outputRoot)
+	root, err := resolveOutputRoot(outputRoot)
 	if err != nil {
 		return report, fmt.Errorf("resolve output rootfs %q: %w", outputRoot, err)
 	}
@@ -153,6 +156,9 @@ func BootstrapWithReportWithOptions(outputRoot string, options GenerateOptions) 
 		return report, err
 	}
 	report.merge(nssReport)
+	if err := restoreOutputOwnership(root); err != nil {
+		return report, err
+	}
 	return report, nil
 }
 
@@ -174,7 +180,7 @@ func GenerateWithReportWithOptions(outputRoot string, template Template, options
 	if err != nil {
 		return report, err
 	}
-	root, err := filepath.Abs(outputRoot)
+	root, err := resolveOutputRoot(outputRoot)
 	if err != nil {
 		return report, fmt.Errorf("resolve output rootfs %q: %w", outputRoot, err)
 	}
@@ -219,6 +225,9 @@ func GenerateWithReportWithOptions(outputRoot string, template Template, options
 		return generator.report, err
 	}
 	generator.report.merge(nssReport)
+	if err := restoreOutputOwnership(root); err != nil {
+		return generator.report, err
+	}
 	return generator.report, nil
 }
 
@@ -231,6 +240,62 @@ type generator struct {
 	missingReported map[string]struct{}
 	shebangCache    map[string]shebangCacheEntry
 	lddCache        map[string]lddCacheEntry
+}
+
+func resolveOutputRoot(outputRoot string) (string, error) {
+	expanded, err := expandUserPath(outputRoot)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Abs(expanded)
+}
+
+func expandUserPath(path string) (string, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return "", nil
+	}
+	if path == "~" {
+		return currentUserHomeDir()
+	}
+	if !strings.HasPrefix(path, "~/") {
+		return path, nil
+	}
+	home, err := currentUserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, path[2:]), nil
+}
+
+func currentUserHomeDir() (string, error) {
+	if sudoUser := strings.TrimSpace(os.Getenv("SUDO_USER")); currentEUID() == 0 && sudoUser != "" {
+		home, err := lookupHomeForUser(sudoUser)
+		if err == nil && strings.TrimSpace(home) != "" {
+			return home, nil
+		}
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve home directory: %w", err)
+	}
+	if strings.TrimSpace(home) == "" {
+		return "", errors.New("resolve home directory: empty result")
+	}
+	return home, nil
+}
+
+func defaultLookupHomeForUser(username string) (string, error) {
+	cmd := exec.Command("getent", "passwd", username)
+	output, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	fields := strings.Split(strings.TrimSpace(string(output)), ":")
+	if len(fields) < 6 || strings.TrimSpace(fields[5]) == "" {
+		return "", fmt.Errorf("lookup home for user %q: malformed passwd entry", username)
+	}
+	return fields[5], nil
 }
 
 func prepareOutputRoot(root string, allowOverwrite bool) error {
@@ -259,6 +324,34 @@ func prepareOutputRoot(root string, allowOverwrite bool) error {
 	default:
 		return fmt.Errorf("stat output rootfs %q: %w", root, err)
 	}
+}
+
+func restoreOutputOwnership(root string) error {
+	if currentEUID() != 0 {
+		return nil
+	}
+	uidValue := strings.TrimSpace(os.Getenv("SUDO_UID"))
+	gidValue := strings.TrimSpace(os.Getenv("SUDO_GID"))
+	if uidValue == "" || gidValue == "" {
+		return nil
+	}
+	uid, err := strconv.Atoi(uidValue)
+	if err != nil {
+		return fmt.Errorf("parse SUDO_UID %q: %w", uidValue, err)
+	}
+	gid, err := strconv.Atoi(gidValue)
+	if err != nil {
+		return fmt.Errorf("parse SUDO_GID %q: %w", gidValue, err)
+	}
+	return filepath.WalkDir(root, func(path string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if err := lchownPath(path, uid, gid); err != nil {
+			return fmt.Errorf("chown %q to %d:%d: %w", path, uid, gid, err)
+		}
+		return nil
+	})
 }
 
 func clearDirectory(root string) error {

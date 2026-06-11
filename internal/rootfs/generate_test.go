@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -239,6 +240,99 @@ func TestBootstrapLogsDebianArchitectureForSelectedRootfsArch(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "--architectures=amd64") {
 		t.Fatalf("expected bootstrap log to contain Debian architecture flag, got %q", out.String())
+	}
+}
+
+func TestResolveOutputRootExpandsTildeForSudoUser(t *testing.T) {
+	previousEUID := currentEUID
+	currentEUID = func() int { return 0 }
+	t.Cleanup(func() {
+		currentEUID = previousEUID
+	})
+
+	previousLookup := lookupHomeForUser
+	lookupHomeForUser = func(username string) (string, error) {
+		if username != "alice" {
+			t.Fatalf("lookupHomeForUser username = %q, want %q", username, "alice")
+		}
+		return "/home/alice", nil
+	}
+	t.Cleanup(func() {
+		lookupHomeForUser = previousLookup
+	})
+
+	if err := os.Setenv("SUDO_USER", "alice"); err != nil {
+		t.Fatalf("set SUDO_USER: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.Unsetenv("SUDO_USER"); err != nil {
+			t.Fatalf("unset SUDO_USER: %v", err)
+		}
+	})
+
+	got, err := resolveOutputRoot("~/mirage-arm64-pkg/rootfs")
+	if err != nil {
+		t.Fatalf("resolveOutputRoot returned error: %v", err)
+	}
+	if got != "/home/alice/mirage-arm64-pkg/rootfs" {
+		t.Fatalf("resolveOutputRoot returned %q", got)
+	}
+}
+
+func TestRestoreOutputOwnershipUsesSudoUIDAndGID(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("ownership handoff test requires os.Lchown semantics")
+	}
+
+	root := filepath.Join(t.TempDir(), "rootfs")
+	if err := os.MkdirAll(filepath.Join(root, "etc"), 0o755); err != nil {
+		t.Fatalf("create rootfs: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "etc", "hostname"), []byte("mirage\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	previousEUID := currentEUID
+	currentEUID = func() int { return 0 }
+	t.Cleanup(func() {
+		currentEUID = previousEUID
+	})
+
+	if err := os.Setenv("SUDO_UID", "1234"); err != nil {
+		t.Fatalf("set SUDO_UID: %v", err)
+	}
+	if err := os.Setenv("SUDO_GID", "5678"); err != nil {
+		t.Fatalf("set SUDO_GID: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.Unsetenv("SUDO_UID"); err != nil {
+			t.Fatalf("unset SUDO_UID: %v", err)
+		}
+		if err := os.Unsetenv("SUDO_GID"); err != nil {
+			t.Fatalf("unset SUDO_GID: %v", err)
+		}
+	})
+
+	var got []string
+	previousLchown := lchownPath
+	lchownPath = func(path string, uid, gid int) error {
+		got = append(got, fmt.Sprintf("%s:%d:%d", path, uid, gid))
+		return nil
+	}
+	t.Cleanup(func() {
+		lchownPath = previousLchown
+	})
+
+	if err := restoreOutputOwnership(root); err != nil {
+		t.Fatalf("restoreOutputOwnership returned error: %v", err)
+	}
+	if len(got) < 3 {
+		t.Fatalf("expected chown calls for rootfs tree, got %v", got)
+	}
+	for _, call := range got {
+		if !strings.HasSuffix(call, ":1234:5678") {
+			t.Fatalf("unexpected ownership handoff call %q", call)
+		}
 	}
 }
 
