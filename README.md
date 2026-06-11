@@ -71,6 +71,11 @@ sudo ./bin/mirage rootfs init --output /tmp/mirage/basic-rootfs
 ./bin/mirage doctor --rootfs /tmp/mirage/basic-rootfs --command /bin/ls
 ```
 
+If you need to generate a rootfs for a different target architecture such as
+`arm64` on an `x86_64` host, see
+[docs/rootfs-cross-arch.md](docs/rootfs-cross-arch.md) before running
+`rootfs init --arch ...`.
+
 Run a first sandboxed command:
 
 ```bash
@@ -103,6 +108,7 @@ sudo dpkg -i debian-archive-keyring_2023.3+deb12u2_all.deb
 
 - [docs/usage.md](docs/usage.md): command reference and operator workflows
 - [docs/rootfs.md](docs/rootfs.md): rootfs behavior and generation rules
+- [docs/rootfs-cross-arch.md](docs/rootfs-cross-arch.md): host setup for `rootfs init --arch ...` on a different CPU architecture
 - [docs/isolation.md](docs/isolation.md): current guarantees and caveats
 - [docs/apps/openclaw.md](docs/apps/openclaw.md): short OpenClaw setup flow
 - [docs/apps/hermes.md](docs/apps/hermes.md): short Hermes Agent setup flow

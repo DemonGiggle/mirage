@@ -35,6 +35,10 @@ Generate a rootfs for a specific target architecture:
 sudo ./bin/mirage rootfs init --output /tmp/mirage/arm64-rootfs --arch arm64
 ```
 
+If the host CPU architecture differs from the requested rootfs architecture,
+configure QEMU user emulation and `binfmt_misc` first. See
+[rootfs-cross-arch.md](rootfs-cross-arch.md).
+
 Reuse an existing non-empty output directory only when you intentionally want
 Mirage to clear and rebuild the rootfs:
 
