@@ -576,6 +576,59 @@ func TestSandboxIdentityFileMode(t *testing.T) {
 	}
 }
 
+func TestEnsureOwnedDirSetsModeAndOwnership(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "home", "mirage")
+	restoreChown := chownFunc
+	var (
+		gotPath string
+		gotUID  int
+		gotGID  int
+	)
+	chownFunc = func(path string, uid int, gid int) error {
+		gotPath = path
+		gotUID = uid
+		gotGID = gid
+		return nil
+	}
+	t.Cleanup(func() {
+		chownFunc = restoreChown
+	})
+
+	if err := ensureOwnedDir(dir, 0o755, 1000, 1000); err != nil {
+		t.Fatalf("ensureOwnedDir returned error: %v", err)
+	}
+
+	info, err := os.Stat(dir)
+	if err != nil {
+		t.Fatalf("stat owned dir: %v", err)
+	}
+	if !info.IsDir() {
+		t.Fatalf("expected %q to be a directory", dir)
+	}
+	if got := info.Mode().Perm(); got != 0o755 {
+		t.Fatalf("expected mode 0755, got %#o", got)
+	}
+	if gotPath != dir || gotUID != 1000 || gotGID != 1000 {
+		t.Fatalf("unexpected chown call: path=%q uid=%d gid=%d", gotPath, gotUID, gotGID)
+	}
+}
+
+func TestEnsureOwnedDirRejectsSymlink(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "home", "mirage")
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		t.Fatalf("mkdir parent: %v", err)
+	}
+	if err := os.Symlink("/tmp/outside", target); err != nil {
+		t.Fatalf("create symlink: %v", err)
+	}
+
+	err := ensureOwnedDir(target, 0o755, 1000, 1000)
+	if err == nil || !strings.Contains(err.Error(), "exists as a symlink") {
+		t.Fatalf("expected symlink rejection, got %v", err)
+	}
+}
+
 func TestApplySandboxIdentityClearsSupplementaryGroupsBeforeDroppingIDs(t *testing.T) {
 	restoreSetgroups := setgroupsFunc
 	restoreSetgid := setgidFunc
