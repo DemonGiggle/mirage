@@ -7,6 +7,10 @@ For example, on an `x86_64` host, `mirage rootfs init --arch arm64 ...` can
 fail unless the host is configured to run foreign-architecture binaries through
 `binfmt_misc` and QEMU user emulation.
 
+Mirage currently bootstraps Debian `trixie` rootfs trees. That release choice
+is required for `riscv64` because the needed Debian packages are available
+there.
+
 ## When You Need This
 
 Use this setup when the host architecture and the requested rootfs
