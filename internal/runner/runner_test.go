@@ -576,6 +576,43 @@ func TestSandboxIdentityFileMode(t *testing.T) {
 	}
 }
 
+func TestEnsureOwnedDirSetsModeAndOwnership(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "home", "mirage")
+	restoreChown := chownFunc
+	var (
+		gotPath string
+		gotUID  int
+		gotGID  int
+	)
+	chownFunc = func(path string, uid int, gid int) error {
+		gotPath = path
+		gotUID = uid
+		gotGID = gid
+		return nil
+	}
+	t.Cleanup(func() {
+		chownFunc = restoreChown
+	})
+
+	if err := ensureOwnedDir(dir, 0o755, 1000, 1000); err != nil {
+		t.Fatalf("ensureOwnedDir returned error: %v", err)
+	}
+
+	info, err := os.Stat(dir)
+	if err != nil {
+		t.Fatalf("stat owned dir: %v", err)
+	}
+	if !info.IsDir() {
+		t.Fatalf("expected %q to be a directory", dir)
+	}
+	if got := info.Mode().Perm(); got != 0o755 {
+		t.Fatalf("expected mode 0755, got %#o", got)
+	}
+	if gotPath != dir || gotUID != 1000 || gotGID != 1000 {
+		t.Fatalf("unexpected chown call: path=%q uid=%d gid=%d", gotPath, gotUID, gotGID)
+	}
+}
+
 func TestApplySandboxIdentityClearsSupplementaryGroupsBeforeDroppingIDs(t *testing.T) {
 	restoreSetgroups := setgroupsFunc
 	restoreSetgid := setgidFunc

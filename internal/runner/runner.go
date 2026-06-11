@@ -39,6 +39,7 @@ var (
 	currentUID         = os.Getuid
 	currentGID         = os.Getgid
 	currentGroups      = os.Getgroups
+	chownFunc          = os.Chown
 	idMapCommandRunner = runIDMapCommand
 	procfsRoot         = "/proc"
 	setgroupsFunc      = syscall.Setgroups
@@ -1257,6 +1258,16 @@ func ensureDir(path string, mode os.FileMode) error {
 	return os.Chmod(path, mode)
 }
 
+func ensureOwnedDir(path string, mode os.FileMode, uid int, gid int) error {
+	if err := ensureDir(path, mode); err != nil {
+		return err
+	}
+	if err := chownFunc(path, uid, gid); err != nil {
+		return err
+	}
+	return nil
+}
+
 func ensureMountpointDir(path string, mode os.FileMode) error {
 	info, err := os.Stat(path)
 	if err == nil {
@@ -1365,7 +1376,7 @@ func prepareSandboxIdentity(rootfs string, runAsRoot bool) (sandboxIdentity, err
 		}
 		return identity, nil
 	}
-	if err := ensureDir(bindMountTargetPath(rootfs, identity.Home), 0o777); err != nil {
+	if err := ensureOwnedDir(bindMountTargetPath(rootfs, identity.Home), 0o755, identity.UID, identity.GID); err != nil {
 		return sandboxIdentity{}, fmt.Errorf("prepare sandbox home %q: %w", identity.Home, err)
 	}
 	if err := applySandboxIdentityFiles(rootfs, identity); err != nil {
