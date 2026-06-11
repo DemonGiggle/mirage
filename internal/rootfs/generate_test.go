@@ -240,6 +240,9 @@ func TestBootstrapLogsDebianArchitectureForSelectedRootfsArch(t *testing.T) {
 	if !strings.Contains(out.String(), "--architectures=amd64") {
 		t.Fatalf("expected bootstrap log to contain Debian architecture flag, got %q", out.String())
 	}
+	if !strings.Contains(out.String(), " trixie ") {
+		t.Fatalf("expected bootstrap log to contain Debian release, got %q", out.String())
+	}
 }
 
 func TestDefaultDetectBootstrapHostArchitectureMapsDpkgArchitecture(t *testing.T) {

@@ -56,8 +56,11 @@ Validate a rootfs and a command inside it:
 
 ## What `rootfs init` Does
 
-`rootfs init` bootstraps a Debian `bookworm` `minbase` rootfs with
+`rootfs init` bootstraps a Debian `trixie` `minbase` rootfs with
 `mmdebstrap`.
+
+Mirage uses `trixie` because `riscv64` rootfs support depends on Debian
+package availability in that release.
 
 During `rootfs init`, Mirage prints the underlying bootstrap command, streams
 its output, and then prints the apt config write step it performs inside the

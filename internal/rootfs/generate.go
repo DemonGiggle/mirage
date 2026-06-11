@@ -16,7 +16,7 @@ import (
 
 const (
 	testSkipBootstrapEnv         = "MIRAGE_TEST_SKIP_MMDEBSTRAP"
-	debianRelease                = "bookworm"
+	debianRelease                = "trixie"
 	debianMirror                 = "http://deb.debian.org/debian"
 	minimalAptConfigPath         = "/etc/apt/apt.conf.d/99sandbox-minimal"
 	minimalAptConfigContent      = "APT::Install-Recommends \"false\";\nAPT::Install-Suggests \"false\";\nAPT::Sandbox::User \"root\";\n"
