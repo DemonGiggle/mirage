@@ -39,7 +39,7 @@ var (
 	currentUID         = os.Getuid
 	currentGID         = os.Getgid
 	currentGroups      = os.Getgroups
-	chownFunc          = os.Chown
+	chownFunc          = os.Lchown
 	idMapCommandRunner = runIDMapCommand
 	procfsRoot         = "/proc"
 	setgroupsFunc      = syscall.Setgroups
@@ -1259,6 +1259,13 @@ func ensureDir(path string, mode os.FileMode) error {
 }
 
 func ensureOwnedDir(path string, mode os.FileMode, uid int, gid int) error {
+	if info, err := os.Lstat(path); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("target %q exists as a symlink", path)
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
 	if err := ensureDir(path, mode); err != nil {
 		return err
 	}

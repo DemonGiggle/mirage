@@ -613,6 +613,22 @@ func TestEnsureOwnedDirSetsModeAndOwnership(t *testing.T) {
 	}
 }
 
+func TestEnsureOwnedDirRejectsSymlink(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "home", "mirage")
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		t.Fatalf("mkdir parent: %v", err)
+	}
+	if err := os.Symlink("/tmp/outside", target); err != nil {
+		t.Fatalf("create symlink: %v", err)
+	}
+
+	err := ensureOwnedDir(target, 0o755, 1000, 1000)
+	if err == nil || !strings.Contains(err.Error(), "exists as a symlink") {
+		t.Fatalf("expected symlink rejection, got %v", err)
+	}
+}
+
 func TestApplySandboxIdentityClearsSupplementaryGroupsBeforeDroppingIDs(t *testing.T) {
 	restoreSetgroups := setgroupsFunc
 	restoreSetgid := setgidFunc
