@@ -7,6 +7,13 @@ networking isolation on Linux. Mirage gives you a direct CLI for running one
 foreground workload with explicit rootfs, bind mounts, network policy, and
 optional cgroup limits.
 
+## Demo
+
+[![Mirage demo walkthrough](docs/assets/mirage-demo.gif)](docs/assets/mirage-demo.mp4)
+
+Open the demo above for a quick walkthrough of `mirage package`, `rootfs init`,
+and an interactive `mirage run` session with `ps`, `ls`, `curl`, and `jq`.
+
 ## Why Mirage
 
 - lightweight compared to full container or VM-based sandbox stacks
