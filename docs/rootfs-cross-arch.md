@@ -17,7 +17,7 @@ Use this setup when the host architecture and the requested rootfs
 architecture differ, for example:
 
 ```bash
-sudo ./bin/mirage rootfs init --output /tmp/mirage/arm64-rootfs --arch arm64
+sudo mirage rootfs init --output /tmp/mirage/arm64-rootfs --arch arm64
 ```
 
 If the host architecture already matches the requested target architecture, you
@@ -132,7 +132,7 @@ which qemu-riscv64-static
 After the host is configured, retry the rootfs bootstrap:
 
 ```bash
-sudo ./bin/mirage rootfs init --output /tmp/mirage/arm64-rootfs --arch arm64
+sudo mirage rootfs init --output /tmp/mirage/arm64-rootfs --arch arm64
 ```
 
 ## Notes

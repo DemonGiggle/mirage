@@ -65,17 +65,22 @@ mkdir -p ./bin /tmp/mirage
 go build -o ./bin/mirage ./cmd/mirage
 ```
 
+The rest of the docs assume `mirage` resolves to this built binary and is
+available in both your normal shell `PATH` and `sudo` command path. For
+commands that require elevated privileges, use `sudo mirage ...`, not
+`sudo go run ...`.
+
 Verify the host:
 
 ```bash
-./bin/mirage doctor
+mirage doctor
 ```
 
 Generate and validate a basic rootfs:
 
 ```bash
-sudo ./bin/mirage rootfs init --output /tmp/mirage/basic-rootfs
-./bin/mirage doctor --rootfs /tmp/mirage/basic-rootfs --command /bin/ls
+sudo mirage rootfs init --output /tmp/mirage/basic-rootfs
+mirage doctor --rootfs /tmp/mirage/basic-rootfs --command /bin/ls
 ```
 
 Need extra Debian tools in the generated rootfs? Add them at bootstrap time:
@@ -92,7 +97,7 @@ If you need to generate a rootfs for a different target architecture such as
 Run a first sandboxed command:
 
 ```bash
-sudo ./bin/mirage run --rootfs /tmp/mirage/basic-rootfs --network-policy-file ./examples/network-policies/offline.yaml -- /bin/ls /
+sudo mirage run --rootfs /tmp/mirage/basic-rootfs --network-policy-file ./examples/network-policies/offline.yaml -- /bin/ls /
 ```
 
 `rootfs init` currently requires `sudo`. `run` currently executes through

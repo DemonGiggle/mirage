@@ -16,28 +16,28 @@ sudo apt install -y \
 
 ## Generate Mirage Package
 
-Build Mirage first if you have not already:
+Create a Mirage package:
 
 ```bash
-go run ./cmd/mirage package --output /tmp/mirage
+mkdir -p /tmp/mirage
+mirage package --output /tmp/mirage
 ```
 
-The following examples assume you are change the working direcotry
-to `/tmp/mirage`.
+The following examples assume you change the working directory to `/tmp/mirage`.
 
 
-## Generate The Rootfs
+## Generate the Rootfs
 
 Then bootstrap a fresh rootfs:
 
 ```bash
-sudo bin/mirage rootfs init \
+sudo mirage rootfs init \
   --output /tmp/mirage-openclaw-rootfs \
   --allow-overwrite
 ```
 
-If you failed to generate a rootfs, the keyring might be too old to verify the debian rootfs.
-You need to download and install it manually.
+If rootfs generation fails, the keyring might be too old to verify the Debian
+rootfs. Download and install it manually.
 
 ```bash
 wget http://deb.debian.org/debian/pool/main/d/debian-archive-keyring/debian-archive-keyring_2023.3+deb12u2_all.deb
@@ -50,7 +50,7 @@ Use the official installer inside the Mirage rootfs. The installer script
 handles the package installation and the default post-install flow:
 
 ```bash
-sudo bin/mirage run \
+sudo mirage run \
   --rootfs /tmp/mirage-openclaw-rootfs \
   --network-policy-file ./share/mirage/network-policies/block-local-egress.yaml \
   --run-as-root \
@@ -59,9 +59,8 @@ sudo bin/mirage run \
 
 ## Onboard
 
-
 ```bash
-sudo bin/mirage run \
+sudo mirage run \
   --rootfs /tmp/mirage-openclaw-rootfs \
   --network-policy-file ./share/mirage/network-policies/block-local-egress.yaml \
   -- openclaw onboard
@@ -72,7 +71,7 @@ sudo bin/mirage run \
 To run the local gateway:
 
 ```bash
-sudo bin/mirage run \
+sudo mirage run \
   --rootfs /tmp/mirage-openclaw-rootfs \
   --network-policy-file ./share/mirage/network-policies/block-local-egress.yaml \
   -- openclaw gateway --port 18789
@@ -91,11 +90,11 @@ Pairing code:
   XXXXX
 ```
 
-Then you could open another terminal to run the approval as below. You
+Then you can open another terminal to run the approval below. You
 don't need to terminate the running OpenClaw first.
 
 ```bash
-sudo bin/mirage run \
+sudo mirage run \
   --rootfs /tmp/mirage-openclaw-rootfs \
   --network-policy-file ./share/mirage/network-policies/block-local-egress.yaml \
   -- openclaw pairing approve telegram XXXXX
@@ -106,11 +105,12 @@ The running OpenClaw would hotload the approval.
 
 ## Note
 
-If you want to give your claw more control on its sandbox, you could run it as root.
-In this case, it could install package on its own. But use it with caution.
+If you want to give your Claw more control in its sandbox, you can run it as
+root. In that case, it can install packages on its own, but use that with
+caution.
 
 ```bash
-sudo bin/mirage run \
+sudo mirage run \
   --run-as-root \
   --rootfs /tmp/mirage-openclaw-rootfs \
   --network-policy-file ./share/mirage/network-policies/block-local-egress.yaml \

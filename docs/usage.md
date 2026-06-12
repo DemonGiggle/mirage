@@ -24,15 +24,9 @@ sudo apt update
 sudo apt install -y mmdebstrap util-linux uidmap iproute2 iptables systemd
 ```
 
-Run `./bin/mirage doctor` after installation to verify the host environment.
+Run `mirage doctor` after installation to verify the host environment.
 
-## Build
-
-```bash
-go build -o ./bin/mirage ./cmd/mirage
-```
-
-You can also inspect the command surface without producing a binary:
+You can inspect the command surface without producing a binary:
 
 ```bash
 go run ./cmd/mirage --help
@@ -52,24 +46,24 @@ Current top-level commands:
 Useful first commands:
 
 ```bash
-./bin/mirage doctor
-./bin/mirage network-policy list
+mirage doctor
+mirage network-policy list
 ```
 
 Current operational note:
 
-- use `sudo ./bin/mirage rootfs init ...` for generated rootfs work
-- use `sudo ./bin/mirage run ...` for sandbox execution
-- `./bin/mirage doctor` and `./bin/mirage network-policy list` remain normal
-  non-`sudo` commands
+- use `sudo mirage rootfs init ...` for generated rootfs work
+- use `sudo mirage run ...` for sandbox execution
+- `mirage doctor` and `mirage network-policy list` remain normal non-`sudo`
+  commands
 
 ## Common Flows
 
 Generate and validate a basic rootfs:
 
 ```bash
-sudo ./bin/mirage rootfs init --output /tmp/mirage/basic-rootfs
-./bin/mirage doctor --rootfs /tmp/mirage/basic-rootfs --command /bin/ls
+sudo mirage rootfs init --output /tmp/mirage/basic-rootfs
+mirage doctor --rootfs /tmp/mirage/basic-rootfs --command /bin/ls
 ```
 
 `mirage rootfs init` prints the exact bootstrap command and streams the
@@ -80,7 +74,7 @@ To target a different architecture, pass `--arch` with one of
 host architecture:
 
 ```bash
-sudo ./bin/mirage rootfs init --output /tmp/mirage/arm64-rootfs --arch arm64
+sudo mirage rootfs init --output /tmp/mirage/arm64-rootfs --arch arm64
 ```
 
 To install extra Debian packages into the generated rootfs, pass
@@ -94,7 +88,7 @@ Allow Mirage to reuse a non-empty output directory only when you intend to
 clear and rebuild the rootfs:
 
 ```bash
-sudo ./bin/mirage rootfs init \
+sudo mirage rootfs init \
   --output /tmp/mirage/basic-rootfs \
   --allow-overwrite
 ```
@@ -102,7 +96,7 @@ sudo ./bin/mirage rootfs init \
 Preview a run without executing it:
 
 ```bash
-sudo ./bin/mirage run \
+sudo mirage run \
   --dry-run \
   --rootfs /tmp/mirage/basic-rootfs \
   --network-policy-file ./examples/network-policies/offline.yaml \
@@ -112,19 +106,19 @@ sudo ./bin/mirage run \
 Run a workload from a preset:
 
 ```bash
-sudo ./bin/mirage run --preset-file ./examples/presets/openclaw-offline.yaml -- openclaw
+sudo mirage run --preset-file ./examples/presets/openclaw-offline.yaml -- openclaw
 ```
 
 Create a release bundle:
 
 ```bash
-./bin/mirage package --output ./dist/mirage-linux-x86_64.tar.gz --binary ./bin/mirage
+mirage package --output ./dist/mirage-linux-x86_64.tar.gz
 ```
 
 Build and package a Linux bundle for another architecture from source:
 
 ```bash
-./bin/mirage package --output ./dist/mirage-linux-arm64.tar.gz --arch arm64
+mirage package --output ./dist/mirage-linux-arm64.tar.gz --arch arm64
 ```
 
 ## `mirage run`
@@ -168,7 +162,7 @@ Important behavior:
 Example:
 
 ```bash
-sudo ./bin/mirage run \
+sudo mirage run \
   --rootfs /tmp/mirage/basic-rootfs \
   --network-policy-file ./examples/network-policies/offline.yaml \
   -- /bin/sh
@@ -212,7 +206,7 @@ Notes:
 Validate a preset-managed rootfs:
 
 ```bash
-./bin/mirage doctor --preset-file ./examples/presets/openclaw-offline.yaml
+mirage doctor --preset-file ./examples/presets/openclaw-offline.yaml
 ```
 
 ## Network Policy Use
@@ -231,7 +225,7 @@ Mirage exposes a policy-first network surface. The current bundled examples are:
 List them with:
 
 ```bash
-./bin/mirage network-policy list
+mirage network-policy list
 ```
 
 Current backend behavior:
@@ -260,13 +254,13 @@ matches the requested architecture.
 Example unpacked bundle:
 
 ```bash
-./bin/mirage package --output ./dist/mirage-release --binary ./bin/mirage
+mirage package --output ./dist/mirage-release
 ```
 
 After extraction:
 
 ```bash
-sudo ./bin/mirage run --preset-file ./share/mirage/presets/openclaw-offline.yaml -- app
+sudo mirage run --preset-file ./share/mirage/presets/openclaw-offline.yaml -- app
 ```
 
 ## Log Export
@@ -275,7 +269,7 @@ Mirage can mirror stdout and stderr to host-visible files while still writing
 to the terminal:
 
 ```bash
-sudo ./bin/mirage run \
+sudo mirage run \
   --rootfs /tmp/mirage/basic-rootfs \
   --network-policy-file ./examples/network-policies/allow-all.yaml \
   --stdout-log /tmp/app.out \
