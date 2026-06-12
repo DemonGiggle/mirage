@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -266,6 +267,30 @@ func TestBuildUnshareArgsSwitchesRootMode(t *testing.T) {
 	}
 }
 
+func TestExecutablePathReexecFailsAcrossRestrictedParentDirectory(t *testing.T) {
+	requirePathRestrictedReexecSupport(t)
+
+	output, err := runRestrictedReexecHelper(t, "path")
+	if err == nil {
+		t.Fatalf("expected path-based reexec helper to fail, got output:\n%s", output)
+	}
+	if !strings.Contains(output, "Permission denied") {
+		t.Fatalf("expected permission denied from path-based reexec helper, got:\n%s", output)
+	}
+}
+
+func TestPreparedReexecPathWorksAcrossRestrictedParentDirectory(t *testing.T) {
+	requirePathRestrictedReexecSupport(t)
+
+	output, err := runRestrictedReexecHelper(t, "prepared")
+	if err != nil {
+		t.Fatalf("expected prepared reexec helper to succeed: %v\noutput:\n%s", err, output)
+	}
+	if !strings.Contains(output, "reexec-child-ok") {
+		t.Fatalf("expected helper child success marker, got:\n%s", output)
+	}
+}
+
 func TestDelegatedScopeArgs(t *testing.T) {
 	args := delegatedScopeArgs("mirage-sandbox-demo.scope", "mirage", "__cgroup-exec", "--memory", "128M", "--pids", "7", "--", "unshare", "--fork", "cmd")
 	got := strings.Join(args, " ")
@@ -284,6 +309,59 @@ func TestWriteOptionalCgroupFileIgnoresMissingFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected missing optional cgroup file to be ignored, got %v", err)
 	}
+}
+
+func TestRestrictedReexecHelper(t *testing.T) {
+	mode := os.Getenv("MIRAGE_REEXEC_HELPER_MODE")
+	if mode == "" {
+		return
+	}
+
+	switch mode {
+	case "child":
+		_, _ = fmt.Fprintln(os.Stdout, "reexec-child-ok")
+		os.Exit(0)
+	case "parent":
+	default:
+		t.Fatalf("unexpected helper mode %q", mode)
+	}
+
+	var target string
+	switch os.Getenv("MIRAGE_REEXEC_TARGET") {
+	case "path":
+		var err error
+		target, err = os.Executable()
+		if err != nil {
+			t.Fatalf("resolve helper executable: %v", err)
+		}
+	case "prepared":
+		var cleanup func()
+		var err error
+		target, cleanup, err = prepareExternalReexecPath()
+		if err != nil {
+			t.Fatalf("prepare external reexec path: %v", err)
+		}
+		defer cleanup()
+	default:
+		t.Fatalf("unexpected helper target %q", os.Getenv("MIRAGE_REEXEC_TARGET"))
+	}
+
+	cmd := exec.Command(
+		"unshare",
+		"--user",
+		"--map-auto",
+		"--setuid", "0",
+		"--setgid", "0",
+		target,
+		"-test.run", "^TestRestrictedReexecHelper$",
+	)
+	cmd.Env = append(os.Environ(), "MIRAGE_REEXEC_HELPER_MODE=child")
+	output, err := cmd.CombinedOutput()
+	os.Stdout.Write(output)
+	if err != nil {
+		t.Fatalf("restricted reexec helper failed: %v", err)
+	}
+	os.Exit(0)
 }
 
 func slicesContains(items []string, want string) bool {
@@ -308,6 +386,66 @@ func TestCgroupLeafCleanupRemovesLeafBeforeEntry(t *testing.T) {
 	if _, err := os.Stat(leafPath); !os.IsNotExist(err) {
 		t.Fatalf("expected cleanup to remove leaf before entry, got err=%v", err)
 	}
+}
+
+func requirePathRestrictedReexecSupport(t *testing.T) {
+	t.Helper()
+
+	cmd := exec.Command(
+		"unshare",
+		"--user",
+		"--map-auto",
+		"--setuid", "0",
+		"--setgid", "0",
+		"sh",
+		"-c",
+		"true",
+	)
+	output, err := cmd.CombinedOutput()
+	if err == nil {
+		return
+	}
+
+	msg := string(output)
+	if strings.Contains(msg, "Operation not permitted") ||
+		strings.Contains(msg, "write failed /proc/self/uid_map") ||
+		strings.Contains(msg, "subordinate ids") {
+		t.Skipf("restricted reexec helper unsupported in this test environment: %s", strings.TrimSpace(msg))
+	}
+
+	t.Fatalf("restricted reexec capability probe failed unexpectedly: %v\noutput:\n%s", err, msg)
+}
+
+func runRestrictedReexecHelper(t *testing.T, targetMode string) (string, error) {
+	t.Helper()
+
+	sourceBinary, err := os.Executable()
+	if err != nil {
+		t.Fatalf("resolve test executable: %v", err)
+	}
+
+	base := t.TempDir()
+	lockedParent := filepath.Join(base, "locked")
+	if err := os.Mkdir(lockedParent, 0o750); err != nil {
+		t.Fatalf("create locked parent dir: %v", err)
+	}
+	copiedBinary := filepath.Join(lockedParent, "runner.test")
+	data, err := os.ReadFile(sourceBinary)
+	if err != nil {
+		t.Fatalf("read test executable: %v", err)
+	}
+	if err := os.WriteFile(copiedBinary, data, 0o755); err != nil {
+		t.Fatalf("write copied test executable: %v", err)
+	}
+
+	cmd := exec.Command(copiedBinary, "-test.run", "^TestRestrictedReexecHelper$")
+	cmd.Env = append(
+		os.Environ(),
+		"MIRAGE_REEXEC_HELPER_MODE=parent",
+		"MIRAGE_REEXEC_TARGET="+targetMode,
+	)
+	output, err := cmd.CombinedOutput()
+	return string(output), err
 }
 
 func TestCgroupLeafCleanupSkipsRemovalAfterEntry(t *testing.T) {

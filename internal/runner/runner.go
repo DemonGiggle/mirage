@@ -67,10 +67,11 @@ func execute(cfg spec.Config, stdout, stderr io.Writer) error {
 	if policyPlan.BackendMode == backendNetworkPolicyRouted && requiresCgroupScope(cfg) {
 		return errors.New("routed network policy backend does not yet support delegated cgroup execution")
 	}
-	self, err := os.Executable()
+	self, cleanupReexecPath, err := prepareExternalReexecPath()
 	if err != nil {
-		return fmt.Errorf("resolve mirage executable: %w", err)
+		return err
 	}
+	defer cleanupReexecPath()
 
 	backendArgs := []string{self, "__backend-exec", "--rootfs", cfg.RootFS, "--network-backend", policyPlan.BackendMode}
 	if policyPlan.SerializedPolicy != "" {
@@ -291,6 +292,48 @@ func applyConfigDefaults(cfg spec.Config) spec.Config {
 		cfg.Hostname = defaultSandboxHost
 	}
 	return cfg
+}
+
+func prepareExternalReexecPath() (string, func(), error) {
+	self, err := os.Executable()
+	if err != nil {
+		return "", nil, fmt.Errorf("resolve mirage executable: %w", err)
+	}
+
+	source, err := os.Open(self)
+	if err != nil {
+		return "", nil, fmt.Errorf("open mirage executable %q: %w", self, err)
+	}
+	defer closeQuietly(source)
+
+	temp, err := os.CreateTemp("", "mirage-self-*")
+	if err != nil {
+		return "", nil, fmt.Errorf("create temporary mirage executable: %w", err)
+	}
+	cleanup := func() {
+		closeQuietly(temp)
+		_ = os.Remove(temp.Name())
+	}
+	if _, err := io.Copy(temp, source); err != nil {
+		cleanup()
+		return "", nil, fmt.Errorf("copy mirage executable into temporary launch path: %w", err)
+	}
+	if err := temp.Chmod(0o755); err != nil {
+		cleanup()
+		return "", nil, fmt.Errorf("mark temporary mirage executable %q executable: %w", temp.Name(), err)
+	}
+	if err := temp.Close(); err != nil {
+		_ = os.Remove(temp.Name())
+		return "", nil, fmt.Errorf("close temporary mirage executable %q: %w", temp.Name(), err)
+	}
+
+	return temp.Name(), func() {
+		_ = os.Remove(temp.Name())
+	}, nil
+}
+
+func selfReexecPath() string {
+	return "/proc/self/exe"
 }
 
 func RunCgroupHelper(args []string, stdout, stderr io.Writer) error {
@@ -961,10 +1004,7 @@ func waitForUIDMapReady(path string) error {
 }
 
 func reexecBackendWithMappedRoot(rootfs string, cwd string, hostname string, networkBackend string, policyConfig string, routedInterface string, routedAddress string, routedGateway string, networkReadyFD int, roBind []string, rwBind []string, envItems []string, runAsRoot bool, command []string) error {
-	self, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("resolve mirage executable: %w", err)
-	}
+	self := selfReexecPath()
 
 	args := []string{self, "__backend-exec", "--rootfs", rootfs, "--network-backend", networkBackend, "--mapped-root-ready"}
 	if cwd != "" {
