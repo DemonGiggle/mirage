@@ -120,7 +120,7 @@ func TestPackageHelpIncludesBundleLayout(t *testing.T) {
 		"share/mirage/network-policies",
 		"share/mirage/presets",
 		"Supported --arch values: x86_64, arm64, arm32, riscv64.",
-		"--allow-overwrite clears an existing output directory or replaces an existing archive file.",
+		"--allow-overwrite replaces existing package-managed files in a directory output or replaces an existing archive file.",
 	} {
 		if !strings.Contains(got, needle) {
 			t.Fatalf("expected package help to contain %q, got %q", needle, got)
@@ -199,7 +199,7 @@ func TestPackageRejectsExistingDirectoryWithoutAllowOverwrite(t *testing.T) {
 	}
 }
 
-func TestPackageAllowOverwriteClearsExistingDirectory(t *testing.T) {
+func TestPackageAllowOverwritePreservesUnmanagedFiles(t *testing.T) {
 	var out bytes.Buffer
 	var errBuf bytes.Buffer
 
@@ -209,12 +209,15 @@ func TestPackageAllowOverwriteClearsExistingDirectory(t *testing.T) {
 		t.Fatalf("write fake binary: %v", err)
 	}
 	outputDir := filepath.Join(tempDir, "release")
-	if err := os.MkdirAll(filepath.Join(outputDir, "stale"), 0o755); err != nil {
-		t.Fatalf("create stale directory: %v", err)
+	if err := os.MkdirAll(filepath.Join(outputDir, "bin"), 0o755); err != nil {
+		t.Fatalf("create bin directory: %v", err)
 	}
-	stalePath := filepath.Join(outputDir, "stale", "demo.txt")
-	if err := os.WriteFile(stalePath, []byte("old\n"), 0o644); err != nil {
-		t.Fatalf("write stale file: %v", err)
+	if err := os.WriteFile(filepath.Join(outputDir, "bin", "mirage"), []byte("old-binary\n"), 0o755); err != nil {
+		t.Fatalf("write existing package-managed binary: %v", err)
+	}
+	unmanagedPath := filepath.Join(outputDir, "FOO")
+	if err := os.WriteFile(unmanagedPath, []byte("keep-me\n"), 0o644); err != nil {
+		t.Fatalf("write unmanaged file: %v", err)
 	}
 
 	err := Run([]string{"package", "--output", outputDir, "--binary", binaryPath, "--allow-overwrite"}, &out, &errBuf)
@@ -222,11 +225,19 @@ func TestPackageAllowOverwriteClearsExistingDirectory(t *testing.T) {
 		t.Fatalf("Run returned error: %v", err)
 	}
 
-	if _, err := os.Stat(stalePath); !os.IsNotExist(err) {
-		t.Fatalf("expected stale file to be removed during overwrite, got %v", err)
+	gotUnmanaged, err := os.ReadFile(unmanagedPath)
+	if err != nil {
+		t.Fatalf("read unmanaged file after overwrite: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(outputDir, "bin", "mirage")); err != nil {
-		t.Fatalf("expected packaged binary to exist: %v", err)
+	if string(gotUnmanaged) != "keep-me\n" {
+		t.Fatalf("expected unmanaged file to be preserved, got %q", gotUnmanaged)
+	}
+	gotBinary, err := os.ReadFile(filepath.Join(outputDir, "bin", "mirage"))
+	if err != nil {
+		t.Fatalf("read packaged binary: %v", err)
+	}
+	if string(gotBinary) != "#!/bin/sh\n" {
+		t.Fatalf("expected package-managed binary to be replaced, got %q", gotBinary)
 	}
 }
 
