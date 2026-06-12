@@ -75,6 +75,60 @@ The high-level sequence is:
 7. configure the selected network backend
 8. `exec` the workload as sandbox PID 1
 
+## Internal Self Re-exec
+
+Mirage's runtime setup is split across multiple execution phases inside the
+same binary.
+
+In practice, `mirage run` does not go straight from CLI parsing to workload
+execution in a single process. Instead, Mirage may launch itself again with
+internal helper subcommands so each phase can run in the right host or
+namespace context.
+
+The current helper phases are:
+
+- `__cgroup-exec` for delegated cgroup v2 setup when `--memory` or `--pids`
+  is requested
+- `__backend-exec` for namespace setup, mount preparation, network backend
+  setup, rootfs handoff, and the final workload `exec`
+
+That means the effective process flow can look like:
+
+1. `mirage run ...`
+2. optional `mirage __cgroup-exec ...`
+3. `unshare ... mirage __backend-exec ...`
+4. final `exec` of the workload
+
+This is still a single Mirage invocation from the user's point of view. The
+extra Mirage processes are internal runtime helpers, not separate user-facing
+commands.
+
+Mirage uses this pattern because the setup phases have conflicting process
+context requirements, so they cannot all be done cleanly in one long-running
+process.
+
+The main constraints are:
+
+- cgroup delegation must happen after entering the delegated `systemd-run`
+  scope, because the helper needs to discover and modify the cgroup subtree it
+  is actually running in
+- user-namespace setup changes the process identity and capability model, so
+  later steps must run only after that transition has completed
+- some UID/GID mappings are written by the parent while the child is paused,
+  which requires a distinct pre-exec launcher process and a separate child
+  process waiting to continue
+- mount namespace setup, network configuration, and `chroot` preparation must
+  happen before the workload starts, but after the namespace topology has been
+  established
+- the final workload handoff uses `exec`, which replaces the current process
+  image entirely, so any Mirage logic that still needs to run must happen in an
+  earlier helper phase
+
+In short, Mirage is not re-executing itself for stylistic reasons. It is doing
+so because each phase needs a different combination of cgroup placement,
+namespace state, identity mapping, and pre-`exec` control, and those
+requirements do not fit into a single uninterrupted process phase.
+
 ## Runtime Construction
 
 For a dedicated non-`/` rootfs, the backend currently builds the sandbox in
