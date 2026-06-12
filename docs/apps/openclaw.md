@@ -106,7 +106,7 @@ The running OpenClaw would hotload the approval.
 ## Note
 
 If you want to give your Claw more control in its sandbox, you can run it as
-root. In that case it can install packages on its own, but use that with
+root. In that case, it can install packages on its own, but use that with
 caution.
 
 ```bash

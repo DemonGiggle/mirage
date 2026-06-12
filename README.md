@@ -56,10 +56,10 @@ git clone https://github.com/DemonGiggle/mirage.git
 cd mirage
 mkdir -p ./bin /tmp/mirage
 go build -o ./bin/mirage ./cmd/mirage
-export PATH="$PWD/bin:$PATH"
 ```
 
-The rest of the docs assume `mirage` resolves to this built binary. For
+The rest of the docs assume `mirage` resolves to this built binary and is
+available in both your normal shell `PATH` and `sudo` command path. For
 commands that require elevated privileges, use `sudo mirage ...`, not
 `sudo go run ...`.
 
