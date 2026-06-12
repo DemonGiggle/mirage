@@ -83,6 +83,13 @@ host architecture:
 sudo ./bin/mirage rootfs init --output /tmp/mirage/arm64-rootfs --arch arm64
 ```
 
+To install extra Debian packages into the generated rootfs, pass
+`--extra-pkg` with a comma-separated list:
+
+```bash
+sudo ./bin/mirage rootfs init --output /tmp/mirage/dev-rootfs --extra-pkg jq,vim,htop
+```
+
 Allow Mirage to reuse a non-empty output directory only when you intend to
 clear and rebuild the rootfs:
 

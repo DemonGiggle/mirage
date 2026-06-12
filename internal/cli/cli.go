@@ -183,10 +183,12 @@ func runRootfsInit(args []string, stdout, stderr io.Writer) error {
 	var outputRoot string
 	var allowOverwrite bool
 	var architecture string
+	var extraPackages string
 
 	fs.StringVar(&outputRoot, "output", "", "Path to the generated rootfs directory.")
 	fs.BoolVar(&allowOverwrite, "allow-overwrite", false, "Allow writing into an existing non-empty output directory.")
 	fs.StringVar(&architecture, "arch", "", "Target rootfs architecture. Supported: x86_64, arm64, arm32, riscv64. Defaults to the host architecture.")
+	fs.StringVar(&extraPackages, "extra-pkg", "", "Comma-separated Debian package names to install in addition to the default rootfs package set.")
 
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -204,6 +206,7 @@ func runRootfsInit(args []string, stdout, stderr io.Writer) error {
 		AllowOverwrite: allowOverwrite,
 		LogOutput:      stdout,
 		Architecture:   architecture,
+		ExtraPackages:  splitCommaSeparatedList(extraPackages),
 	})
 	if err != nil {
 		return err
@@ -217,18 +220,20 @@ func printRootfsInitHelp(w io.Writer) {
 	_, _ = fmt.Fprint(w, `Bootstrap a Debian minbase rootfs.
 
 Usage:
-  mirage rootfs init --output <path> [--allow-overwrite] [--arch <arch>]
+  mirage rootfs init --output <path> [--allow-overwrite] [--arch <arch>] [--extra-pkg <pkg1,pkg2>]
 
 Notes:
   - The rootfs is created with mmdebstrap.
   - Supported --arch values: x86_64, arm64, arm32, riscv64.
   - If --arch is omitted, Mirage detects the host architecture and uses that.
+  - --extra-pkg appends Debian packages to the default bootstrap package set.
   - --allow-overwrite clears the existing output directory before rebuilding it.
   - Generated rootfs trees can be validated later with mirage doctor --rootfs ....
 
 Examples:
   mirage rootfs init --output /tmp/mirage/basic-rootfs
   mirage rootfs init --output /tmp/mirage/arm64-rootfs --arch arm64
+  mirage rootfs init --output /tmp/mirage/dev-rootfs --extra-pkg vim,curl,jq
   mirage rootfs init --output /tmp/mirage/work --allow-overwrite
 `)
 }
@@ -718,6 +723,13 @@ func containsHelpFlag(args []string) bool {
 		}
 	}
 	return false
+}
+
+func splitCommaSeparatedList(raw string) []string {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	return strings.Split(raw, ",")
 }
 
 func hostToolStatus(name string) string {
