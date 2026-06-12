@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"debug/elf"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -17,9 +18,10 @@ import (
 )
 
 type PackageOptions struct {
-	OutputPath   string
-	BinaryPath   string
-	Architecture string
+	OutputPath     string
+	BinaryPath     string
+	Architecture   string
+	AllowOverwrite bool
 }
 
 type PackageReport struct {
@@ -102,7 +104,7 @@ func CreatePackage(opts PackageOptions) (PackageReport, error) {
 	if isArchivePath(outputPath) {
 		report.Format = "tar.gz"
 		report.PackageRoot = archiveRootName(outputPath)
-		if err := createArchivePackage(outputPath, report.PackageRoot, binaryPath, info.Mode().Perm()); err != nil {
+		if err := createArchivePackage(outputPath, report.PackageRoot, binaryPath, info.Mode().Perm(), opts.AllowOverwrite); err != nil {
 			return PackageReport{}, err
 		}
 		return report, nil
@@ -110,20 +112,24 @@ func CreatePackage(opts PackageOptions) (PackageReport, error) {
 
 	report.Format = "dir"
 	report.PackageRoot = outputPath
-	if err := createDirectoryPackage(outputPath, binaryPath, info.Mode().Perm()); err != nil {
+	if err := createDirectoryPackage(outputPath, binaryPath, info.Mode().Perm(), opts.AllowOverwrite); err != nil {
 		return PackageReport{}, err
 	}
 	return report, nil
 }
 
-func createDirectoryPackage(outputPath, binaryPath string, binaryMode fs.FileMode) error {
-	if err := ensureEmptyDir(outputPath); err != nil {
+func createDirectoryPackage(outputPath, binaryPath string, binaryMode fs.FileMode, allowOverwrite bool) error {
+	if err := prepareOutputDirectory(outputPath, allowOverwrite); err != nil {
 		return err
 	}
 	return populatePackage(outputPath, binaryPath, binaryMode)
 }
 
-func createArchivePackage(outputPath, packageRoot, binaryPath string, binaryMode fs.FileMode) error {
+func createArchivePackage(outputPath, packageRoot, binaryPath string, binaryMode fs.FileMode, allowOverwrite bool) error {
+	if err := prepareArchiveOutputPath(outputPath, allowOverwrite); err != nil {
+		return err
+	}
+
 	parent := filepath.Dir(outputPath)
 	if err := os.MkdirAll(parent, 0o755); err != nil {
 		return fmt.Errorf("create archive parent directory %q: %w", parent, err)
@@ -168,12 +174,21 @@ func populatePackage(packageRoot, binaryPath string, binaryMode fs.FileMode) err
 	return nil
 }
 
-func ensureEmptyDir(path string) error {
-	info, err := os.Stat(path)
+func prepareOutputDirectory(path string, allowOverwrite bool) error {
+	info, err := os.Lstat(path)
 	switch {
 	case err == nil:
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("output path %q already exists as a symlink", path)
+		}
 		if !info.IsDir() {
 			return fmt.Errorf("output path %q already exists and is not a directory", path)
+		}
+		if allowOverwrite {
+			if err := clearDirectory(path); err != nil {
+				return err
+			}
+			return nil
 		}
 		entries, err := os.ReadDir(path)
 		if err != nil {
@@ -183,7 +198,7 @@ func ensureEmptyDir(path string) error {
 			return fmt.Errorf("output directory %q must be empty", path)
 		}
 		return nil
-	case os.IsNotExist(err):
+	case errors.Is(err, os.ErrNotExist):
 		if err := os.MkdirAll(path, 0o755); err != nil {
 			return fmt.Errorf("create output directory %q: %w", path, err)
 		}
@@ -191,6 +206,40 @@ func ensureEmptyDir(path string) error {
 	default:
 		return fmt.Errorf("stat output directory %q: %w", path, err)
 	}
+}
+
+func prepareArchiveOutputPath(path string, allowOverwrite bool) error {
+	info, err := os.Lstat(path)
+	switch {
+	case err == nil:
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("archive output path %q already exists as a symlink", path)
+		}
+		if info.IsDir() {
+			return fmt.Errorf("archive output path %q already exists as a directory", path)
+		}
+		if !allowOverwrite {
+			return fmt.Errorf("archive output path %q already exists; re-run with --allow-overwrite to replace it", path)
+		}
+		return nil
+	case errors.Is(err, os.ErrNotExist):
+		return nil
+	default:
+		return fmt.Errorf("stat archive output path %q: %w", path, err)
+	}
+}
+
+func clearDirectory(root string) error {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return fmt.Errorf("read output directory %q: %w", root, err)
+	}
+	for _, entry := range entries {
+		if err := os.RemoveAll(filepath.Join(root, entry.Name())); err != nil {
+			return fmt.Errorf("remove existing output path %q: %w", filepath.Join(root, entry.Name()), err)
+		}
+	}
+	return nil
 }
 
 func copyFile(srcPath, destPath string, mode fs.FileMode) error {
