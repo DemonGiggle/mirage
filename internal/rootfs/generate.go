@@ -17,7 +17,7 @@ import (
 
 const (
 	testSkipBootstrapEnv         = "MIRAGE_TEST_SKIP_MMDEBSTRAP"
-	debianRelease                = "trixie"
+	defaultDebianRelease         = "trixie"
 	debianMirror                 = "http://deb.debian.org/debian"
 	minimalAptConfigPath         = "/etc/apt/apt.conf.d/99sandbox-minimal"
 	minimalAptConfigContent      = "APT::Install-Recommends \"false\";\nAPT::Install-Suggests \"false\";\nAPT::Sandbox::User \"root\";\n"
@@ -58,6 +58,7 @@ type GenerateOptions struct {
 	AllowOverwrite bool
 	LogOutput      io.Writer
 	Architecture   string
+	DebianRelease  string
 	ExtraPackages  []string
 }
 
@@ -65,6 +66,10 @@ var supportedRootfsArchitectures = []string{"x86_64", "arm64", "arm32", "riscv64
 
 func SupportedArchitectures() []string {
 	return append([]string(nil), supportedRootfsArchitectures...)
+}
+
+func DefaultDebianRelease() string {
+	return defaultDebianRelease
 }
 
 func NormalizeArchitecture(raw string) (string, error) {
@@ -144,11 +149,15 @@ func BootstrapWithReportWithOptions(outputRoot string, options GenerateOptions) 
 	if err := prepareOutputRoot(root, options.AllowOverwrite); err != nil {
 		return report, err
 	}
+	release, err := normalizeDebianRelease(options.DebianRelease)
+	if err != nil {
+		return report, err
+	}
 	extraPackages, err := normalizeExtraPackages(options.ExtraPackages)
 	if err != nil {
 		return report, err
 	}
-	if err := bootstrapDebianBaseRootfs(root, debianArchitecture, extraPackages, options.LogOutput); err != nil {
+	if err := bootstrapDebianBaseRootfs(root, debianArchitecture, release, extraPackages, options.LogOutput); err != nil {
 		return report, err
 	}
 	if err := writeMinimalAptConfig(root, options.LogOutput); err != nil {
@@ -350,7 +359,7 @@ func unescapeMountInfoPath(raw string) string {
 	return replacer.Replace(raw)
 }
 
-func bootstrapDebianBaseRootfs(root string, architecture string, extraPackages []string, logOutput io.Writer) error {
+func bootstrapDebianBaseRootfs(root string, architecture string, release string, extraPackages []string, logOutput io.Writer) error {
 	includePackages := append([]string{mmdebstrapIncludePackageList}, extraPackages...)
 	includeArg := strings.Join(includePackages, ",")
 	logCommand(logOutput, "mmdebstrap",
@@ -358,7 +367,7 @@ func bootstrapDebianBaseRootfs(root string, architecture string, extraPackages [
 		"--variant=minbase",
 		`--aptopt=APT::Install-Recommends "false"`,
 		"--include="+includeArg,
-		debianRelease,
+		release,
 		root,
 		debianMirror,
 	)
@@ -399,7 +408,7 @@ func bootstrapDebianBaseRootfs(root string, architecture string, extraPackages [
 		"--variant=minbase",
 		`--aptopt=APT::Install-Recommends "false"`,
 		"--include=" + includeArg,
-		debianRelease,
+		release,
 		root,
 		debianMirror,
 	}
@@ -444,6 +453,17 @@ func normalizeRootfsArchitecture(raw string) (string, error) {
 	default:
 		return "", fmt.Errorf("unsupported architecture %q (supported: %s)", raw, strings.Join(supportedRootfsArchitectures, ", "))
 	}
+}
+
+func normalizeDebianRelease(raw string) (string, error) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return defaultDebianRelease, nil
+	}
+	if strings.ContainsAny(value, " \t\r\n") {
+		return "", fmt.Errorf("debian release %q must not contain whitespace", raw)
+	}
+	return value, nil
 }
 
 func normalizeExtraPackages(raw []string) ([]string, error) {

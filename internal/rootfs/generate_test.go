@@ -246,6 +246,22 @@ func TestBootstrapLogsDebianArchitectureForSelectedRootfsArch(t *testing.T) {
 	}
 }
 
+func TestBootstrapUsesRequestedDebianRelease(t *testing.T) {
+	var out bytes.Buffer
+	root := filepath.Join(t.TempDir(), "rootfs")
+
+	_, err := BootstrapWithReportWithOptions(root, GenerateOptions{
+		DebianRelease: "bookworm",
+		LogOutput:     &out,
+	})
+	if err != nil {
+		t.Fatalf("BootstrapWithReportWithOptions returned error: %v", err)
+	}
+	if !strings.Contains(out.String(), " bookworm ") {
+		t.Fatalf("expected bootstrap log to contain requested Debian release, got %q", out.String())
+	}
+}
+
 func TestBootstrapLogsExtraPackagesInIncludeList(t *testing.T) {
 	var out bytes.Buffer
 	root := filepath.Join(t.TempDir(), "rootfs")
@@ -274,6 +290,20 @@ func TestNormalizeExtraPackagesRejectsInvalidNames(t *testing.T) {
 		if _, err := normalizeExtraPackages(tc.input); err == nil {
 			t.Fatalf("expected normalizeExtraPackages to reject %s input", tc.name)
 		}
+	}
+}
+
+func TestNormalizeDebianReleaseDefaultsAndRejectsWhitespace(t *testing.T) {
+	got, err := normalizeDebianRelease("")
+	if err != nil {
+		t.Fatalf("normalizeDebianRelease returned error: %v", err)
+	}
+	if got != defaultDebianRelease {
+		t.Fatalf("normalizeDebianRelease(\"\") = %q, want %q", got, defaultDebianRelease)
+	}
+
+	if _, err := normalizeDebianRelease("book worm"); err == nil || !strings.Contains(err.Error(), "must not contain whitespace") {
+		t.Fatalf("expected whitespace Debian release error, got %v", err)
 	}
 }
 

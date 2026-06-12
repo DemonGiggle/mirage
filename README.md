@@ -83,6 +83,12 @@ sudo mirage rootfs init --output /tmp/mirage/basic-rootfs
 mirage doctor --rootfs /tmp/mirage/basic-rootfs --command /bin/ls
 ```
 
+Need a different Debian release than the default `trixie`? Pass the codename:
+
+```bash
+sudo ./bin/mirage rootfs init --output /tmp/mirage/bookworm-rootfs --debian-release bookworm
+```
+
 Need extra Debian tools in the generated rootfs? Add them at bootstrap time:
 
 ```bash

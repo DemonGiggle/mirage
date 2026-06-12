@@ -77,6 +77,13 @@ host architecture:
 sudo mirage rootfs init --output /tmp/mirage/arm64-rootfs --arch arm64
 ```
 
+To target a different Debian release than the default `trixie`, pass
+`--debian-release`:
+
+```bash
+sudo ./bin/mirage rootfs init --output /tmp/mirage/bookworm-rootfs --debian-release bookworm
+```
+
 To install extra Debian packages into the generated rootfs, pass
 `--extra-pkg` with a comma-separated list:
 
