@@ -35,6 +35,14 @@ Generate a rootfs for a specific target architecture:
 sudo ./bin/mirage rootfs init --output /tmp/mirage/arm64-rootfs --arch arm64
 ```
 
+Add extra Debian packages during bootstrap:
+
+```bash
+sudo ./bin/mirage rootfs init \
+  --output /tmp/mirage/dev-rootfs \
+  --extra-pkg jq,vim,htop
+```
+
 If the host CPU architecture differs from the requested rootfs architecture,
 configure QEMU user emulation and `binfmt_misc` first. See
 [rootfs-cross-arch.md](rootfs-cross-arch.md).
@@ -76,6 +84,10 @@ rootfs.
 Mirage translates those user-facing names into the Debian architecture name
 used by `mmdebstrap`. If you omit `--arch`, Mirage detects the host
 architecture and uses that by default.
+
+`--extra-pkg` accepts a comma-separated list of Debian package names. Mirage
+trims surrounding spaces, rejects invalid or empty names, and appends the
+extra packages after the default bootstrap package set.
 
 The bootstrap step currently uses this package set:
 

@@ -78,6 +78,12 @@ sudo ./bin/mirage rootfs init --output /tmp/mirage/basic-rootfs
 ./bin/mirage doctor --rootfs /tmp/mirage/basic-rootfs --command /bin/ls
 ```
 
+Need extra Debian tools in the generated rootfs? Add them at bootstrap time:
+
+```bash
+sudo ./bin/mirage rootfs init --output /tmp/mirage/dev-rootfs --extra-pkg jq,vim,htop
+```
+
 If you need to generate a rootfs for a different target architecture such as
 `arm64` on an `x86_64` host, see
 [docs/rootfs-cross-arch.md](docs/rootfs-cross-arch.md) before running

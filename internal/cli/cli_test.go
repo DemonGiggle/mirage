@@ -626,6 +626,27 @@ func TestRootfsInitWithSupportedArchitecture(t *testing.T) {
 	}
 }
 
+func TestRootfsInitIncludesExtraPackages(t *testing.T) {
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+
+	outputRoot := filepath.Join(t.TempDir(), "rootfs")
+	err := Run([]string{
+		"rootfs",
+		"init",
+		"--output", outputRoot,
+		"--extra-pkg", "jq, vim ,jq",
+	}, &out, &errBuf)
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	got := out.String()
+	if !strings.Contains(got, "--include=apt,ca-certificates,bash,coreutils,util-linux,procps,psmisc,iproute2,curl,tar,gzip,xz-utils,git,jq,vim") {
+		t.Fatalf("expected rootfs init output to contain merged include list, got %q", got)
+	}
+}
+
 func TestRootfsInitRejectsInvalidArchitecture(t *testing.T) {
 	var out bytes.Buffer
 	var errBuf bytes.Buffer
@@ -641,6 +662,21 @@ func TestRootfsInitRejectsInvalidArchitecture(t *testing.T) {
 	}
 }
 
+func TestRootfsInitRejectsInvalidExtraPackage(t *testing.T) {
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+
+	err := Run([]string{
+		"rootfs",
+		"init",
+		"--output", filepath.Join(t.TempDir(), "rootfs"),
+		"--extra-pkg", "jq,bad/pkg",
+	}, &out, &errBuf)
+	if err == nil || !strings.Contains(err.Error(), `extra package "bad/pkg" is not a valid Debian package name`) {
+		t.Fatalf("expected invalid extra package error, got %v", err)
+	}
+}
+
 func TestRootfsInitHelpListsSupportedArchitectures(t *testing.T) {
 	var out bytes.Buffer
 	var errBuf bytes.Buffer
@@ -653,6 +689,7 @@ func TestRootfsInitHelpListsSupportedArchitectures(t *testing.T) {
 	for _, needle := range []string{
 		"Supported --arch values: x86_64, arm64, arm32, riscv64.",
 		"--arch <arch>",
+		"--extra-pkg <pkg1,pkg2>",
 	} {
 		if !strings.Contains(got, needle) {
 			t.Fatalf("expected rootfs init help to contain %q, got %q", needle, got)

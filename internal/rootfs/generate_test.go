@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -242,6 +243,48 @@ func TestBootstrapLogsDebianArchitectureForSelectedRootfsArch(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), " trixie ") {
 		t.Fatalf("expected bootstrap log to contain Debian release, got %q", out.String())
+	}
+}
+
+func TestBootstrapLogsExtraPackagesInIncludeList(t *testing.T) {
+	var out bytes.Buffer
+	root := filepath.Join(t.TempDir(), "rootfs")
+
+	_, err := BootstrapWithReportWithOptions(root, GenerateOptions{
+		ExtraPackages: []string{"jq", "vim", "jq", "curl"},
+		LogOutput:     &out,
+	})
+	if err != nil {
+		t.Fatalf("BootstrapWithReportWithOptions returned error: %v", err)
+	}
+	if !strings.Contains(out.String(), "--include=apt,ca-certificates,bash,coreutils,util-linux,procps,psmisc,iproute2,curl,tar,gzip,xz-utils,git,jq,vim") {
+		t.Fatalf("expected bootstrap log to contain merged include list, got %q", out.String())
+	}
+}
+
+func TestNormalizeExtraPackagesRejectsInvalidNames(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		input []string
+	}{
+		{name: "empty", input: []string{"jq", " "}},
+		{name: "comma", input: []string{"jq,bad"}},
+		{name: "slash", input: []string{"bad/pkg"}},
+	} {
+		if _, err := normalizeExtraPackages(tc.input); err == nil {
+			t.Fatalf("expected normalizeExtraPackages to reject %s input", tc.name)
+		}
+	}
+}
+
+func TestNormalizeExtraPackagesTrimsDedupesAndSkipsBasePackages(t *testing.T) {
+	got, err := normalizeExtraPackages([]string{" jq ", "vim", "jq", "curl"})
+	if err != nil {
+		t.Fatalf("normalizeExtraPackages returned error: %v", err)
+	}
+	want := []string{"jq", "vim"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("normalizeExtraPackages() = %v, want %v", got, want)
 	}
 }
 

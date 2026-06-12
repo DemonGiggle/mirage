@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"strings"
@@ -26,6 +27,7 @@ const (
 var currentEUID = os.Geteuid
 var readMountInfo = os.ReadFile
 var detectBootstrapHostArchitecture = defaultDetectBootstrapHostArchitecture
+var debianPackageNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9+.-]*$`)
 
 type MissingAsset struct {
 	Source     string
@@ -56,6 +58,7 @@ type GenerateOptions struct {
 	AllowOverwrite bool
 	LogOutput      io.Writer
 	Architecture   string
+	ExtraPackages  []string
 }
 
 var supportedRootfsArchitectures = []string{"x86_64", "arm64", "arm32", "riscv64"}
@@ -141,7 +144,11 @@ func BootstrapWithReportWithOptions(outputRoot string, options GenerateOptions) 
 	if err := prepareOutputRoot(root, options.AllowOverwrite); err != nil {
 		return report, err
 	}
-	if err := bootstrapDebianBaseRootfs(root, debianArchitecture, options.LogOutput); err != nil {
+	extraPackages, err := normalizeExtraPackages(options.ExtraPackages)
+	if err != nil {
+		return report, err
+	}
+	if err := bootstrapDebianBaseRootfs(root, debianArchitecture, extraPackages, options.LogOutput); err != nil {
 		return report, err
 	}
 	if err := writeMinimalAptConfig(root, options.LogOutput); err != nil {
@@ -343,12 +350,14 @@ func unescapeMountInfoPath(raw string) string {
 	return replacer.Replace(raw)
 }
 
-func bootstrapDebianBaseRootfs(root string, architecture string, logOutput io.Writer) error {
+func bootstrapDebianBaseRootfs(root string, architecture string, extraPackages []string, logOutput io.Writer) error {
+	includePackages := append([]string{mmdebstrapIncludePackageList}, extraPackages...)
+	includeArg := strings.Join(includePackages, ",")
 	logCommand(logOutput, "mmdebstrap",
 		"--architectures="+architecture,
 		"--variant=minbase",
 		`--aptopt=APT::Install-Recommends "false"`,
-		"--include="+mmdebstrapIncludePackageList,
+		"--include="+includeArg,
 		debianRelease,
 		root,
 		debianMirror,
@@ -389,7 +398,7 @@ func bootstrapDebianBaseRootfs(root string, architecture string, logOutput io.Wr
 		"--architectures=" + architecture,
 		"--variant=minbase",
 		`--aptopt=APT::Install-Recommends "false"`,
-		"--include=" + mmdebstrapIncludePackageList,
+		"--include=" + includeArg,
 		debianRelease,
 		root,
 		debianMirror,
@@ -435,6 +444,41 @@ func normalizeRootfsArchitecture(raw string) (string, error) {
 	default:
 		return "", fmt.Errorf("unsupported architecture %q (supported: %s)", raw, strings.Join(supportedRootfsArchitectures, ", "))
 	}
+}
+
+func normalizeExtraPackages(raw []string) ([]string, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+
+	basePackages := make(map[string]struct{})
+	for _, name := range strings.Split(mmdebstrapIncludePackageList, ",") {
+		basePackages[name] = struct{}{}
+	}
+
+	seen := make(map[string]struct{})
+	var packages []string
+	for _, item := range raw {
+		name := strings.TrimSpace(item)
+		if name == "" {
+			return nil, errors.New("extra package list contains an empty package name")
+		}
+		if strings.Contains(name, ",") {
+			return nil, fmt.Errorf("extra package %q must not contain commas", name)
+		}
+		if !debianPackageNamePattern.MatchString(name) {
+			return nil, fmt.Errorf("extra package %q is not a valid Debian package name", name)
+		}
+		if _, ok := basePackages[name]; ok {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		packages = append(packages, name)
+	}
+	return packages, nil
 }
 
 func debianArchitectureForRootfsArch(architecture string) (string, error) {
