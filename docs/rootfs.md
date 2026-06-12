@@ -26,13 +26,13 @@ A dedicated rootfs is the preferred mode when you care about:
 Generate a rootfs:
 
 ```bash
-sudo ./bin/mirage rootfs init --output /tmp/mirage/basic-rootfs
+sudo mirage rootfs init --output /tmp/mirage/basic-rootfs
 ```
 
 Generate a rootfs for a specific target architecture:
 
 ```bash
-sudo ./bin/mirage rootfs init --output /tmp/mirage/arm64-rootfs --arch arm64
+sudo mirage rootfs init --output /tmp/mirage/arm64-rootfs --arch arm64
 ```
 
 If the host CPU architecture differs from the requested rootfs architecture,
@@ -43,7 +43,7 @@ Reuse an existing non-empty output directory only when you intentionally want
 Mirage to clear and rebuild the rootfs:
 
 ```bash
-sudo ./bin/mirage rootfs init \
+sudo mirage rootfs init \
   --output /tmp/mirage/basic-rootfs \
   --allow-overwrite
 ```
@@ -51,7 +51,7 @@ sudo ./bin/mirage rootfs init \
 Validate a rootfs and a command inside it:
 
 ```bash
-./bin/mirage doctor --rootfs /tmp/mirage/basic-rootfs --command /bin/ls
+mirage doctor --rootfs /tmp/mirage/basic-rootfs --command /bin/ls
 ```
 
 ## What `rootfs init` Does

@@ -16,27 +16,27 @@ sudo apt install -y \
 
 ## Generate Mirage Package
 
-Build Mirage first if you have not already:
+Create a Mirage package:
 
 ```bash
-go run ./cmd/mirage package --output /tmp/mirage
+mkdir -p /tmp/mirage
+mirage package --output /tmp/mirage
 ```
 
-The following examples assume you are change the working direcotry
-to `/tmp/mirage`.
+The following examples assume you change the working directory to `/tmp/mirage`.
 
-## Generate The Rootfs
+## Generate the Rootfs
 
 Then bootstrap a fresh rootfs:
 
 ```bash
-sudo bin/mirage rootfs init \
+sudo mirage rootfs init \
   --output /tmp/mirage-hermes-rootfs \
   --allow-overwrite
 ```
 
-If you failed to generate a rootfs, the keyring might be too old to verify the debian rootfs.
-You need to download and install it manually.
+If rootfs generation fails, the keyring might be too old to verify the Debian
+rootfs. Download and install it manually.
 
 ```bash
 wget http://deb.debian.org/debian/pool/main/d/debian-archive-keyring/debian-archive-keyring_2023.3+deb12u2_all.deb
@@ -48,7 +48,7 @@ sudo dpkg -i debian-archive-keyring_2023.3+deb12u2_all.deb
 Use the official installer inside the Mirage rootfs:
 
 ```bash
-sudo bin/mirage run \
+sudo mirage run \
   --rootfs /tmp/mirage-hermes-rootfs \
   --network-policy-file ./share/mirage/network-policies/block-local-egress.yaml \
   -- /bin/bash -lc 'curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash'
@@ -59,10 +59,10 @@ This follows the official Hermes installation command:
 
 ## Run Hermes
 
-Start the Hermes:
+Start Hermes:
 
 ```bash
-sudo bin/mirage run \
+sudo mirage run \
   --rootfs /tmp/mirage-hermes-rootfs \
   --network-policy-file ./share/mirage/network-policies/block-local-egress.yaml \
   -- /bin/bash -lc '$HOME/.local/bin/hermes gateway'

@@ -56,19 +56,24 @@ git clone https://github.com/DemonGiggle/mirage.git
 cd mirage
 mkdir -p ./bin /tmp/mirage
 go build -o ./bin/mirage ./cmd/mirage
+export PATH="$PWD/bin:$PATH"
 ```
+
+The rest of the docs assume `mirage` resolves to this built binary. For
+commands that require elevated privileges, use `sudo mirage ...`, not
+`sudo go run ...`.
 
 Verify the host:
 
 ```bash
-./bin/mirage doctor
+mirage doctor
 ```
 
 Generate and validate a basic rootfs:
 
 ```bash
-sudo ./bin/mirage rootfs init --output /tmp/mirage/basic-rootfs
-./bin/mirage doctor --rootfs /tmp/mirage/basic-rootfs --command /bin/ls
+sudo mirage rootfs init --output /tmp/mirage/basic-rootfs
+mirage doctor --rootfs /tmp/mirage/basic-rootfs --command /bin/ls
 ```
 
 If you need to generate a rootfs for a different target architecture such as
@@ -79,7 +84,7 @@ If you need to generate a rootfs for a different target architecture such as
 Run a first sandboxed command:
 
 ```bash
-sudo ./bin/mirage run --rootfs /tmp/mirage/basic-rootfs --network-policy-file ./examples/network-policies/offline.yaml -- /bin/ls /
+sudo mirage run --rootfs /tmp/mirage/basic-rootfs --network-policy-file ./examples/network-policies/offline.yaml -- /bin/ls /
 ```
 
 `rootfs init` currently requires `sudo`. `run` currently executes through
