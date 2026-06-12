@@ -116,10 +116,11 @@ func TestPackageHelpIncludesBundleLayout(t *testing.T) {
 	got := out.String()
 	for _, needle := range []string{
 		"Assemble a standalone Mirage release bundle.",
-		"mirage package --output <path> [--binary <path>] [--arch <arch>]",
+		"mirage package --output <path> [--binary <path>] [--arch <arch>] [--allow-overwrite]",
 		"share/mirage/network-policies",
 		"share/mirage/presets",
 		"Supported --arch values: x86_64, arm64, arm32, riscv64.",
+		"--allow-overwrite clears an existing output directory or replaces an existing archive file.",
 	} {
 		if !strings.Contains(got, needle) {
 			t.Fatalf("expected package help to contain %q, got %q", needle, got)
@@ -172,6 +173,92 @@ func TestPackageCreatesDirectoryBundle(t *testing.T) {
 		if !strings.Contains(got, needle) {
 			t.Fatalf("expected package output to contain %q, got %q", needle, got)
 		}
+	}
+}
+
+func TestPackageRejectsExistingDirectoryWithoutAllowOverwrite(t *testing.T) {
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+
+	tempDir := t.TempDir()
+	binaryPath := filepath.Join(tempDir, "mirage")
+	if err := os.WriteFile(binaryPath, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write fake binary: %v", err)
+	}
+	outputDir := filepath.Join(tempDir, "release")
+	if err := os.MkdirAll(filepath.Join(outputDir, "stale"), 0o755); err != nil {
+		t.Fatalf("create stale directory: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(outputDir, "stale", "demo.txt"), []byte("old\n"), 0o644); err != nil {
+		t.Fatalf("write stale file: %v", err)
+	}
+
+	err := Run([]string{"package", "--output", outputDir, "--binary", binaryPath}, &out, &errBuf)
+	if err == nil || !strings.Contains(err.Error(), "must be empty") {
+		t.Fatalf("expected existing directory rejection, got %v", err)
+	}
+}
+
+func TestPackageAllowOverwriteClearsExistingDirectory(t *testing.T) {
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+
+	tempDir := t.TempDir()
+	binaryPath := filepath.Join(tempDir, "mirage")
+	if err := os.WriteFile(binaryPath, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write fake binary: %v", err)
+	}
+	outputDir := filepath.Join(tempDir, "release")
+	if err := os.MkdirAll(filepath.Join(outputDir, "stale"), 0o755); err != nil {
+		t.Fatalf("create stale directory: %v", err)
+	}
+	stalePath := filepath.Join(outputDir, "stale", "demo.txt")
+	if err := os.WriteFile(stalePath, []byte("old\n"), 0o644); err != nil {
+		t.Fatalf("write stale file: %v", err)
+	}
+
+	err := Run([]string{"package", "--output", outputDir, "--binary", binaryPath, "--allow-overwrite"}, &out, &errBuf)
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	if _, err := os.Stat(stalePath); !os.IsNotExist(err) {
+		t.Fatalf("expected stale file to be removed during overwrite, got %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(outputDir, "bin", "mirage")); err != nil {
+		t.Fatalf("expected packaged binary to exist: %v", err)
+	}
+}
+
+func TestPackageArchiveRequiresAllowOverwriteToReplaceExistingFile(t *testing.T) {
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+
+	tempDir := t.TempDir()
+	binaryPath := filepath.Join(tempDir, "mirage")
+	if err := os.WriteFile(binaryPath, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write fake binary: %v", err)
+	}
+	outputPath := filepath.Join(tempDir, "mirage-release.tar.gz")
+	if err := os.WriteFile(outputPath, []byte("old archive\n"), 0o644); err != nil {
+		t.Fatalf("write existing archive: %v", err)
+	}
+
+	err := Run([]string{"package", "--output", outputPath, "--binary", binaryPath}, &out, &errBuf)
+	if err == nil || !strings.Contains(err.Error(), "re-run with --allow-overwrite") {
+		t.Fatalf("expected archive overwrite rejection, got %v", err)
+	}
+
+	err = Run([]string{"package", "--output", outputPath, "--binary", binaryPath, "--allow-overwrite"}, &out, &errBuf)
+	if err != nil {
+		t.Fatalf("Run returned error with allow overwrite: %v", err)
+	}
+	info, err := os.Stat(outputPath)
+	if err != nil {
+		t.Fatalf("stat overwritten archive: %v", err)
+	}
+	if info.Size() == int64(len("old archive\n")) {
+		t.Fatalf("expected archive file to be replaced, size remained %d", info.Size())
 	}
 }
 
