@@ -626,6 +626,26 @@ func TestRootfsInitWithSupportedArchitecture(t *testing.T) {
 	}
 }
 
+func TestRootfsInitPassesDebianRelease(t *testing.T) {
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+
+	outputRoot := filepath.Join(t.TempDir(), "rootfs")
+	err := Run([]string{
+		"rootfs",
+		"init",
+		"--output", outputRoot,
+		"--debian-release", "bookworm",
+	}, &out, &errBuf)
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	if !strings.Contains(out.String(), " bookworm ") {
+		t.Fatalf("expected rootfs init output to contain requested Debian release, got %q", out.String())
+	}
+}
+
 func TestRootfsInitIncludesExtraPackages(t *testing.T) {
 	var out bytes.Buffer
 	var errBuf bytes.Buffer
@@ -677,6 +697,21 @@ func TestRootfsInitRejectsInvalidExtraPackage(t *testing.T) {
 	}
 }
 
+func TestRootfsInitRejectsWhitespaceDebianRelease(t *testing.T) {
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+
+	err := Run([]string{
+		"rootfs",
+		"init",
+		"--output", filepath.Join(t.TempDir(), "rootfs"),
+		"--debian-release", "book worm",
+	}, &out, &errBuf)
+	if err == nil || !strings.Contains(err.Error(), `debian release "book worm" must not contain whitespace`) {
+		t.Fatalf("expected invalid Debian release error, got %v", err)
+	}
+}
+
 func TestRootfsInitHelpListsSupportedArchitectures(t *testing.T) {
 	var out bytes.Buffer
 	var errBuf bytes.Buffer
@@ -687,8 +722,10 @@ func TestRootfsInitHelpListsSupportedArchitectures(t *testing.T) {
 
 	got := out.String()
 	for _, needle := range []string{
+		"The default Debian release is trixie.",
 		"Supported --arch values: x86_64, arm64, arm32, riscv64.",
 		"--arch <arch>",
+		"--debian-release <codename>",
 		"--extra-pkg <pkg1,pkg2>",
 	} {
 		if !strings.Contains(got, needle) {

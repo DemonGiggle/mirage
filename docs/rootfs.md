@@ -35,6 +35,12 @@ Generate a rootfs for a specific target architecture:
 sudo ./bin/mirage rootfs init --output /tmp/mirage/arm64-rootfs --arch arm64
 ```
 
+Generate a rootfs for a different Debian release:
+
+```bash
+sudo ./bin/mirage rootfs init --output /tmp/mirage/bookworm-rootfs --debian-release bookworm
+```
+
 Add extra Debian packages during bootstrap:
 
 ```bash
@@ -67,8 +73,12 @@ Validate a rootfs and a command inside it:
 `rootfs init` bootstraps a Debian `trixie` `minbase` rootfs with
 `mmdebstrap`.
 
-Mirage uses `trixie` because `riscv64` rootfs support depends on Debian
-package availability in that release.
+By default Mirage uses `trixie` because `riscv64` rootfs support depends on
+Debian package availability in that release.
+
+`--debian-release` lets you override that codename when you want a different
+Debian base tree. Mirage passes the value directly to `mmdebstrap` after
+trimming surrounding spaces and rejecting whitespace inside the codename.
 
 During `rootfs init`, Mirage prints the underlying bootstrap command, streams
 its output, and then prints the apt config write step it performs inside the
