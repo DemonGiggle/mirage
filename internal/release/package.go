@@ -122,6 +122,11 @@ func createDirectoryPackage(outputPath, binaryPath string, binaryMode fs.FileMod
 	if err := prepareOutputDirectory(outputPath, allowOverwrite); err != nil {
 		return err
 	}
+	if allowOverwrite {
+		if err := prepareManagedPackagePaths(outputPath); err != nil {
+			return err
+		}
+	}
 	return populatePackage(outputPath, binaryPath, binaryMode)
 }
 
@@ -185,9 +190,6 @@ func prepareOutputDirectory(path string, allowOverwrite bool) error {
 			return fmt.Errorf("output path %q already exists and is not a directory", path)
 		}
 		if allowOverwrite {
-			if err := clearDirectory(path); err != nil {
-				return err
-			}
 			return nil
 		}
 		entries, err := os.ReadDir(path)
@@ -206,6 +208,30 @@ func prepareOutputDirectory(path string, allowOverwrite bool) error {
 	default:
 		return fmt.Errorf("stat output directory %q: %w", path, err)
 	}
+}
+
+func prepareManagedPackagePaths(packageRoot string) error {
+	managedPaths, err := managedPackagePaths(packageRoot)
+	if err != nil {
+		return err
+	}
+	for _, path := range managedPaths {
+		info, err := os.Lstat(path)
+		switch {
+		case err == nil:
+			if info.IsDir() {
+				return fmt.Errorf("package-managed output path %q already exists as a directory", path)
+			}
+			if err := os.Remove(path); err != nil {
+				return fmt.Errorf("remove existing package-managed output path %q: %w", path, err)
+			}
+		case errors.Is(err, os.ErrNotExist):
+			continue
+		default:
+			return fmt.Errorf("stat package-managed output path %q: %w", path, err)
+		}
+	}
+	return nil
 }
 
 func prepareArchiveOutputPath(path string, allowOverwrite bool) error {
@@ -229,17 +255,26 @@ func prepareArchiveOutputPath(path string, allowOverwrite bool) error {
 	}
 }
 
-func clearDirectory(root string) error {
-	entries, err := os.ReadDir(root)
+func managedPackagePaths(packageRoot string) ([]string, error) {
+	networkPolicies, err := examples.NetworkPolicyNames()
 	if err != nil {
-		return fmt.Errorf("read output directory %q: %w", root, err)
+		return nil, fmt.Errorf("list bundled network policies: %w", err)
 	}
-	for _, entry := range entries {
-		if err := os.RemoveAll(filepath.Join(root, entry.Name())); err != nil {
-			return fmt.Errorf("remove existing output path %q: %w", filepath.Join(root, entry.Name()), err)
-		}
+	presets, err := examples.PresetNames()
+	if err != nil {
+		return nil, fmt.Errorf("list bundled presets: %w", err)
 	}
-	return nil
+
+	paths := []string{
+		filepath.Join(packageRoot, "bin", "mirage"),
+	}
+	for _, name := range networkPolicies {
+		paths = append(paths, filepath.Join(packageRoot, "share", "mirage", "network-policies", name))
+	}
+	for _, name := range presets {
+		paths = append(paths, filepath.Join(packageRoot, "share", "mirage", "presets", name))
+	}
+	return paths, nil
 }
 
 func copyFile(srcPath, destPath string, mode fs.FileMode) error {

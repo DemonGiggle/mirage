@@ -261,7 +261,7 @@ func runPackage(args []string, stdout, stderr io.Writer) error {
 	fs.StringVar(&outputPath, "output", "", "Package output path. Use a directory path for an unpacked bundle or a .tar.gz/.tgz path for an archive.")
 	fs.StringVar(&binaryPath, "binary", "", "Path to the mirage executable to include. Defaults to the current executable unless --arch builds one from source.")
 	fs.StringVar(&architecture, "arch", "", "Target package architecture. Supported: x86_64, arm64, arm32, riscv64. When set without --binary, Mirage builds a Linux binary for that architecture from ./cmd/mirage.")
-	fs.BoolVar(&allowOverwrite, "allow-overwrite", false, "Allow replacing an existing package output path.")
+	fs.BoolVar(&allowOverwrite, "allow-overwrite", false, "Allow replacing existing package-managed output paths.")
 
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -316,7 +316,7 @@ Notes:
   - Supported --arch values: x86_64, arm64, arm32, riscv64.
   - If --arch is set without --binary, Mirage cross-compiles a Linux mirage binary from ./cmd/mirage.
   - If --arch is set with --binary, Mirage verifies that the binary matches the requested architecture.
-  - --allow-overwrite clears an existing output directory or replaces an existing archive file.
+  - --allow-overwrite replaces existing package-managed files in a directory output or replaces an existing archive file.
   - The package includes bin/mirage plus share/mirage/network-policies and share/mirage/presets.
 
 Examples:
