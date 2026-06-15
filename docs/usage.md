@@ -175,6 +175,25 @@ sudo mirage run \
   -- /bin/sh
 ```
 
+Bind mount example:
+
+```bash
+sudo mirage run \
+  --rootfs /tmp/mirage/basic-rootfs \
+  --network-policy-file ./examples/network-policies/offline.yaml \
+  --ro-bind /home/user/project:/workspace/project \
+  --rw-bind /tmp/mirage-cache:/workspace/cache \
+  -- /bin/sh
+```
+
+Notes:
+
+- `--ro-bind` mounts a host file or directory into the sandbox and remounts it read-only.
+- `--rw-bind` mounts a host file or directory into the sandbox with write access.
+- Bind entries use `host:guest` form and both paths must be absolute.
+- For a dedicated non-`/` rootfs, Mirage creates missing bind targets inside the rootfs when safe to do so.
+- For `--rootfs /`, the guest target must already exist on the host and symlink targets are rejected.
+
 ## Presets
 
 `--preset-file` loads one YAML document that can bundle:
