@@ -191,7 +191,9 @@ Notes:
 - `--ro-bind` mounts a host file or directory into the sandbox and remounts it read-only.
 - `--rw-bind` mounts a host file or directory into the sandbox with write access.
 - Bind entries use `host:guest` form and both paths must be absolute.
-- For a dedicated non-`/` rootfs, Mirage creates missing bind targets inside the rootfs when safe to do so.
+- The guest path must not be `/`.
+- Existing bind targets must match the source type: directories mount onto directories, and files mount onto files.
+- For a dedicated non-`/` rootfs, Mirage creates missing bind targets inside the rootfs automatically as directories or empty files.
 - For `--rootfs /`, the guest target must already exist on the host and symlink targets are rejected.
 
 ## Presets
