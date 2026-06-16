@@ -84,6 +84,26 @@ func TestRunHelpExplainsPids(t *testing.T) {
 	}
 }
 
+func TestRunHelpMentionsBindMountFlags(t *testing.T) {
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+
+	if err := Run([]string{"run", "--help"}, &out, &errBuf); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	got := out.String()
+	for _, needle := range []string{
+		"--ro-bind and --rw-bind accept host:guest absolute path pairs",
+		"--ro-bind /home/user/project:/workspace/project",
+		"--rw-bind /tmp/mirage-cache:/workspace/cache",
+	} {
+		if !strings.Contains(got, needle) {
+			t.Fatalf("expected run help to contain %q, got %q", needle, got)
+		}
+	}
+}
+
 func TestNetworkPolicyListFilesShowsExamples(t *testing.T) {
 	var out bytes.Buffer
 	var errBuf bytes.Buffer

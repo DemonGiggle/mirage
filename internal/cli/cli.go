@@ -563,10 +563,12 @@ Usage:
 Notes:
   - Use -- to separate Mirage flags from the workload command.
   - --preset-file is exclusive with direct config flags such as --rootfs, --network-policy-file, --memory, and --pids.
+  - --ro-bind and --rw-bind accept host:guest absolute path pairs.
   - --pids controls the maximum number of processes/threads in the sandbox process tree.
 
 Examples:
   mirage run --rootfs /tmp/mirage/basic-rootfs --network-policy-file ./examples/network-policies/offline.yaml -- /bin/sh
+  mirage run --rootfs /tmp/mirage/basic-rootfs --network-policy-file ./examples/network-policies/offline.yaml --ro-bind /home/user/project:/workspace/project --rw-bind /tmp/mirage-cache:/workspace/cache -- /bin/sh
   mirage run --rootfs /tmp/mirage/basic-rootfs --run-as-root -- /bin/sh
   mirage run --rootfs /tmp/mirage/basic-rootfs --memory 512M --pids 64 -- /usr/bin/node app.js
   mirage run --preset-file ./examples/presets/openclaw-offline.yaml -- app
