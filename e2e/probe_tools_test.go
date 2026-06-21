@@ -794,7 +794,7 @@ func runMirage(t *testing.T, repoRoot string, args ...string) (string, error) {
 func requireCgroupBackend(t *testing.T) {
 	t.Helper()
 
-	cmd := exec.Command("systemd-run", "--user", "--scope", "--quiet", "--collect", "--", "sh", "-c", "true")
+	cmd := exec.Command("systemd-run", "--scope", "--quiet", "--collect", "--", "sh", "-c", "true")
 	output, err := cmd.CombinedOutput()
 	if err == nil {
 		return
