@@ -109,6 +109,10 @@ sudo mirage run --rootfs /tmp/mirage/basic-rootfs --network-policy-file ./exampl
 `rootfs init` currently requires `sudo`. `run` currently executes through
 `sudo` as well.
 
+If you plan to use `mirage run --memory ...` or `--pids ...`, the host also
+needs `systemd-run` available on `PATH` so Mirage can create a delegated cgroup
+scope before writing the limit files.
+
 If `rootfs init` fails because the Debian keyring is too old, update it
 manually and retry:
 

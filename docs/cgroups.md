@@ -21,7 +21,7 @@ The project intentionally does not expose a broader CPU, IO, or QoS surface.
 
 Mirage uses both because they solve different problems.
 
-- `systemd-run` creates a user-owned scope under the systemd user manager.
+- `systemd-run` creates a transient delegated scope for the Mirage helper.
 - `Delegate=yes` gives Mirage permission to manage a subtree below that scope.
 - direct cgroup v2 file writes apply the actual kernel-enforced limits
 
@@ -30,8 +30,8 @@ In other words:
 - `systemd-run` gets Mirage into a delegated place in the cgroup tree
 - cgroup v2 files set the memory and PID ceilings
 
-If Mirage skipped `systemd-run`, an unprivileged process often would not have a
-writable delegated subtree where it could create and manage child cgroups.
+If Mirage skipped `systemd-run`, Mirage would need to reimplement transient
+scope setup or rely on fixed cgroup paths with weaker lifecycle cleanup.
 
 If Mirage skipped direct cgroup v2 writes, the current implementation would
 create a scope but would not actually set `memory.max` or `pids.max`, because
@@ -59,7 +59,7 @@ This is why the implementation needs both:
 When `--memory` or `--pids` is present, the high-level execution path is:
 
 1. `mirage run` resolves the final config.
-2. Mirage launches itself through `systemd-run --user --scope -p Delegate=yes`.
+2. Mirage launches itself through `systemd-run --scope -p Delegate=yes`.
 3. The delegated process re-enters Mirage as `__cgroup-exec`.
 4. `__cgroup-exec` discovers its current cgroup v2 path.
 5. It creates a child leaf cgroup under that delegated scope.
@@ -75,7 +75,7 @@ When `--memory` or `--pids` is present, the high-level execution path is:
 ```text
 host shell
   -> mirage run
-       -> systemd-run --user --scope -p Delegate=yes -- mirage __cgroup-exec ...
+       -> systemd-run --scope -p Delegate=yes -- mirage __cgroup-exec ...
             -> mirage __cgroup-exec
                  -> create leaf cgroup
                  -> move helper into leaf
@@ -91,18 +91,15 @@ The exact systemd path depends on the machine, but the shape is roughly:
 
 ```text
 /sys/fs/cgroup/
-  user.slice/
-    user-1000.slice/
-      user@1000.service/
-        app.slice/
-          mirage-sandbox-demo.scope/          <- created by systemd-run
-            cgroup.subtree_control            <- enabled by Mirage
-            mirage-12345/                     <- created by Mirage
-              cgroup.procs
-              memory.max
-              memory.swap.max
-              pids.max
-              ... workload process tree ...
+  system.slice/
+    mirage-sandbox-demo.scope/                <- created by systemd-run
+      cgroup.subtree_control                  <- enabled by Mirage
+      mirage-12345/                           <- created by Mirage
+        cgroup.procs
+        memory.max
+        memory.swap.max
+        pids.max
+        ... workload process tree ...
 ```
 
 The scope path is managed by systemd. The `mirage-<pid>` leaf is managed by
@@ -129,25 +126,24 @@ That behavior follows cgroup v2's no-internal-process rule: once the parent is
 distributing domain controllers such as `memory`, the helper cannot move itself
 back into that parent cgroup for in-process teardown.
 
-## Why The User Manager Requirement Exists
+## Why The `systemd-run` Requirement Exists
 
 The docs require:
 
 - `systemd-run`
-- a working systemd user manager session
 
-That requirement exists because Mirage depends on `systemd-run --user --scope`
-to obtain delegated cgroup ownership without requiring a privileged daemon or a
-root-owned setup step.
+That requirement exists because Mirage depends on `systemd-run --scope` to
+create a delegated transient scope that systemd will also clean up after the
+run exits.
 
-If the user manager is unavailable, cgroup-backed limits should be treated as
+If `systemd-run` is unavailable, cgroup-backed limits should be treated as
 unsupported in that environment.
 
 ## Operator Impact
 
 For users of `mirage run`, the important practical points are:
 
-- `--memory` and `--pids` only work when `systemd-run --user` delegation works
+- `--memory` and `--pids` only work when `systemd-run` is installed and usable
 - the resource model is currently limited to memory and PID count
 - workloads inherit the limit automatically because the helper enters the leaf
   before starting the sandbox backend

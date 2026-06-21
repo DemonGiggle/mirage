@@ -8,8 +8,7 @@ This document is for contributors working on Mirage itself.
 - Go `1.24.4` or newer
 - `unshare` on `PATH`
 - `newuidmap` and `newgidmap` on `PATH`
-- `systemd-run` with a working user manager session when testing delegated
-  `--memory` and `--pids`
+- `systemd-run` when testing delegated `--memory` and `--pids`
 
 For full operator prerequisites, see [usage.md](usage.md).
 

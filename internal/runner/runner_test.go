@@ -295,12 +295,15 @@ func TestDelegatedScopeArgs(t *testing.T) {
 	args := delegatedScopeArgs("mirage-sandbox-demo.scope", "mirage", "__cgroup-exec", "--memory", "128M", "--pids", "7", "--", "unshare", "--fork", "cmd")
 	got := strings.Join(args, " ")
 	for _, needle := range []string{
-		"--user --scope --quiet --collect -p Delegate=yes --unit=mirage-sandbox-demo.scope",
+		"--scope --quiet --collect -p Delegate=yes --unit=mirage-sandbox-demo.scope",
 		"-- mirage __cgroup-exec --memory 128M --pids 7 -- unshare --fork cmd",
 	} {
 		if !strings.Contains(got, needle) {
 			t.Fatalf("expected delegated scope args to contain %q, got %q", needle, got)
 		}
+	}
+	if strings.Contains(got, "--user") {
+		t.Fatalf("expected delegated scope args to avoid user-manager scopes, got %q", got)
 	}
 }
 
@@ -308,6 +311,31 @@ func TestWriteOptionalCgroupFileIgnoresMissingFile(t *testing.T) {
 	err := writeOptionalCgroupFile(filepath.Join(t.TempDir(), "missing", "memory.swap.max"), "0\n")
 	if err != nil {
 		t.Fatalf("expected missing optional cgroup file to be ignored, got %v", err)
+	}
+}
+
+func TestWaitForSandboxTargetPIDReadsPipe(t *testing.T) {
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("create target pid pipe: %v", err)
+	}
+	defer closeQuietly(reader)
+	defer closeQuietly(writer)
+
+	done := make(chan error, 1)
+	go func() {
+		done <- writeTargetPIDFD(int(writer.Fd()))
+	}()
+
+	pid, err := waitForSandboxTargetPID(reader)
+	if err != nil {
+		t.Fatalf("waitForSandboxTargetPID returned error: %v", err)
+	}
+	if pid != os.Getpid() {
+		t.Fatalf("expected pid %d, got %d", os.Getpid(), pid)
+	}
+	if err := <-done; err != nil {
+		t.Fatalf("writeTargetPIDFD returned error: %v", err)
 	}
 }
 
