@@ -367,7 +367,7 @@ func runDoctor(args []string, stdout, stderr io.Writer) error {
 	_, _ = fmt.Fprintln(stdout, "- rootfs isolation: available via mounted runtime layout plus chroot handoff")
 	_, _ = fmt.Fprintln(stdout, "- network policy inputs: --preset-file, --network-policy-file, and mirage network-policy list")
 	_, _ = fmt.Fprintln(stdout, "- policy backend coverage: allow-all host passthrough, isolated ordered allow/deny rules for IP/CIDR selectors, routed uplink for egress allow semantics, explicit errors for deferred selectors")
-	_, _ = fmt.Fprintln(stdout, "- cgroup v2 resource controls: available via delegated systemd user scopes when systemd-run is present")
+	_, _ = fmt.Fprintln(stdout, "- cgroup v2 resource controls: available via delegated systemd scopes when systemd-run is present")
 	_, _ = fmt.Fprintln(stdout, "- preset-file loading: available")
 	_, _ = fmt.Fprintln(stdout, "- host log export: available")
 
@@ -507,7 +507,7 @@ func runSandbox(args []string, stdout, stderr io.Writer) error {
 	fs.Var(stringSliceValue{target: &cfg.Env}, "env", "Environment variable in KEY=VALUE form.")
 	fs.BoolVar(&cfg.RunAsRoot, "run-as-root", false, "Run the workload as root inside the sandbox.")
 	fs.StringVar(&cfg.NetworkPolicyFile, "network-policy-file", "", "Path to a standalone networkPolicy YAML file. Use `mirage network-policy list` for bundled examples.")
-	fs.StringVar(&cfg.ScopeName, "scope-name", "", "Internal: explicit systemd user scope unit name.")
+	fs.StringVar(&cfg.ScopeName, "scope-name", "", "Internal: explicit systemd scope unit name.")
 	fs.StringVar(&cfg.PresetFile, "preset-file", "", "Path to a preset YAML file.")
 	fs.StringVar(&cfg.StdoutLog, "stdout-log", "", "Write workload stdout to a host-side log file.")
 	fs.StringVar(&cfg.StderrLog, "stderr-log", "", "Write workload stderr to a host-side log file.")

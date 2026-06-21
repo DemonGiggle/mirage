@@ -124,8 +124,15 @@ func execute(cfg spec.Config, stdout, stderr io.Writer) error {
 	if launchSync.uidMapReadyFile != "" {
 		backendArgs = append(backendArgs[:2],
 			append([]string{
+				"--target-pid-file", launchSync.targetPIDFile,
 				"--uid-map-ready-file", launchSync.uidMapReadyFile,
 			}, backendArgs[2:]...)...,
+		)
+		commandArgs = backendArgs[1:]
+	}
+	if launchSync.uidMapReadyFile == "" && launchSync.targetPIDFile != "" {
+		backendArgs = append(backendArgs[:2],
+			append([]string{"--target-pid-file", launchSync.targetPIDFile}, backendArgs[2:]...)...,
 		)
 		commandArgs = backendArgs[1:]
 	}
@@ -195,7 +202,7 @@ func execute(cfg spec.Config, stdout, stderr io.Writer) error {
 		if err := cmd.Start(); err != nil {
 			return fmt.Errorf("start backend command: %w", err)
 		}
-		targetPID, err := waitForSandboxLeafPID(cmd.Process.Pid)
+		targetPID, err := waitForSandboxTargetPID(launchSync.targetPIDFile)
 		if err != nil {
 			_ = cmd.Process.Kill()
 			_ = cmd.Wait()
@@ -245,7 +252,7 @@ func execute(cfg spec.Config, stdout, stderr io.Writer) error {
 
 	var targetPID int
 	if launchSync.uidMapReadyFile != "" || policyPlan.BackendMode == backendNetworkPolicyRouted {
-		targetPID, err = waitForSandboxLeafPID(cmd.Process.Pid)
+		targetPID, err = waitForSandboxTargetPID(launchSync.targetPIDFile)
 		if err != nil {
 			_ = cmd.Process.Kill()
 			_ = cmd.Wait()
@@ -391,6 +398,7 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 	var rwBind []string
 	var envItems []string
 	var runAsRoot bool
+	var targetPIDFile string
 	var uidMapReadyFile string
 	var mappedRootReady bool
 
@@ -407,6 +415,7 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 	fs.Var(stringSliceValue{target: &rwBind}, "rw-bind", "backend read-write bind mount")
 	fs.Var(stringSliceValue{target: &envItems}, "env", "backend environment variable")
 	fs.BoolVar(&runAsRoot, "run-as-root", false, "backend workload identity")
+	fs.StringVar(&targetPIDFile, "target-pid-file", "", "backend target pid publication file")
 	fs.StringVar(&uidMapReadyFile, "uid-map-ready-file", "", "backend uid/gid mapping readiness file")
 	fs.BoolVar(&mappedRootReady, "mapped-root-ready", false, "backend privilege handoff completion marker")
 
@@ -416,6 +425,9 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 	command := fs.Args()
 	if len(command) == 0 {
 		return errors.New("backend helper requires a command")
+	}
+	if err := writeTargetPIDFile(targetPIDFile); err != nil {
+		return err
 	}
 	if networkBackend != backendNetworkPolicyHost && networkBackend != backendNetworkPolicyIsolated && networkBackend != backendNetworkPolicyRouted {
 		return fmt.Errorf("unsupported backend network mode %q", networkBackend)
@@ -535,7 +547,7 @@ func buildDelegatedScopeCommand(unitName string, args ...string) (*exec.Cmd, err
 }
 
 func delegatedScopeArgs(unitName string, args ...string) []string {
-	scopeArgs := []string{"--user", "--scope", "--quiet", "--collect", "-p", "Delegate=yes", "--"}
+	scopeArgs := []string{"--scope", "--quiet", "--collect", "-p", "Delegate=yes", "--"}
 	if unitName != "" {
 		scopeArgs = append(scopeArgs[:len(scopeArgs)-1], "--unit="+unitName, "--")
 	}
@@ -715,6 +727,7 @@ func isLikelyPingBinary(binary string) bool {
 }
 
 type sandboxLaunchSync struct {
+	targetPIDFile   string
 	uidMapReadyFile string
 	tempDir         string
 }
@@ -725,6 +738,7 @@ func prepareSandboxLaunchSync(runAsRoot bool, networkBackend string) (sandboxLau
 		return sandboxLaunchSync{}, fmt.Errorf("create sandbox launch tempdir: %w", err)
 	}
 	sync := sandboxLaunchSync{
+		targetPIDFile:   filepath.Join(tempDir, "target.pid"),
 		uidMapReadyFile: filepath.Join(tempDir, "uidmap.ready"),
 		tempDir:         tempDir,
 	}
@@ -767,52 +781,39 @@ func buildUnshareArgs(runAsRoot bool, networkBackend string) ([]string, error) {
 	return args, nil
 }
 
-func waitForSandboxLeafPID(parentPID int) (int, error) {
-	childrenPath := fmt.Sprintf("/proc/%d/task/%d/children", parentPID, parentPID)
-	if _, err := os.Stat(childrenPath); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			if _, statErr := os.Stat(fmt.Sprintf("/proc/%d", parentPID)); statErr == nil {
-				return 0, errors.New("sandbox tracking requires /proc/<pid>/task/<tid>/children support on the host kernel")
-			}
-		}
-		return 0, fmt.Errorf("check sandbox child pid support for %d: %w", parentPID, err)
+func waitForSandboxTargetPID(path string) (int, error) {
+	if strings.TrimSpace(path) == "" {
+		return 0, errors.New("sandbox target pid file path is empty")
 	}
-
 	deadline := time.Now().Add(5 * time.Second)
 	for {
-		pid, err := findLeafDescendantPID(parentPID)
-		if err == nil && pid > 0 && pid != parentPID {
+		data, err := os.ReadFile(path)
+		if err == nil {
+			raw := strings.TrimSpace(string(data))
+			pid, parseErr := strconv.Atoi(raw)
+			if parseErr != nil {
+				return 0, fmt.Errorf("parse sandbox target pid %q from %q: %w", raw, path, parseErr)
+			}
+			if pid <= 0 {
+				return 0, fmt.Errorf("sandbox target pid %d from %q is invalid", pid, path)
+			}
 			return pid, nil
 		}
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
-			return 0, err
+			return 0, fmt.Errorf("read sandbox target pid file %q: %w", path, err)
 		}
 		if time.Now().After(deadline) {
-			return 0, fmt.Errorf("timed out waiting for sandbox descendant pid from parent %d", parentPID)
+			return 0, fmt.Errorf("timed out waiting for sandbox target pid file %q", path)
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
 }
 
-func findLeafDescendantPID(pid int) (int, error) {
-	childrenPath := fmt.Sprintf("/proc/%d/task/%d/children", pid, pid)
-	content, err := os.ReadFile(childrenPath)
-	if err != nil {
-		return 0, fmt.Errorf("read sandbox child pid list for %d: %w", pid, err)
+func writeTargetPIDFile(path string) error {
+	if strings.TrimSpace(path) == "" {
+		return nil
 	}
-	fields := strings.Fields(string(content))
-	if len(fields) == 0 {
-		return pid, nil
-	}
-	lastField := fields[len(fields)-1]
-	childPID, err := strconv.Atoi(lastField)
-	if err != nil {
-		return 0, fmt.Errorf("parse sandbox child pid %q: %w", lastField, err)
-	}
-	if childPID <= 0 {
-		return 0, fmt.Errorf("sandbox child pid %d is invalid", childPID)
-	}
-	return findLeafDescendantPID(childPID)
+	return os.WriteFile(path, []byte(fmt.Sprintf("%d\n", os.Getpid())), 0o600)
 }
 
 func configureSandboxUIDMappings(pid int, runAsRoot bool) error {
@@ -1743,10 +1744,10 @@ func PlanNotes(cfg spec.Config) []string {
 		if cfg.Pids > 0 {
 			limits = append(limits, fmt.Sprintf("pids=%d", cfg.Pids))
 		}
-		notes = append(notes, fmt.Sprintf("cgroup v2: enforced via delegated systemd user-scope leaf cgroup (%s)", strings.Join(limits, ", ")))
+		notes = append(notes, fmt.Sprintf("cgroup v2: enforced via delegated systemd scope leaf cgroup (%s)", strings.Join(limits, ", ")))
 	}
 	if cfg.ScopeName != "" {
-		notes = append(notes, fmt.Sprintf("systemd user scope: %s", cfg.ScopeName))
+		notes = append(notes, fmt.Sprintf("systemd scope: %s", cfg.ScopeName))
 	}
 	if cfg.RootFS == "/" {
 		notes = append(notes, "rootfs backend: host root")

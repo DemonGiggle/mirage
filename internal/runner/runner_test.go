@@ -295,12 +295,15 @@ func TestDelegatedScopeArgs(t *testing.T) {
 	args := delegatedScopeArgs("mirage-sandbox-demo.scope", "mirage", "__cgroup-exec", "--memory", "128M", "--pids", "7", "--", "unshare", "--fork", "cmd")
 	got := strings.Join(args, " ")
 	for _, needle := range []string{
-		"--user --scope --quiet --collect -p Delegate=yes --unit=mirage-sandbox-demo.scope",
+		"--scope --quiet --collect -p Delegate=yes --unit=mirage-sandbox-demo.scope",
 		"-- mirage __cgroup-exec --memory 128M --pids 7 -- unshare --fork cmd",
 	} {
 		if !strings.Contains(got, needle) {
 			t.Fatalf("expected delegated scope args to contain %q, got %q", needle, got)
 		}
+	}
+	if strings.Contains(got, "--user") {
+		t.Fatalf("expected delegated scope args to avoid user-manager scopes, got %q", got)
 	}
 }
 

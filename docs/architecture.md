@@ -191,7 +191,7 @@ Mirage currently supports delegated cgroup v2 limits for:
 
 The runtime path is:
 
-1. launch Mirage through `systemd-run --user --scope -p Delegate=yes`
+1. launch Mirage through `systemd-run --scope -p Delegate=yes`
 2. re-enter Mirage as a cgroup helper
 3. create a Mirage-managed leaf cgroup
 4. write `memory.max`, `memory.swap.max`, and `pids.max`

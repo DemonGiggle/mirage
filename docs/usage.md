@@ -14,8 +14,7 @@ see [rootfs.md](rootfs.md). For current isolation boundaries, see
 - `newuidmap` and `newgidmap` from the host `uidmap` package
 - `ip` on `PATH`
 - `iptables` and `ip6tables` on `PATH`
-- `systemd-run` with a working user manager session when you use `--memory` or
-  `--pids`
+- `systemd-run` on `PATH` when you use `--memory` or `--pids`
 
 On Debian or Ubuntu:
 
@@ -160,6 +159,8 @@ Important behavior:
   `--rootfs`, `--network-policy-file`, bind mounts, `--cwd`, `--hostname`,
   `--memory`, and `--pids`.
 - In the current operational model, invoke `mirage run` through `sudo`.
+- `--memory` and `--pids` currently depend on `systemd-run` to create the
+  delegated cgroup scope before Mirage writes `memory.max` or `pids.max`.
 - The workload becomes sandbox PID 1. Mirage does not run a guest init system.
 - Mirage starts the sandbox with an explicit managed environment. Host
   environment variables are not inherited unless you pass them with `--env`.
