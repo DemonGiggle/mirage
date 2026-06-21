@@ -121,19 +121,19 @@ func execute(cfg spec.Config, stdout, stderr io.Writer) error {
 		return err
 	}
 	defer launchSync.cleanup()
-	if launchSync.uidMapReadyFile != "" {
-		backendArgs = append(backendArgs[:2],
-			append([]string{
-				"--target-pid-file", launchSync.targetPIDFile,
-				"--uid-map-ready-file", launchSync.uidMapReadyFile,
-			}, backendArgs[2:]...)...,
-		)
-		commandArgs = backendArgs[1:]
+	var launchArgs []string
+	if launchSync.targetPIDFile != "" {
+		launchArgs = append(launchArgs, "--target-pid-file", launchSync.targetPIDFile)
 	}
-	if launchSync.uidMapReadyFile == "" && launchSync.targetPIDFile != "" {
-		backendArgs = append(backendArgs[:2],
-			append([]string{"--target-pid-file", launchSync.targetPIDFile}, backendArgs[2:]...)...,
-		)
+	if launchSync.uidMapReadyFile != "" {
+		launchArgs = append(launchArgs, "--uid-map-ready-file", launchSync.uidMapReadyFile)
+	}
+	if len(launchArgs) > 0 {
+		newArgs := make([]string, 0, len(backendArgs)+len(launchArgs))
+		newArgs = append(newArgs, backendArgs[:2]...)
+		newArgs = append(newArgs, launchArgs...)
+		newArgs = append(newArgs, backendArgs[2:]...)
+		backendArgs = newArgs
 		commandArgs = backendArgs[1:]
 	}
 	unshareArgs, err := buildUnshareArgs(cfg.RunAsRoot, policyPlan.BackendMode)
@@ -791,13 +791,9 @@ func waitForSandboxTargetPID(path string) (int, error) {
 		if err == nil {
 			raw := strings.TrimSpace(string(data))
 			pid, parseErr := strconv.Atoi(raw)
-			if parseErr != nil {
-				return 0, fmt.Errorf("parse sandbox target pid %q from %q: %w", raw, path, parseErr)
+			if parseErr == nil && pid > 0 {
+				return pid, nil
 			}
-			if pid <= 0 {
-				return 0, fmt.Errorf("sandbox target pid %d from %q is invalid", pid, path)
-			}
-			return pid, nil
 		}
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			return 0, fmt.Errorf("read sandbox target pid file %q: %w", path, err)

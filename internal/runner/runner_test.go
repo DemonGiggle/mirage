@@ -9,6 +9,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/DemonGiggle/mirage/internal/spec"
 )
@@ -312,6 +313,29 @@ func TestWriteOptionalCgroupFileIgnoresMissingFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected missing optional cgroup file to be ignored, got %v", err)
 	}
+}
+
+func TestWaitForSandboxTargetPIDRetriesUntilPIDIsValid(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "target.pid")
+	if err := os.WriteFile(path, []byte(""), 0o600); err != nil {
+		t.Fatalf("seed target pid file: %v", err)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		time.Sleep(20 * time.Millisecond)
+		_ = os.WriteFile(path, []byte("12345\n"), 0o600)
+	}()
+
+	pid, err := waitForSandboxTargetPID(path)
+	if err != nil {
+		t.Fatalf("waitForSandboxTargetPID returned error: %v", err)
+	}
+	if pid != 12345 {
+		t.Fatalf("expected pid 12345, got %d", pid)
+	}
+	<-done
 }
 
 func TestRestrictedReexecHelper(t *testing.T) {
