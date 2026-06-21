@@ -9,7 +9,6 @@ import (
 	"strings"
 	"syscall"
 	"testing"
-	"time"
 
 	"github.com/DemonGiggle/mirage/internal/spec"
 )
@@ -315,27 +314,29 @@ func TestWriteOptionalCgroupFileIgnoresMissingFile(t *testing.T) {
 	}
 }
 
-func TestWaitForSandboxTargetPIDRetriesUntilPIDIsValid(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "target.pid")
-	if err := os.WriteFile(path, []byte(""), 0o600); err != nil {
-		t.Fatalf("seed target pid file: %v", err)
+func TestWaitForSandboxTargetPIDReadsPipe(t *testing.T) {
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("create target pid pipe: %v", err)
 	}
+	defer closeQuietly(reader)
+	defer closeQuietly(writer)
 
-	done := make(chan struct{})
+	done := make(chan error, 1)
 	go func() {
-		defer close(done)
-		time.Sleep(20 * time.Millisecond)
-		_ = os.WriteFile(path, []byte("12345\n"), 0o600)
+		done <- writeTargetPIDFD(int(writer.Fd()))
 	}()
 
-	pid, err := waitForSandboxTargetPID(path)
+	pid, err := waitForSandboxTargetPID(reader)
 	if err != nil {
 		t.Fatalf("waitForSandboxTargetPID returned error: %v", err)
 	}
-	if pid != 12345 {
-		t.Fatalf("expected pid 12345, got %d", pid)
+	if pid != os.Getpid() {
+		t.Fatalf("expected pid %d, got %d", os.Getpid(), pid)
 	}
-	<-done
+	if err := <-done; err != nil {
+		t.Fatalf("writeTargetPIDFD returned error: %v", err)
+	}
 }
 
 func TestRestrictedReexecHelper(t *testing.T) {
