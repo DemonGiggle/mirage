@@ -602,6 +602,13 @@ func requireNamespaceBackend(t *testing.T) {
 	t.Fatalf("namespace capability probe failed unexpectedly: %v\noutput:\n%s", err, msg)
 }
 
+func mirageRuntimeUnavailable(output string) bool {
+	return strings.Contains(output, "Target process is owned by a different user") ||
+		strings.Contains(output, "clear supplementary groups: operation not permitted") ||
+		strings.Contains(output, "write failed /proc/self/uid_map") ||
+		strings.Contains(output, "Operation not permitted")
+}
+
 func requireHostLoopbackListener(t *testing.T) {
 	t.Helper()
 

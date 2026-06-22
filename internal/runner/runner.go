@@ -195,9 +195,12 @@ func execute(cfg spec.Config, stdout, stderr io.Writer) error {
 		launchSync.closeTargetPIDWriter()
 		targetPID, err := waitForSandboxTargetPID(launchSync.targetPIDReader)
 		if err != nil {
-			_ = cmd.Process.Kill()
-			_ = cmd.Wait()
-			return err
+			targetPID, err = waitForSandboxLeafPID(cmd.Process.Pid)
+			if err != nil {
+				_ = cmd.Process.Kill()
+				_ = cmd.Wait()
+				return err
+			}
 		}
 		if err := configureSandboxUIDMappings(targetPID, cfg.RunAsRoot); err != nil {
 			_ = cmd.Process.Kill()
@@ -246,9 +249,12 @@ func execute(cfg spec.Config, stdout, stderr io.Writer) error {
 	if launchSync.uidMapReadyFile != "" || policyPlan.BackendMode == backendNetworkPolicyRouted {
 		targetPID, err = waitForSandboxTargetPID(launchSync.targetPIDReader)
 		if err != nil {
-			_ = cmd.Process.Kill()
-			_ = cmd.Wait()
-			return err
+			targetPID, err = waitForSandboxLeafPID(cmd.Process.Pid)
+			if err != nil {
+				_ = cmd.Process.Kill()
+				_ = cmd.Wait()
+				return err
+			}
 		}
 		if launchSync.uidMapReadyFile != "" {
 			if err := configureSandboxUIDMappings(targetPID, cfg.RunAsRoot); err != nil {
@@ -840,6 +846,54 @@ func waitForSandboxTargetPID(reader *os.File) (int, error) {
 	case <-time.After(5 * time.Second):
 		return 0, errors.New("timed out waiting for sandbox target pid from pipe")
 	}
+}
+
+func waitForSandboxLeafPID(parentPID int) (int, error) {
+	childrenPath := fmt.Sprintf("/proc/%d/task/%d/children", parentPID, parentPID)
+	if _, err := os.Stat(childrenPath); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			if _, statErr := os.Stat(fmt.Sprintf("/proc/%d", parentPID)); statErr == nil {
+				return 0, errors.New("sandbox tracking requires /proc/<pid>/task/<tid>/children support on the host kernel")
+			}
+		}
+		return 0, fmt.Errorf("check sandbox child pid support for %d: %w", parentPID, err)
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		pid, err := findLeafDescendantPID(parentPID)
+		if err == nil && pid > 0 && pid != parentPID {
+			return pid, nil
+		}
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return 0, err
+		}
+		if time.Now().After(deadline) {
+			return 0, fmt.Errorf("timed out waiting for sandbox descendant pid from parent %d", parentPID)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func findLeafDescendantPID(pid int) (int, error) {
+	childrenPath := fmt.Sprintf("/proc/%d/task/%d/children", pid, pid)
+	content, err := os.ReadFile(childrenPath)
+	if err != nil {
+		return 0, fmt.Errorf("read sandbox child pid list for %d: %w", pid, err)
+	}
+	fields := strings.Fields(string(content))
+	if len(fields) == 0 {
+		return pid, nil
+	}
+	lastField := fields[len(fields)-1]
+	childPID, err := strconv.Atoi(lastField)
+	if err != nil {
+		return 0, fmt.Errorf("parse sandbox child pid %q: %w", lastField, err)
+	}
+	if childPID <= 0 {
+		return 0, fmt.Errorf("sandbox child pid %d is invalid", childPID)
+	}
+	return findLeafDescendantPID(childPID)
 }
 
 func writeTargetPIDFD(fd int) error {

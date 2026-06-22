@@ -339,6 +339,31 @@ func TestWaitForSandboxTargetPIDReadsPipe(t *testing.T) {
 	}
 }
 
+func TestWaitForSandboxTargetPIDRejectsNilReader(t *testing.T) {
+	if _, err := waitForSandboxTargetPID(nil); err == nil || !strings.Contains(err.Error(), "reader is nil") {
+		t.Fatalf("expected nil-reader error, got %v", err)
+	}
+}
+
+func TestWriteTargetPIDFDRejectsReservedFD(t *testing.T) {
+	if err := writeTargetPIDFD(2); err == nil || !strings.Contains(err.Error(), "invalid") {
+		t.Fatalf("expected invalid fd error, got %v", err)
+	}
+}
+
+func TestBuildBackendLaunchArgsInjectsInternalFlags(t *testing.T) {
+	baseArgs := []string{"/proc/self/exe", "__backend-exec", "--rootfs", "/", "--", "sh"}
+	got := buildBackendLaunchArgs(baseArgs, "/tmp/mirage/uidmap.ready", 5)
+	text := strings.Join(got, " ")
+	for _, needle := range []string{
+		"/proc/self/exe __backend-exec --target-pid-fd 5 --uid-map-ready-file /tmp/mirage/uidmap.ready --rootfs / -- sh",
+	} {
+		if !strings.Contains(text, needle) {
+			t.Fatalf("expected backend launch args to contain %q, got %q", needle, text)
+		}
+	}
+}
+
 func TestRestrictedReexecHelper(t *testing.T) {
 	mode := os.Getenv("MIRAGE_REEXEC_HELPER_MODE")
 	if mode == "" {
