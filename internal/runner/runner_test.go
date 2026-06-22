@@ -314,17 +314,20 @@ func TestWriteOptionalCgroupFileIgnoresMissingFile(t *testing.T) {
 	}
 }
 
-func TestWaitForSandboxTargetPIDReadsFile(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "target.pid")
-	uidReady := filepath.Join(dir, "uidmap.ready")
+func TestWaitForSandboxTargetPIDReadsPipe(t *testing.T) {
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("create target pid pipe: %v", err)
+	}
+	defer closeQuietly(reader)
+	defer closeQuietly(writer)
 
 	done := make(chan error, 1)
 	go func() {
-		done <- writeTargetPIDFile(path, uidReady)
+		done <- writeTargetPIDFD(int(writer.Fd()))
 	}()
 
-	pid, err := waitForSandboxTargetPID(path)
+	pid, err := waitForSandboxTargetPID(reader)
 	if err != nil {
 		t.Fatalf("waitForSandboxTargetPID returned error: %v", err)
 	}
@@ -332,113 +335,32 @@ func TestWaitForSandboxTargetPIDReadsFile(t *testing.T) {
 		t.Fatalf("expected pid %d, got %d", os.Getpid(), pid)
 	}
 	if err := <-done; err != nil {
-		t.Fatalf("writeTargetPIDFile returned error: %v", err)
+		t.Fatalf("writeTargetPIDFD returned error: %v", err)
 	}
 }
 
-func TestValidateTargetPIDFilePathRequiresSharedPrivateDir(t *testing.T) {
-	dir := t.TempDir()
-	targetPath := filepath.Join(dir, "target.pid")
-	uidReady := filepath.Join(dir, "uidmap.ready")
-	if err := validateTargetPIDFilePath(targetPath, uidReady); err != nil {
-		t.Fatalf("validateTargetPIDFilePath returned error: %v", err)
-	}
-
-	otherDir := t.TempDir()
-	err := validateTargetPIDFilePath(targetPath, filepath.Join(otherDir, "uidmap.ready"))
-	if err == nil || !strings.Contains(err.Error(), "must share a directory") {
-		t.Fatalf("expected shared-directory validation error, got %v", err)
+func TestWaitForSandboxTargetPIDRejectsNilReader(t *testing.T) {
+	if _, err := waitForSandboxTargetPID(nil); err == nil || !strings.Contains(err.Error(), "reader is nil") {
+		t.Fatalf("expected nil-reader error, got %v", err)
 	}
 }
 
-func TestStripBackendArgRemovesOnlyRequestedPair(t *testing.T) {
-	command := []string{"unshare", "--fork", "/proc/self/exe", "__backend-exec", "--target-pid-file", "/tmp/x/target.pid", "--uid-map-ready-file", "/tmp/x/uidmap.ready", "--", "sh"}
-	got := stripBackendArg(command, "--target-pid-file")
+func TestWriteTargetPIDFDRejectsReservedFD(t *testing.T) {
+	if err := writeTargetPIDFD(2); err == nil || !strings.Contains(err.Error(), "invalid") {
+		t.Fatalf("expected invalid fd error, got %v", err)
+	}
+}
+
+func TestBuildBackendLaunchArgsInjectsInternalFlags(t *testing.T) {
+	baseArgs := []string{"/proc/self/exe", "__backend-exec", "--rootfs", "/", "--", "sh"}
+	got := buildBackendLaunchArgs(baseArgs, "/tmp/mirage/uidmap.ready", 5)
 	text := strings.Join(got, " ")
-	if strings.Contains(text, "--target-pid-file") {
-		t.Fatalf("expected target-pid-file flag to be removed, got %q", text)
-	}
-	if !strings.Contains(text, "--uid-map-ready-file /tmp/x/uidmap.ready") {
-		t.Fatalf("expected other backend args to remain, got %q", text)
-	}
-}
-
-func TestCurrentHostPIDUsesFirstNSpidEntry(t *testing.T) {
-	restoreStatusReader := readProcessStatusFile
-	readProcessStatusFile = func(string) ([]byte, error) {
-		return []byte("Name:\ttest\nNSpid:\t4321\t1\n"), nil
-	}
-	defer func() {
-		readProcessStatusFile = restoreStatusReader
-	}()
-
-	pid, err := currentHostPID()
-	if err != nil {
-		t.Fatalf("currentHostPID returned error: %v", err)
-	}
-	if pid != 4321 {
-		t.Fatalf("expected host pid 4321, got %d", pid)
-	}
-}
-
-func TestCurrentHostPIDFallsBackToProcessPIDWithoutNSpid(t *testing.T) {
-	restoreStatusReader := readProcessStatusFile
-	readProcessStatusFile = func(string) ([]byte, error) {
-		return []byte("Name:\ttest\n"), nil
-	}
-	defer func() {
-		readProcessStatusFile = restoreStatusReader
-	}()
-
-	pid, err := currentHostPID()
-	if err != nil {
-		t.Fatalf("currentHostPID returned error: %v", err)
-	}
-	if pid != os.Getpid() {
-		t.Fatalf("expected fallback pid %d, got %d", os.Getpid(), pid)
-	}
-}
-
-func TestExtractBackendArgValue(t *testing.T) {
-	value, ok, err := extractBackendArgValue([]string{"unshare", "__backend-exec", "--target-pid-file", "/tmp/x/target.pid"}, "--target-pid-file")
-	if err != nil {
-		t.Fatalf("extractBackendArgValue returned error: %v", err)
-	}
-	if !ok || value != "/tmp/x/target.pid" {
-		t.Fatalf("expected to recover target-pid-file value, got value=%q ok=%v", value, ok)
-	}
-}
-
-func TestWriteSandboxTargetPIDFileRejectsInvalidPID(t *testing.T) {
-	dir := t.TempDir()
-	err := writeSandboxTargetPIDFile(filepath.Join(dir, "target.pid"), filepath.Join(dir, "uidmap.ready"), 0)
-	if err == nil || !strings.Contains(err.Error(), "invalid") {
-		t.Fatalf("expected invalid pid error, got %v", err)
-	}
-}
-
-func TestWriteTargetPIDFileUsesHostPID(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "target.pid")
-	uidReady := filepath.Join(dir, "uidmap.ready")
-
-	restoreStatusReader := readProcessStatusFile
-	readProcessStatusFile = func(string) ([]byte, error) {
-		return []byte("Name:\ttest\nNSpid:\t9876\t1\n"), nil
-	}
-	defer func() {
-		readProcessStatusFile = restoreStatusReader
-	}()
-
-	if err := writeTargetPIDFile(path, uidReady); err != nil {
-		t.Fatalf("writeTargetPIDFile returned error: %v", err)
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read target pid file: %v", err)
-	}
-	if strings.TrimSpace(string(data)) != "9876" {
-		t.Fatalf("expected target pid file to contain 9876, got %q", string(data))
+	for _, needle := range []string{
+		"/proc/self/exe __backend-exec --target-pid-fd 5 --uid-map-ready-file /tmp/mirage/uidmap.ready --rootfs / -- sh",
+	} {
+		if !strings.Contains(text, needle) {
+			t.Fatalf("expected backend launch args to contain %q, got %q", needle, text)
+		}
 	}
 }
 
