@@ -43,10 +43,13 @@ var (
 	chownFunc          = os.Lchown
 	idMapCommandRunner = runIDMapCommand
 	procfsRoot         = "/proc"
+	readFileFunc       = os.ReadFile
 	setgroupsFunc      = syscall.Setgroups
 	setgidFunc         = syscall.Setgid
 	setuidFunc         = syscall.Setuid
 )
+
+var errNamespacePIDUnavailable = errors.New("namespace pid unavailable")
 
 func Execute(cfg spec.Config, stdout, stderr io.Writer) error {
 	return execute(cfg, stdout, stderr)
@@ -854,10 +857,50 @@ func writeTargetPIDFD(fd int) error {
 		return fmt.Errorf("open sandbox target pid fd %d", fd)
 	}
 	defer closeQuietly(file)
-	if _, err := fmt.Fprintf(file, "%d\n", os.Getpid()); err != nil {
+	pid, err := publishedSandboxTargetPID()
+	if err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(file, "%d\n", pid); err != nil {
 		return fmt.Errorf("write sandbox target pid to fd %d: %w", fd, err)
 	}
 	return nil
+}
+
+func publishedSandboxTargetPID() (int, error) {
+	pid, err := outermostNamespacePID()
+	if err == nil {
+		return pid, nil
+	}
+	if errors.Is(err, os.ErrNotExist) || errors.Is(err, errNamespacePIDUnavailable) {
+		return os.Getpid(), nil
+	}
+	return 0, err
+}
+
+func outermostNamespacePID() (int, error) {
+	status, err := readFileFunc(filepath.Join(procfsRoot, "self", "status"))
+	if err != nil {
+		return 0, fmt.Errorf("read proc status for sandbox target pid: %w", err)
+	}
+	for _, line := range strings.Split(string(status), "\n") {
+		if !strings.HasPrefix(line, "NSpid:") {
+			continue
+		}
+		fields := strings.Fields(strings.TrimPrefix(line, "NSpid:"))
+		if len(fields) == 0 {
+			return 0, fmt.Errorf("parse proc status NSpid: %w", errNamespacePIDUnavailable)
+		}
+		pid, err := strconv.Atoi(fields[0])
+		if err != nil {
+			return 0, fmt.Errorf("parse proc status NSpid host pid %q: %w", fields[0], err)
+		}
+		if pid <= 0 {
+			return 0, fmt.Errorf("parse proc status NSpid host pid %d: invalid value", pid)
+		}
+		return pid, nil
+	}
+	return 0, fmt.Errorf("parse proc status NSpid: %w", errNamespacePIDUnavailable)
 }
 
 func configureSandboxUIDMappings(pid int, runAsRoot bool) error {

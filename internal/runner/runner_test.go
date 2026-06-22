@@ -322,6 +322,14 @@ func TestWaitForSandboxTargetPIDReadsPipe(t *testing.T) {
 	defer closeQuietly(reader)
 	defer closeQuietly(writer)
 
+	restoreReadFile := readFileFunc
+	readFileFunc = func(string) ([]byte, error) {
+		return []byte("Name:\ttest\nNSpid:\t4242 1\n"), nil
+	}
+	t.Cleanup(func() {
+		readFileFunc = restoreReadFile
+	})
+
 	done := make(chan error, 1)
 	go func() {
 		done <- writeTargetPIDFD(int(writer.Fd()))
@@ -331,11 +339,29 @@ func TestWaitForSandboxTargetPIDReadsPipe(t *testing.T) {
 	if err != nil {
 		t.Fatalf("waitForSandboxTargetPID returned error: %v", err)
 	}
-	if pid != os.Getpid() {
-		t.Fatalf("expected pid %d, got %d", os.Getpid(), pid)
+	if pid != 4242 {
+		t.Fatalf("expected pid %d, got %d", 4242, pid)
 	}
 	if err := <-done; err != nil {
 		t.Fatalf("writeTargetPIDFD returned error: %v", err)
+	}
+}
+
+func TestPublishedSandboxTargetPIDFallsBackToGetpidWithoutProcStatus(t *testing.T) {
+	restoreReadFile := readFileFunc
+	readFileFunc = func(string) ([]byte, error) {
+		return nil, os.ErrNotExist
+	}
+	t.Cleanup(func() {
+		readFileFunc = restoreReadFile
+	})
+
+	pid, err := publishedSandboxTargetPID()
+	if err != nil {
+		t.Fatalf("publishedSandboxTargetPID returned error: %v", err)
+	}
+	if pid != os.Getpid() {
+		t.Fatalf("expected fallback pid %d, got %d", os.Getpid(), pid)
 	}
 }
 
