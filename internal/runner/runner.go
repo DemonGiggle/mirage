@@ -36,18 +36,6 @@ const (
 	maxMappedGuestID   = 65535
 )
 
-var (
-	currentUID         = os.Getuid
-	currentGID         = os.Getgid
-	currentGroups      = os.Getgroups
-	chownFunc          = os.Lchown
-	idMapCommandRunner = runIDMapCommand
-	procfsRoot         = "/proc"
-	setgroupsFunc      = syscall.Setgroups
-	setgidFunc         = syscall.Setgid
-	setuidFunc         = syscall.Setuid
-)
-
 func Execute(cfg spec.Config, stdout, stderr io.Writer) error {
 	return execute(cfg, stdout, stderr)
 }
@@ -74,9 +62,18 @@ func execute(cfg spec.Config, stdout, stderr io.Writer) error {
 	}
 	defer cleanupReexecPath()
 
-	backendArgs := []string{self, "__backend-exec", "--rootfs", cfg.RootFS, "--network-backend", policyPlan.BackendMode}
-	if policyPlan.SerializedPolicy != "" {
-		backendArgs = append(backendArgs, "--policy-config", policyPlan.SerializedPolicy)
+	launchConfig := backendLaunchConfig{
+		Self:             self,
+		RootFS:           cfg.RootFS,
+		Cwd:              cfg.Cwd,
+		Hostname:         cfg.Hostname,
+		NetworkBackend:   policyPlan.BackendMode,
+		SerializedPolicy: policyPlan.SerializedPolicy,
+		ROBind:           cfg.ROBind,
+		RWBind:           cfg.RWBind,
+		Env:              cfg.Env,
+		RunAsRoot:        cfg.RunAsRoot,
+		Command:          cfg.Command,
 	}
 	var routedConfig routedNetworkConfig
 	if policyPlan.BackendMode == backendNetworkPolicyRouted {
@@ -87,33 +84,12 @@ func execute(cfg spec.Config, stdout, stderr io.Writer) error {
 		if err != nil {
 			return err
 		}
-		backendArgs = append(backendArgs,
-			"--routed-interface", routedConfig.GuestIfName,
-			"--routed-address", routedConfig.GuestCIDR,
-			"--routed-gateway", routedConfig.HostAddress,
-			"--network-ready-fd", "3",
-		)
+		launchConfig.RoutedInterface = routedConfig.GuestIfName
+		launchConfig.RoutedAddress = routedConfig.GuestCIDR
+		launchConfig.RoutedGateway = routedConfig.HostAddress
+		launchConfig.NetworkReadyFD = 3
 	}
-	if cfg.Cwd != "" {
-		backendArgs = append(backendArgs, "--cwd", cfg.Cwd)
-	}
-	if cfg.Hostname != "" {
-		backendArgs = append(backendArgs, "--hostname", cfg.Hostname)
-	}
-	for _, item := range cfg.ROBind {
-		backendArgs = append(backendArgs, "--ro-bind", item)
-	}
-	for _, item := range cfg.RWBind {
-		backendArgs = append(backendArgs, "--rw-bind", item)
-	}
-	for _, item := range cfg.Env {
-		backendArgs = append(backendArgs, "--env", item)
-	}
-	if cfg.RunAsRoot {
-		backendArgs = append(backendArgs, "--run-as-root")
-	}
-	backendArgs = append(backendArgs, "--")
-	backendArgs = append(backendArgs, cfg.Command...)
+	backendArgs := launchConfig.args()
 
 	launchSync, err := prepareSandboxLaunchSync(cfg.RunAsRoot, policyPlan.BackendMode)
 	if err != nil {
@@ -1746,64 +1722,6 @@ func closeQuietly(closer io.Closer) {
 	if closer != nil {
 		_ = closer.Close()
 	}
-}
-
-func PlanNotes(cfg spec.Config) []string {
-	var notes []string
-	notes = append(notes, "execution backend: linux namespace runner")
-	notes = append(notes, "execution mode: direct workload command becomes sandbox PID 1")
-	notes = append(notes, "one sandbox = one isolated process tree")
-	if cfg.NetworkPolicy != nil {
-		if plan, err := planNetworkPolicyBackend(cfg); err == nil {
-			switch plan.BackendMode {
-			case backendNetworkPolicyHost:
-				notes = append(notes, "network backend: allow-all policy via host namespace passthrough")
-			case backendNetworkPolicyIsolated:
-				notes = append(notes, fmt.Sprintf("network backend: isolated policy namespace (%s loopback)", plan.LoopbackAction))
-			case backendNetworkPolicyRouted:
-				notes = append(notes, fmt.Sprintf("network backend: routed policy namespace (%s loopback, host NAT uplink)", plan.LoopbackAction))
-			}
-		} else {
-			notes = append(notes, fmt.Sprintf("network backend: networkPolicy unsupported by current backend (%v)", err))
-		}
-	}
-	if cfg.StdoutLog != "" || cfg.StderrLog != "" {
-		var exports []string
-		if cfg.StdoutLog != "" {
-			exports = append(exports, "stdout")
-		}
-		if cfg.StderrLog != "" {
-			exports = append(exports, "stderr")
-		}
-		notes = append(notes, fmt.Sprintf("host log export: %s", strings.Join(exports, "+")))
-	}
-	if len(cfg.ROBind) > 0 || len(cfg.RWBind) > 0 {
-		notes = append(notes, "bind mounts: enforced read-only/read-write host path exposure")
-	}
-	if cfg.Memory != "" || cfg.Pids > 0 {
-		var limits []string
-		if cfg.Memory != "" {
-			limits = append(limits, "memory="+cfg.Memory)
-		}
-		if cfg.Pids > 0 {
-			limits = append(limits, fmt.Sprintf("pids=%d", cfg.Pids))
-		}
-		notes = append(notes, fmt.Sprintf("cgroup v2: enforced via delegated systemd scope leaf cgroup (%s)", strings.Join(limits, ", ")))
-	}
-	if cfg.ScopeName != "" {
-		notes = append(notes, fmt.Sprintf("systemd scope: %s", cfg.ScopeName))
-	}
-	if cfg.RootFS == "/" {
-		notes = append(notes, "rootfs backend: host root")
-	} else {
-		notes = append(notes, "rootfs backend: mounted runtime layout plus chroot handoff")
-	}
-	if cfg.RunAsRoot {
-		notes = append(notes, "workload identity: root (explicit via --run-as-root)")
-	} else {
-		notes = append(notes, fmt.Sprintf("workload identity: non-root %s (%d:%d)", defaultSandboxUser, sandboxUID, sandboxGID))
-	}
-	return notes
 }
 
 func runtimeUnsupported() bool {

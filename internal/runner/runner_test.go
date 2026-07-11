@@ -6,12 +6,54 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"syscall"
 	"testing"
 
 	"github.com/DemonGiggle/mirage/internal/spec"
 )
+
+func TestBackendLaunchConfigArgs(t *testing.T) {
+	cfg := backendLaunchConfig{
+		Self:             "/proc/self/exe",
+		RootFS:           "/sandbox",
+		Cwd:              "/work",
+		Hostname:         "oasis",
+		NetworkBackend:   backendNetworkPolicyRouted,
+		SerializedPolicy: "encoded-policy",
+		RoutedInterface:  "mirage0",
+		RoutedAddress:    "10.0.0.2/30",
+		RoutedGateway:    "10.0.0.1",
+		NetworkReadyFD:   3,
+		ROBind:           []string{"/host/read:/read"},
+		RWBind:           []string{"/host/write:/write"},
+		Env:              []string{"MODE=test"},
+		RunAsRoot:        true,
+		Command:          []string{"/bin/sh", "-c", "echo ok"},
+	}
+
+	want := []string{
+		"/proc/self/exe", "__backend-exec",
+		"--rootfs", "/sandbox",
+		"--network-backend", backendNetworkPolicyRouted,
+		"--policy-config", "encoded-policy",
+		"--routed-interface", "mirage0",
+		"--routed-address", "10.0.0.2/30",
+		"--routed-gateway", "10.0.0.1",
+		"--network-ready-fd", "3",
+		"--cwd", "/work",
+		"--hostname", "oasis",
+		"--ro-bind", "/host/read:/read",
+		"--rw-bind", "/host/write:/write",
+		"--env", "MODE=test",
+		"--run-as-root",
+		"--", "/bin/sh", "-c", "echo ok",
+	}
+	if got := cfg.args(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("backend args mismatch:\n got: %#v\nwant: %#v", got, want)
+	}
+}
 
 func TestResolveCommandBinaryMentionsRootfsWhenPathLookupFails(t *testing.T) {
 	sandboxEnv, err := buildSandboxEnv(nil, defaultSandboxIdentity("/tmp/test-rootfs", false))

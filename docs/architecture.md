@@ -60,6 +60,19 @@ The runner is responsible for:
 - delegated cgroup entry when limits are requested
 - final rootfs handoff and workload `exec`
 
+The runner keeps the internal process boundary explicit. `launch_config.go`
+owns serialization of the typed backend launch configuration, while the
+backend helper parses that command line only after re-exec. This prevents the
+top-level launch orchestration from becoming a second, implicit configuration
+format.
+
+### Rootfs Path Boundary
+
+Rootfs generation and validation share one guest-path mapping helper in
+`internal/rootfs/path.go`. Guest paths are normalized as absolute paths before
+they are joined beneath the host-side rootfs directory. Filesystem code should
+use this boundary rather than reconstructing rootfs paths independently.
+
 ## Current Execution Model
 
 One `mirage run` maps to one direct workload process tree.
