@@ -74,8 +74,8 @@ gofmt -w $(find . -name '*.go' -print)
 - `e2e`: end-to-end coverage
 - `examples`: bundled example policies and presets exported by `mirage package`
 - `internal/cli`: subcommand parsing and dispatch; independent command surfaces such as `network_policy.go` stay separate from the root dispatcher
-- `internal/rootfs`: template loading, generation, and validation; `architecture.go` handles target selection and `path.go` owns guest-path mapping
-- `internal/runner`: namespace backend, mounts, network, cgroups, and final exec; `launch_config.go` defines re-exec serialization, `platform.go` collects OS test seams, and `plan_notes.go` formats user-facing backend decisions
+- `internal/rootfs`: template loading, generation, and validation; `bootstrap.go` initializes Debian roots, `dependencies.go` discovers runtime dependencies, `architecture.go` handles target selection, and `path.go` owns guest-path mapping
+- `internal/runner`: namespace backend, mounts, network, cgroups, and final exec; `user_namespace.go`, `mounts.go`, and `identity.go` isolate privileged setup responsibilities, while `launch_config.go` defines re-exec serialization and `platform.go` collects OS test seams
 - `internal/release`: standalone directory and archive package construction
 - `internal/spec`: preset and network-policy data structures and validation
 - `docs/`: user and technical documentation

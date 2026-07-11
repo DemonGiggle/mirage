@@ -66,12 +66,22 @@ backend helper parses that command line only after re-exec. This prevents the
 top-level launch orchestration from becoming a second, implicit configuration
 format.
 
+Privileged setup is grouped by responsibility: `user_namespace.go` owns launch
+synchronization and UID/GID mappings, `mounts.go` owns rootfs and bind mounts,
+and `identity.go` owns the sandbox account, environment, and final identity
+drop. `runner.go` sequences those phases rather than reimplementing them.
+
 ### Rootfs Path Boundary
 
 Rootfs generation and validation share one guest-path mapping helper in
 `internal/rootfs/path.go`. Guest paths are normalized as absolute paths before
 they are joined beneath the host-side rootfs directory. Filesystem code should
 use this boundary rather than reconstructing rootfs paths independently.
+
+Rootfs bootstrapping, dependency discovery, and template application are kept
+separate in `bootstrap.go`, `dependencies.go`, and `generate.go`. This keeps
+host command execution and dependency parsing out of the template traversal
+logic.
 
 ## Current Execution Model
 
