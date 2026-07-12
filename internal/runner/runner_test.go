@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -378,6 +379,77 @@ func TestWaitForSandboxTargetPIDReadsPipe(t *testing.T) {
 	}
 	if err := <-done; err != nil {
 		t.Fatalf("writeTargetPIDFD returned error: %v", err)
+	}
+}
+
+func TestHostPIDFromProcStatus(t *testing.T) {
+	tests := []struct {
+		name    string
+		status  string
+		want    int
+		wantErr string
+	}{
+		{name: "host process", status: "Name:\tmirage\nNSpid:\t4242\n", want: 4242},
+		{name: "nested pid namespace", status: "Name:\tmirage\nNSpid:\t4242\t37\t1\n", want: 4242},
+		{name: "missing", status: "Name:\tmirage\nPid:\t1\n", wantErr: "NSpid field is missing"},
+		{name: "empty", status: "NSpid:\t\n", wantErr: "NSpid field is empty"},
+		{name: "invalid", status: "NSpid:\tnot-a-pid\t1\n", wantErr: "parse outermost NSpid"},
+		{name: "non-positive", status: "NSpid:\t0\t1\n", wantErr: "outermost NSpid 0 is invalid"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := hostPIDFromProcStatus([]byte(tt.status))
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("hostPIDFromProcStatus() error = %v, want containing %q", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("hostPIDFromProcStatus() error = %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("hostPIDFromProcStatus() = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCurrentHostPIDAcrossPIDNamespace(t *testing.T) {
+	if os.Getenv("MIRAGE_HOST_PID_HELPER") == "1" {
+		if os.Getpid() != 1 {
+			t.Fatalf("helper pid = %d, want namespace pid 1", os.Getpid())
+		}
+		pid, err := currentHostPID()
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = fmt.Fprintln(os.Stdout, pid)
+		return
+	}
+
+	unshare, err := exec.LookPath("unshare")
+	if err != nil {
+		t.Skipf("unshare unavailable: %v", err)
+	}
+	cmd := exec.Command(unshare, "--pid", "--fork", os.Args[0], "-test.run=^TestCurrentHostPIDAcrossPIDNamespace$")
+	cmd.Env = append(os.Environ(), "MIRAGE_HOST_PID_HELPER=1")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		message := string(output)
+		if strings.Contains(message, "Operation not permitted") {
+			t.Skipf("PID namespaces unavailable: %s", strings.TrimSpace(message))
+		}
+		t.Fatalf("run PID namespace helper: %v\n%s", err, message)
+	}
+
+	pid, err := strconv.Atoi(strings.TrimSpace(string(output)))
+	if err != nil {
+		t.Fatalf("parse host PID from %q: %v", output, err)
+	}
+	if pid <= 1 {
+		t.Fatalf("host PID = %d, want a host-visible PID greater than 1", pid)
 	}
 }
 

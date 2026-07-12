@@ -151,10 +151,49 @@ func writeTargetPIDFD(fd int) error {
 		return fmt.Errorf("open sandbox target pid fd %d", fd)
 	}
 	defer closeQuietly(file)
-	if _, err := fmt.Fprintf(file, "%d\n", os.Getpid()); err != nil {
+	hostPID, err := currentHostPID()
+	if err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(file, "%d\n", hostPID); err != nil {
 		return fmt.Errorf("write sandbox target pid to fd %d: %w", fd, err)
 	}
 	return nil
+}
+
+func currentHostPID() (int, error) {
+	statusPath := filepath.Join(procfsRoot, "self", "status")
+	status, err := os.ReadFile(statusPath)
+	if err != nil {
+		return 0, fmt.Errorf("read host pid from %q: %w", statusPath, err)
+	}
+	pid, err := hostPIDFromProcStatus(status)
+	if err != nil {
+		return 0, fmt.Errorf("resolve host pid from %q: %w", statusPath, err)
+	}
+	return pid, nil
+}
+
+func hostPIDFromProcStatus(status []byte) (int, error) {
+	for _, line := range strings.Split(string(status), "\n") {
+		key, value, ok := strings.Cut(line, ":")
+		if !ok || key != "NSpid" {
+			continue
+		}
+		fields := strings.Fields(value)
+		if len(fields) == 0 {
+			return 0, errors.New("NSpid field is empty")
+		}
+		pid, err := strconv.Atoi(fields[0])
+		if err != nil {
+			return 0, fmt.Errorf("parse outermost NSpid %q: %w", fields[0], err)
+		}
+		if pid <= 0 {
+			return 0, fmt.Errorf("outermost NSpid %d is invalid", pid)
+		}
+		return pid, nil
+	}
+	return 0, errors.New("NSpid field is missing")
 }
 
 func configureSandboxUIDMappings(pid int, runAsRoot bool) error {

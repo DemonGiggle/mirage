@@ -152,6 +152,12 @@ so because each phase needs a different combination of cgroup placement,
 namespace state, identity mapping, and pre-`exec` control, and those
 requirements do not fit into a single uninterrupted process phase.
 
+The backend helper is PID 1 inside the new PID namespace, but the parent must
+address it through the host's `/proc`. Before requesting UID/GID mappings, the
+helper reads the outermost value from `/proc/self/status`'s `NSpid` field and
+publishes that host-visible PID over the launch pipe. Publishing `getpid()`
+directly would incorrectly make the parent target `/proc/1/uid_map`.
+
 ## Runtime Construction
 
 For a dedicated non-`/` rootfs, the backend currently builds the sandbox in
