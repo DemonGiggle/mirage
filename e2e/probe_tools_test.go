@@ -215,6 +215,7 @@ func TestProbeFileWriteRespectsRootfsBoundary(t *testing.T) {
 // Verifies that the standalone policy fixtures cover the old host/offline cases.
 func TestProbeTCPConnectHonorsNetworkPolicyFiles(t *testing.T) {
 	requireNamespaceBackend(t)
+	requireHostLoopbackListener(t)
 
 	repoRoot := projectRoot(t)
 	probePath := buildProbe(t, repoRoot, "./cmd/probe-tcp-connect")
@@ -272,6 +273,7 @@ func TestProbeTCPConnectHonorsNetworkPolicyFiles(t *testing.T) {
 
 func TestProbeTCPConnectLoadsAllowAllPolicyFile(t *testing.T) {
 	requireNamespaceBackend(t)
+	requireHostLoopbackListener(t)
 
 	repoRoot := projectRoot(t)
 	probePath := buildProbe(t, repoRoot, "./cmd/probe-tcp-connect")
@@ -300,6 +302,7 @@ func TestProbeTCPConnectLoadsAllowAllPolicyFile(t *testing.T) {
 
 func TestProbeTCPConnectLoadsOfflinePolicyPresetFile(t *testing.T) {
 	requireNamespaceBackend(t)
+	requireHostLoopbackListener(t)
 
 	repoRoot := projectRoot(t)
 	probePath := buildProbe(t, repoRoot, "./cmd/probe-tcp-connect")
@@ -328,6 +331,7 @@ func TestProbeTCPConnectLoadsOfflinePolicyPresetFile(t *testing.T) {
 
 func TestProbeTCPConnectRejectsLoopbackWhenPolicyDeniesIt(t *testing.T) {
 	requireNamespaceBackend(t)
+	requireHostLoopbackListener(t)
 
 	repoRoot := projectRoot(t)
 	probePath := buildProbe(t, repoRoot, "./cmd/probe-tcp-connect")
@@ -528,6 +532,7 @@ func TestProbeReadlinkReportsSymlinkTarget(t *testing.T) {
 // Verifies that HTTP-level egress follows the selected policy file.
 func TestProbeHTTPGetHonorsNetworkPolicyFiles(t *testing.T) {
 	requireNamespaceBackend(t)
+	requireHostLoopbackListener(t)
 
 	repoRoot := projectRoot(t)
 	probePath := buildProbe(t, repoRoot, "./cmd/probe-http-get")

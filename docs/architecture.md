@@ -60,6 +60,29 @@ The runner is responsible for:
 - delegated cgroup entry when limits are requested
 - final rootfs handoff and workload `exec`
 
+The runner keeps the internal process boundary explicit. `launch_config.go`
+owns serialization of the typed backend launch configuration, while the
+backend helper parses that command line only after re-exec. This prevents the
+top-level launch orchestration from becoming a second, implicit configuration
+format.
+
+Privileged setup is grouped by responsibility: `user_namespace.go` owns launch
+synchronization and UID/GID mappings, `mounts.go` owns rootfs and bind mounts,
+and `identity.go` owns the sandbox account, environment, and final identity
+drop. `runner.go` sequences those phases rather than reimplementing them.
+
+### Rootfs Path Boundary
+
+Rootfs generation and validation share one guest-path mapping helper in
+`internal/rootfs/path.go`. Guest paths are normalized as absolute paths before
+they are joined beneath the host-side rootfs directory. Filesystem code should
+use this boundary rather than reconstructing rootfs paths independently.
+
+Rootfs bootstrapping, dependency discovery, and template application are kept
+separate in `bootstrap.go`, `dependencies.go`, and `generate.go`. This keeps
+host command execution and dependency parsing out of the template traversal
+logic.
+
 ## Current Execution Model
 
 One `mirage run` maps to one direct workload process tree.
@@ -128,6 +151,12 @@ In short, Mirage is not re-executing itself for stylistic reasons. It is doing
 so because each phase needs a different combination of cgroup placement,
 namespace state, identity mapping, and pre-`exec` control, and those
 requirements do not fit into a single uninterrupted process phase.
+
+The backend helper is PID 1 inside the new PID namespace, but the parent must
+address it through the host's `/proc`. Before requesting UID/GID mappings, the
+helper reads the outermost value from `/proc/self/status`'s `NSpid` field and
+publishes that host-visible PID over the launch pipe. Publishing `getpid()`
+directly would incorrectly make the parent target `/proc/1/uid_map`.
 
 ## Runtime Construction
 
