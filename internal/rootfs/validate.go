@@ -405,14 +405,7 @@ func walkLibraryPrefix(root string, prefix string, library string) (string, erro
 }
 
 func rootPath(root string, guestPath string) string {
-	return filepath.Join(root, strings.TrimPrefix(normalizeGuestPath(guestPath), "/"))
-}
-
-func normalizeGuestPath(path string) string {
-	if filepath.IsAbs(path) {
-		return filepath.Clean(path)
-	}
-	return filepath.Clean("/" + path)
+	return pathInsideRoot(root, guestPath)
 }
 
 func dedupePaths(paths []string) []string {
