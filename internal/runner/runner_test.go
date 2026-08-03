@@ -56,6 +56,27 @@ func TestBackendLaunchConfigArgs(t *testing.T) {
 	}
 }
 
+func TestBackendLaunchConfigArgsEnablesGuestSudo(t *testing.T) {
+	cfg := backendLaunchConfig{
+		Self:           "/proc/self/exe",
+		RootFS:         "/sandbox",
+		NetworkBackend: backendNetworkPolicyHost,
+		EnableSudo:     true,
+		Command:        []string{"/bin/sh"},
+	}
+
+	want := []string{
+		"/proc/self/exe", "__backend-exec",
+		"--rootfs", "/sandbox",
+		"--network-backend", backendNetworkPolicyHost,
+		"--sudo",
+		"--", "/bin/sh",
+	}
+	if got := cfg.args(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("backend sudo args mismatch:\n got: %#v\nwant: %#v", got, want)
+	}
+}
+
 func TestResolveCommandBinaryMentionsRootfsWhenPathLookupFails(t *testing.T) {
 	sandboxEnv, err := buildSandboxEnv(nil, defaultSandboxIdentity("/tmp/test-rootfs", false))
 	if err != nil {
@@ -214,6 +235,17 @@ func TestPlanNotesRunAsRoot(t *testing.T) {
 	}
 }
 
+func TestPlanNotesGuestSudo(t *testing.T) {
+	notes := PlanNotes(spec.Config{
+		RootFS:     "/sandbox",
+		EnableSudo: true,
+	})
+	got := strings.Join(notes, "\n")
+	if !strings.Contains(got, "guest sudo: passwordless escalation to namespace root enabled") {
+		t.Fatalf("expected guest sudo note, got %q", got)
+	}
+}
+
 func TestApplyConfigDefaultsSetsDefaultHostname(t *testing.T) {
 	cfg := applyConfigDefaults(spec.Config{})
 	if cfg.Hostname != defaultSandboxHost {
@@ -229,7 +261,7 @@ func TestApplyConfigDefaultsPreservesExplicitHostname(t *testing.T) {
 }
 
 func TestBuildUnshareArgsUsesNetNamespaceForOfflineNetworkPolicy(t *testing.T) {
-	args, err := buildUnshareArgs(false, backendNetworkPolicyIsolated)
+	args, err := buildUnshareArgs(false, false, backendNetworkPolicyIsolated)
 	if err != nil {
 		t.Fatalf("buildUnshareArgs returned error: %v", err)
 	}
@@ -274,7 +306,7 @@ func TestSandboxIdentityFileContentsIncludeNSSFilesLookup(t *testing.T) {
 }
 
 func TestBuildUnshareArgsSkipsNetNamespaceForAllowAllNetworkPolicy(t *testing.T) {
-	args, err := buildUnshareArgs(false, backendNetworkPolicyHost)
+	args, err := buildUnshareArgs(false, false, backendNetworkPolicyHost)
 	if err != nil {
 		t.Fatalf("buildUnshareArgs returned error: %v", err)
 	}
@@ -290,7 +322,7 @@ func TestBuildUnshareArgsSwitchesRootMode(t *testing.T) {
 		currentUID = restoreUID
 	})
 
-	args, err := buildUnshareArgs(false, backendNetworkPolicyIsolated)
+	args, err := buildUnshareArgs(false, false, backendNetworkPolicyIsolated)
 	if err != nil {
 		t.Fatalf("buildUnshareArgs returned error: %v", err)
 	}
@@ -301,7 +333,7 @@ func TestBuildUnshareArgsSwitchesRootMode(t *testing.T) {
 		t.Fatalf("expected non-root launch to avoid --map-root-user, got %#v", args)
 	}
 
-	rootArgs, err := buildUnshareArgs(true, backendNetworkPolicyHost)
+	rootArgs, err := buildUnshareArgs(true, false, backendNetworkPolicyHost)
 	if err != nil {
 		t.Fatalf("buildUnshareArgs returned error for root mode: %v", err)
 	}
@@ -316,6 +348,22 @@ func TestBuildUnshareArgsSwitchesRootMode(t *testing.T) {
 	}
 }
 
+func TestBuildUnshareArgsKeepsSetgroupsAvailableForSudoOnRootHost(t *testing.T) {
+	restoreUID := currentUID
+	currentUID = func() int { return 0 }
+	t.Cleanup(func() {
+		currentUID = restoreUID
+	})
+
+	args, err := buildUnshareArgs(false, true, backendNetworkPolicyHost)
+	if err != nil {
+		t.Fatalf("buildUnshareArgs returned error: %v", err)
+	}
+	if slicesContains(args, "--setgroups") {
+		t.Fatalf("expected guest sudo launch to keep setgroups available, got %#v", args)
+	}
+}
+
 func TestBuildUnshareArgsKeepsSetgroupsAvailableForRootlessHost(t *testing.T) {
 	restoreUID := currentUID
 	currentUID = func() int { return 1000 }
@@ -323,7 +371,7 @@ func TestBuildUnshareArgsKeepsSetgroupsAvailableForRootlessHost(t *testing.T) {
 		currentUID = restoreUID
 	})
 
-	args, err := buildUnshareArgs(false, backendNetworkPolicyHost)
+	args, err := buildUnshareArgs(false, false, backendNetworkPolicyHost)
 	if err != nil {
 		t.Fatalf("buildUnshareArgs returned error: %v", err)
 	}
@@ -677,7 +725,7 @@ func TestConfigureSandboxUIDMappingsWritesDirectRootMaps(t *testing.T) {
 		idMapCommandRunner = restoreRunner
 	})
 
-	if err := configureSandboxUIDMappings(pid, false); err != nil {
+	if err := configureSandboxUIDMappings(pid, false, true); err != nil {
 		t.Fatalf("configureSandboxUIDMappings returned error: %v", err)
 	}
 
@@ -686,7 +734,9 @@ func TestConfigureSandboxUIDMappingsWritesDirectRootMaps(t *testing.T) {
 		t.Fatalf("read uid_map: %v", err)
 	}
 	if got := string(uidMap); got != `0 0 1
+1 1 999
 1000 1000 1
+1001 1001 64535
 ` {
 		t.Fatalf("unexpected uid_map contents: %q", got)
 	}
@@ -696,9 +746,70 @@ func TestConfigureSandboxUIDMappingsWritesDirectRootMaps(t *testing.T) {
 		t.Fatalf("read gid_map: %v", err)
 	}
 	if got := string(gidMap); got != `0 0 1
+1 1 999
 1000 1000 1
+1001 1001 64535
 ` {
 		t.Fatalf("unexpected gid_map contents: %q", got)
+	}
+}
+
+func TestSandboxIDMapEntriesPreserveDefaultAndExpandSudoModes(t *testing.T) {
+	restoreUID := currentUID
+	currentUID = func() int { return 0 }
+	t.Cleanup(func() {
+		currentUID = restoreUID
+	})
+
+	tests := []struct {
+		name       string
+		runAsRoot  bool
+		enableSudo bool
+		want       [][3]int
+	}{
+		{name: "default non-root", want: [][3]int{{0, 0, 1}, {sandboxUID, sandboxUID, 1}}},
+		{name: "guest sudo", enableSudo: true, want: [][3]int{{0, 0, 1}, {1, 1, sandboxUID - 1}, {sandboxUID, sandboxUID, 1}, {sandboxUID + 1, sandboxUID + 1, maxMappedGuestID - sandboxUID}}},
+		{name: "run as root", runAsRoot: true, want: [][3]int{{0, 0, 1}, {1, 1, maxMappedGuestID}}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			uidEntries, gidEntries, err := sandboxIDMapEntries(tc.runAsRoot, tc.enableSudo, 0, 0)
+			if err != nil {
+				t.Fatalf("sandboxIDMapEntries returned error: %v", err)
+			}
+			if !reflect.DeepEqual(uidEntries, tc.want) || !reflect.DeepEqual(gidEntries, tc.want) {
+				t.Fatalf("unexpected mappings: uid=%#v gid=%#v want=%#v", uidEntries, gidEntries, tc.want)
+			}
+		})
+	}
+}
+
+func TestSandboxSudoIDMapEntriesPreserveDefaultSandboxID(t *testing.T) {
+	tests := []struct {
+		name          string
+		rangeStart    int
+		sandboxHostID int
+	}{
+		{name: "sandbox ID starts range", rangeStart: 165536, sandboxHostID: 165536},
+		{name: "sandbox ID inside range", rangeStart: 165536, sandboxHostID: 166000},
+		{name: "sandbox ID in separate range", rangeStart: 200000, sandboxHostID: 165536},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			entries, err := sandboxSudoIDMapEntries(1000, tc.rangeStart, tc.sandboxHostID)
+			if err != nil {
+				t.Fatalf("sandboxSudoIDMapEntries returned error: %v", err)
+			}
+			mappedHostID := -1
+			for _, entry := range entries {
+				if sandboxUID >= entry[0] && sandboxUID < entry[0]+entry[2] {
+					mappedHostID = entry[1] + sandboxUID - entry[0]
+				}
+			}
+			if mappedHostID != tc.sandboxHostID {
+				t.Fatalf("guest sandbox ID mapped to host ID %d, want %d; entries=%#v", mappedHostID, tc.sandboxHostID, entries)
+			}
+		})
 	}
 }
 
@@ -875,6 +986,189 @@ func TestSandboxIdentityFileMode(t *testing.T) {
 	}
 	if got := sandboxIdentityFileMode("/etc/gshadow"); got != 0o640 {
 		t.Fatalf("expected gshadow mode 0640, got %#o", got)
+	}
+}
+
+func TestSandboxSudoersFileContents(t *testing.T) {
+	identity := sandboxIdentity{UID: sandboxUID, GID: sandboxGID, User: defaultSandboxUser}
+	got := sandboxSudoersFileContents(identity)
+	for _, line := range []string{
+		"Defaults env_reset",
+		"Defaults secure_path=\"" + defaultSandboxPath + "\"",
+		"root ALL=(ALL:ALL) ALL",
+		"mirage ALL=(ALL:ALL) NOPASSWD: ALL",
+	} {
+		if !strings.Contains(got, line+"\n") {
+			t.Fatalf("expected sudoers policy to contain %q, got %q", line, got)
+		}
+	}
+	if sandboxSudoersFileMode != 0o440 {
+		t.Fatalf("expected sudoers mode 0440, got %#o", sandboxSudoersFileMode)
+	}
+}
+
+func TestSandboxSudoHostsFileContents(t *testing.T) {
+	root := t.TempDir()
+	hostsPath := filepath.Join(root, "etc", "hosts")
+	if err := os.MkdirAll(filepath.Dir(hostsPath), 0o755); err != nil {
+		t.Fatalf("create hosts parent: %v", err)
+	}
+	if err := os.WriteFile(hostsPath, []byte("127.0.0.1 localhost\n"), 0o644); err != nil {
+		t.Fatalf("write hosts fixture: %v", err)
+	}
+
+	got, err := sandboxSudoHostsFileContents(root, "oasis")
+	if err != nil {
+		t.Fatalf("sandboxSudoHostsFileContents returned error: %v", err)
+	}
+	if got != "127.0.0.1 localhost\n127.0.1.1\toasis\n" {
+		t.Fatalf("unexpected sudo hosts content %q", got)
+	}
+
+	if err := os.WriteFile(hostsPath, []byte(got), 0o644); err != nil {
+		t.Fatalf("write augmented hosts fixture: %v", err)
+	}
+	got, err = sandboxSudoHostsFileContents(root, "oasis")
+	if err != nil {
+		t.Fatalf("sandboxSudoHostsFileContents returned error for existing hostname: %v", err)
+	}
+	if strings.Count(got, "oasis") != 1 {
+		t.Fatalf("expected hostname once, got %q", got)
+	}
+}
+
+func TestSandboxSudoHostsFileContentsRejectsInjection(t *testing.T) {
+	_, err := sandboxSudoHostsFileContents(t.TempDir(), "oasis\n127.0.0.1 attacker")
+	if err == nil || !strings.Contains(err.Error(), "cannot be represented safely") {
+		t.Fatalf("expected hostname injection rejection, got %v", err)
+	}
+}
+
+func TestValidateSandboxSudoBinary(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "usr", "bin", "sudo")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("create sudo parent: %v", err)
+	}
+	if err := os.WriteFile(path, []byte("sudo"), 0o755); err != nil {
+		t.Fatalf("write sudo fixture: %v", err)
+	}
+	if err := os.Chmod(path, 0o755|os.ModeSetuid); err != nil {
+		t.Fatalf("set sudo fixture mode: %v", err)
+	}
+
+	if err := validateSandboxSudoBinary(root, uint32(os.Getuid())); err != nil {
+		t.Fatalf("validateSandboxSudoBinary returned error: %v", err)
+	}
+
+	t.Run("requires namespace root ownership", func(t *testing.T) {
+		err := validateSandboxSudoBinary(root, uint32(os.Getuid()+1))
+		if err == nil || !strings.Contains(err.Error(), "want namespace root uid") {
+			t.Fatalf("expected owner rejection, got %v", err)
+		}
+	})
+
+	t.Run("requires setuid", func(t *testing.T) {
+		if err := os.Chmod(path, 0o755); err != nil {
+			t.Fatalf("clear sudo fixture setuid: %v", err)
+		}
+		err := validateSandboxSudoBinary(root, uint32(os.Getuid()))
+		if err == nil || !strings.Contains(err.Error(), "is not setuid") {
+			t.Fatalf("expected setuid rejection, got %v", err)
+		}
+	})
+}
+
+func TestValidateSandboxSudoBinaryRejectsSymlink(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "usr", "bin", "sudo")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("create sudo parent: %v", err)
+	}
+	if err := os.Symlink("/host/sudo", path); err != nil {
+		t.Fatalf("create sudo symlink: %v", err)
+	}
+
+	err := validateSandboxSudoBinary(root, 0)
+	if err == nil || !strings.Contains(err.Error(), "must not be a symlink") {
+		t.Fatalf("expected symlink rejection, got %v", err)
+	}
+}
+
+func TestValidateSandboxSudoBinaryRejectsMissingAndWrongType(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "usr", "bin"), 0o755); err != nil {
+		t.Fatalf("create sudo parent: %v", err)
+	}
+	err := validateSandboxSudoBinary(root, 0)
+	if err == nil || !strings.Contains(err.Error(), "rebuild it with mirage rootfs init --sudo") {
+		t.Fatalf("expected missing sudo rejection, got %v", err)
+	}
+
+	if err := os.Mkdir(filepath.Join(root, "usr", "bin", "sudo"), 0o755); err != nil {
+		t.Fatalf("create sudo directory: %v", err)
+	}
+	err = validateSandboxSudoBinary(root, 0)
+	if err == nil || !strings.Contains(err.Error(), "is not a regular file") {
+		t.Fatalf("expected sudo directory rejection, got %v", err)
+	}
+}
+
+func TestValidateSandboxSudoBinaryRejectsSymlinkAncestor(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(outside, "bin"), 0o755); err != nil {
+		t.Fatalf("create outside bin: %v", err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "usr")); err != nil {
+		t.Fatalf("create sudo ancestor symlink: %v", err)
+	}
+
+	err := validateSandboxSudoBinary(root, 0)
+	if err == nil || !strings.Contains(err.Error(), "path component") || !strings.Contains(err.Error(), "must not be a symlink") {
+		t.Fatalf("expected symlink ancestor rejection, got %v", err)
+	}
+}
+
+func TestValidateSandboxPathComponents(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "etc"), 0o755); err != nil {
+		t.Fatalf("create etc fixture: %v", err)
+	}
+	if err := validateSandboxPathComponents(root, "/etc/sudoers", true); err != nil {
+		t.Fatalf("allow missing final component: %v", err)
+	}
+
+	outside := t.TempDir()
+	if err := os.Remove(filepath.Join(root, "etc")); err != nil {
+		t.Fatalf("remove etc fixture: %v", err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "etc")); err != nil {
+		t.Fatalf("create etc symlink: %v", err)
+	}
+	err := validateSandboxPathComponents(root, "/etc/sudoers", true)
+	if err == nil || !strings.Contains(err.Error(), "must not be a symlink") {
+		t.Fatalf("expected symlink ancestor rejection, got %v", err)
+	}
+}
+
+func TestPrepareSandboxIdentityRejectsInvalidSudoModes(t *testing.T) {
+	tests := []struct {
+		name      string
+		rootfs    string
+		runAsRoot bool
+		want      string
+	}{
+		{name: "host rootfs", rootfs: "/", want: "dedicated non-/ rootfs"},
+		{name: "root identity", rootfs: "/sandbox", runAsRoot: true, want: "cannot both be enabled"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := prepareSandboxIdentity(tc.rootfs, tc.runAsRoot, true, defaultSandboxHost)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("expected error containing %q, got %v", tc.want, err)
+			}
+		})
 	}
 }
 

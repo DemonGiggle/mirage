@@ -58,6 +58,7 @@ type GenerateOptions struct {
 	Architecture   string
 	DebianRelease  string
 	ExtraPackages  []string
+	IncludeSudo    bool
 }
 
 func DefaultDebianRelease() string {
@@ -127,7 +128,11 @@ func BootstrapWithReportWithOptions(outputRoot string, options GenerateOptions) 
 	if err != nil {
 		return report, err
 	}
-	extraPackages, err := normalizeExtraPackages(options.ExtraPackages)
+	rawExtraPackages := append([]string{}, options.ExtraPackages...)
+	if options.IncludeSudo {
+		rawExtraPackages = append(rawExtraPackages, "sudo")
+	}
+	extraPackages, err := normalizeExtraPackages(rawExtraPackages)
 	if err != nil {
 		return report, err
 	}

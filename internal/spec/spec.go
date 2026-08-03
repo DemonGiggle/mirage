@@ -3,6 +3,7 @@ package spec
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 )
 
@@ -19,6 +20,7 @@ type Preset struct {
 	RWBind            []string       `json:"rwBind,omitempty" yaml:"rwBind,omitempty"`
 	Env               []string       `json:"env,omitempty" yaml:"env,omitempty"`
 	RunAsRoot         bool           `json:"runAsRoot,omitempty" yaml:"runAsRoot,omitempty"`
+	Sudo              bool           `json:"sudo,omitempty" yaml:"sudo,omitempty"`
 	Cwd               string         `json:"cwd,omitempty" yaml:"cwd,omitempty"`
 	Hostname          string         `json:"hostname,omitempty" yaml:"hostname,omitempty"`
 	Memory            string         `json:"memory,omitempty" yaml:"memory,omitempty"`
@@ -36,6 +38,7 @@ type Config struct {
 	RWBind            []string
 	Env               []string
 	RunAsRoot         bool
+	EnableSudo        bool
 	StdoutLog         string
 	StderrLog         string
 	Cwd               string
@@ -73,6 +76,9 @@ func ApplyPresetFile(cfg Config) (Config, Preset, error) {
 	}
 	if preset.RunAsRoot {
 		cfg.RunAsRoot = true
+	}
+	if preset.Sudo {
+		cfg.EnableSudo = true
 	}
 	if preset.Cwd != "" {
 		cfg.Cwd = preset.Cwd
@@ -130,6 +136,12 @@ func Validate(cfg Config) error {
 	if cfg.Pids < 0 {
 		problems = append(problems, errors.New("pids must be zero or positive"))
 	}
+	if cfg.EnableSudo && cfg.RunAsRoot {
+		problems = append(problems, errors.New("sudo and runAsRoot cannot both be enabled"))
+	}
+	if cfg.EnableSudo && filepath.Clean(cfg.RootFS) == "/" {
+		problems = append(problems, errors.New("sudo requires a dedicated non-/ rootfs"))
+	}
 	if len(problems) == 0 {
 		return nil
 	}
@@ -153,6 +165,9 @@ func Summary(cfg Config) string {
 	}
 	if cfg.RunAsRoot {
 		fmt.Fprintf(&b, "run-as-root: true\n")
+	}
+	if cfg.EnableSudo {
+		fmt.Fprintf(&b, "sudo: true\n")
 	}
 	if cfg.Cwd != "" {
 		fmt.Fprintf(&b, "cwd: %s\n", cfg.Cwd)

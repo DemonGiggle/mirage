@@ -19,6 +19,7 @@ type backendLaunchConfig struct {
 	RWBind           []string
 	Env              []string
 	RunAsRoot        bool
+	EnableSudo       bool
 	Command          []string
 }
 
@@ -52,6 +53,9 @@ func (cfg backendLaunchConfig) args() []string {
 	}
 	if cfg.RunAsRoot {
 		args = append(args, "--run-as-root")
+	}
+	if cfg.EnableSudo {
+		args = append(args, "--sudo")
 	}
 	args = append(args, "--")
 	return append(args, cfg.Command...)

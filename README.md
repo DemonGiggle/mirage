@@ -105,6 +105,19 @@ Run a first sandboxed command:
 mirage run --rootfs /tmp/mirage/basic-rootfs --network-policy-file ./examples/network-policies/offline.yaml -- /bin/ls /
 ```
 
+Create a sudo-capable rootfs, then keep the default non-root workload while
+allowing explicit guest-root escalation when a tool needs it:
+
+```bash
+mirage rootfs init --output /tmp/mirage/sudo-rootfs --sudo
+mirage run --rootfs /tmp/mirage/sudo-rootfs --sudo --network-policy-file ./examples/network-policies/offline.yaml -- /bin/sh
+```
+
+`--sudo` is an opt-in guest capability. It grants passwordless root only inside
+Mirage's user namespace; it does not grant host root. It works for root and
+rootless host launches, requires a dedicated rootfs, and is mutually exclusive
+with `--run-as-root`.
+
 Running the same commands through `sudo` remains supported and preserves the
 original privileged bootstrap behavior. Routed egress still requires host
 `CAP_NET_ADMIN`, and cgroup limits require a delegated systemd scope.

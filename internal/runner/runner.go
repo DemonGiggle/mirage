@@ -69,6 +69,7 @@ func execute(cfg spec.Config, stdout, stderr io.Writer) error {
 		RWBind:           cfg.RWBind,
 		Env:              cfg.Env,
 		RunAsRoot:        cfg.RunAsRoot,
+		EnableSudo:       cfg.EnableSudo,
 		Command:          cfg.Command,
 	}
 	var routedConfig routedNetworkConfig
@@ -92,7 +93,7 @@ func execute(cfg spec.Config, stdout, stderr io.Writer) error {
 		return err
 	}
 	defer launchSync.cleanup()
-	unshareArgs, err := buildUnshareArgs(cfg.RunAsRoot, policyPlan.BackendMode)
+	unshareArgs, err := buildUnshareArgs(cfg.RunAsRoot, cfg.EnableSudo, policyPlan.BackendMode)
 	if err != nil {
 		return err
 	}
@@ -171,7 +172,7 @@ func execute(cfg spec.Config, stdout, stderr io.Writer) error {
 			_ = cmd.Wait()
 			return err
 		}
-		if err := configureSandboxUIDMappings(targetPID, cfg.RunAsRoot); err != nil {
+		if err := configureSandboxUIDMappings(targetPID, cfg.RunAsRoot, cfg.EnableSudo); err != nil {
 			_ = cmd.Process.Kill()
 			_ = cmd.Wait()
 			return err
@@ -223,7 +224,7 @@ func execute(cfg spec.Config, stdout, stderr io.Writer) error {
 			return err
 		}
 		if launchSync.uidMapReadyFile != "" {
-			if err := configureSandboxUIDMappings(targetPID, cfg.RunAsRoot); err != nil {
+			if err := configureSandboxUIDMappings(targetPID, cfg.RunAsRoot, cfg.EnableSudo); err != nil {
 				_ = cmd.Process.Kill()
 				_ = cmd.Wait()
 				return err
@@ -362,6 +363,7 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 	var rwBind []string
 	var envItems []string
 	var runAsRoot bool
+	var enableSudo bool
 	var targetPIDFD int
 	var uidMapReadyFile string
 	var mappedRootReady bool
@@ -379,6 +381,7 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 	fs.Var(stringSliceValue{target: &rwBind}, "rw-bind", "backend read-write bind mount")
 	fs.Var(stringSliceValue{target: &envItems}, "env", "backend environment variable")
 	fs.BoolVar(&runAsRoot, "run-as-root", false, "backend workload identity")
+	fs.BoolVar(&enableSudo, "sudo", false, "backend guest sudo capability")
 	fs.IntVar(&targetPIDFD, "target-pid-fd", -1, "backend target pid publication fd")
 	fs.StringVar(&uidMapReadyFile, "uid-map-ready-file", "", "backend uid/gid mapping readiness file")
 	fs.BoolVar(&mappedRootReady, "mapped-root-ready", false, "backend privilege handoff completion marker")
@@ -400,7 +403,7 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 		if err := waitForUIDMapReady(uidMapReadyFile); err != nil {
 			return err
 		}
-		if err := reexecBackendWithMappedRoot(rootfs, cwd, hostname, networkBackend, policyConfig, routedInterface, routedAddress, routedGateway, networkReadyFD, roBind, rwBind, envItems, runAsRoot, command); err != nil {
+		if err := reexecBackendWithMappedRoot(rootfs, cwd, hostname, networkBackend, policyConfig, routedInterface, routedAddress, routedGateway, networkReadyFD, roBind, rwBind, envItems, runAsRoot, enableSudo, command); err != nil {
 			return err
 		}
 		return nil
@@ -452,7 +455,7 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 			return err
 		}
 	}
-	identity, err := prepareSandboxIdentity(rootfs, runAsRoot)
+	identity, err := prepareSandboxIdentity(rootfs, runAsRoot, enableSudo, hostname)
 	if err != nil {
 		return err
 	}

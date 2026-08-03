@@ -20,6 +20,12 @@ type sandboxIdentity struct {
 	User string
 }
 
+const (
+	sandboxSudoBinaryPath  = "/usr/bin/sudo"
+	sandboxSudoersPath     = "/etc/sudoers"
+	sandboxSudoersFileMode = 0o440
+)
+
 func buildSandboxEnv(items []string, identity sandboxIdentity) ([]string, error) {
 	env := []string{
 		"PATH=" + defaultSandboxPath,
@@ -37,7 +43,13 @@ func buildSandboxEnv(items []string, identity sandboxIdentity) ([]string, error)
 	return env, nil
 }
 
-func prepareSandboxIdentity(rootfs string, runAsRoot bool) (sandboxIdentity, error) {
+func prepareSandboxIdentity(rootfs string, runAsRoot bool, enableSudo bool, hostname string) (sandboxIdentity, error) {
+	if enableSudo && runAsRoot {
+		return sandboxIdentity{}, errors.New("guest sudo and run-as-root cannot both be enabled")
+	}
+	if enableSudo && (rootfs == "" || rootfs == "/") {
+		return sandboxIdentity{}, errors.New("guest sudo requires a dedicated non-/ rootfs")
+	}
 	identity := defaultSandboxIdentity(rootfs, runAsRoot)
 	if runAsRoot {
 		if rootfs != "" && rootfs != "/" {
@@ -52,6 +64,11 @@ func prepareSandboxIdentity(rootfs string, runAsRoot bool) (sandboxIdentity, err
 	}
 	if err := applySandboxIdentityFiles(rootfs, identity); err != nil {
 		return sandboxIdentity{}, err
+	}
+	if enableSudo {
+		if err := applySandboxSudoPolicy(rootfs, identity, hostname); err != nil {
+			return sandboxIdentity{}, err
+		}
 	}
 	return identity, nil
 }
@@ -151,6 +168,138 @@ func sandboxIdentityFileContents(identity sandboxIdentity) map[string]string {
 			"",
 		}, "\n"),
 	}
+}
+
+func applySandboxSudoPolicy(rootfs string, identity sandboxIdentity, hostname string) error {
+	if err := validateSandboxSudoBinary(rootfs, 0); err != nil {
+		return err
+	}
+	if err := validateSandboxPathComponents(rootfs, sandboxSudoersPath, true); err != nil {
+		return err
+	}
+	if err := installSandboxRuntimeFile(rootfs, sandboxSudoersPath, sandboxSudoersFileContents(identity), sandboxSudoersFileMode); err != nil {
+		return fmt.Errorf("install sandbox sudoers policy: %w", err)
+	}
+	if err := validateSandboxPathComponents(rootfs, "/etc/hosts", true); err != nil {
+		return err
+	}
+	hostsContent, err := sandboxSudoHostsFileContents(rootfs, hostname)
+	if err != nil {
+		return err
+	}
+	if err := installSandboxRuntimeFile(rootfs, "/etc/hosts", hostsContent, 0o644); err != nil {
+		return fmt.Errorf("install sandbox sudo hosts file: %w", err)
+	}
+	return nil
+}
+
+func installSandboxRuntimeFile(rootfs string, target string, content string, mode os.FileMode) error {
+	sourcePath, err := writeRuntimeIdentityFile(content, mode)
+	if err != nil {
+		return fmt.Errorf("prepare runtime file %q: %w", target, err)
+	}
+	defer func() {
+		_ = os.Remove(sourcePath)
+	}()
+	if err := applyBindMount(rootfs, bindMount{Source: sourcePath, Target: target, ReadOnly: true}); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateSandboxSudoBinary(rootfs string, rootUID uint32) error {
+	if err := validateSandboxPathComponents(rootfs, sandboxSudoBinaryPath, true); err != nil {
+		return err
+	}
+	path := bindMountTargetPath(rootfs, sandboxSudoBinaryPath)
+	info, err := os.Lstat(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("guest sudo requires %s inside the rootfs; rebuild it with mirage rootfs init --sudo", sandboxSudoBinaryPath)
+		}
+		return fmt.Errorf("inspect guest sudo binary %q: %w", path, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("guest sudo binary %q must not be a symlink", path)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("guest sudo binary %q is not a regular file", path)
+	}
+	if info.Mode()&os.ModeSetuid == 0 {
+		return fmt.Errorf("guest sudo binary %q is not setuid", path)
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return fmt.Errorf("inspect guest sudo binary %q ownership: unsupported stat result", path)
+	}
+	if stat.Uid != rootUID {
+		return fmt.Errorf("guest sudo binary %q is owned by uid %d, want namespace root uid %d", path, stat.Uid, rootUID)
+	}
+	return nil
+}
+
+func validateSandboxPathComponents(rootfs string, guestPath string, allowMissingFinal bool) error {
+	cleanGuestPath := filepath.Clean("/" + strings.TrimPrefix(guestPath, "/"))
+	components := strings.Split(strings.TrimPrefix(cleanGuestPath, "/"), "/")
+	current := rootfs
+	for index, component := range components {
+		current = filepath.Join(current, component)
+		info, err := os.Lstat(current)
+		if err != nil {
+			if allowMissingFinal && index == len(components)-1 && errors.Is(err, os.ErrNotExist) {
+				return nil
+			}
+			return fmt.Errorf("inspect guest path component %q: %w", current, err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("guest path component %q must not be a symlink", current)
+		}
+		if index < len(components)-1 && !info.IsDir() {
+			return fmt.Errorf("guest path component %q is not a directory", current)
+		}
+	}
+	return nil
+}
+
+func sandboxSudoersFileContents(identity sandboxIdentity) string {
+	return strings.Join([]string{
+		"Defaults env_reset",
+		"Defaults secure_path=\"" + defaultSandboxPath + "\"",
+		"root ALL=(ALL:ALL) ALL",
+		fmt.Sprintf("%s ALL=(ALL:ALL) NOPASSWD: ALL", identity.User),
+		"",
+	}, "\n")
+}
+
+func sandboxSudoHostsFileContents(rootfs string, hostname string) (string, error) {
+	if hostname == "" {
+		hostname = defaultSandboxHost
+	}
+	if strings.ContainsAny(hostname, " \t\r\n#") {
+		return "", fmt.Errorf("guest sudo hostname %q cannot be represented safely in /etc/hosts", hostname)
+	}
+	target := bindMountTargetPath(rootfs, "/etc/hosts")
+	data, err := os.ReadFile(target)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return "", fmt.Errorf("read guest hosts file %q: %w", target, err)
+	}
+	content := string(data)
+	for _, line := range strings.Split(content, "\n") {
+		line, _, _ = strings.Cut(line, "#")
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		for _, name := range fields[1:] {
+			if name == hostname {
+				return content, nil
+			}
+		}
+	}
+	if content != "" && !strings.HasSuffix(content, "\n") {
+		content += "\n"
+	}
+	return content + "127.0.1.1\t" + hostname + "\n", nil
 }
 
 func writeRuntimeIdentityFile(content string, mode os.FileMode) (string, error) {

@@ -165,12 +165,14 @@ func runRootfsInit(args []string, stdout, stderr io.Writer) error {
 	var architecture string
 	var debianRelease string
 	var extraPackages string
+	var includeSudo bool
 
 	fs.StringVar(&outputRoot, "output", "", "Path to the generated rootfs directory.")
 	fs.BoolVar(&allowOverwrite, "allow-overwrite", false, "Allow writing into an existing non-empty output directory.")
 	fs.StringVar(&architecture, "arch", "", "Target rootfs architecture. Supported: x86_64, arm64, arm32, riscv64. Defaults to the host architecture.")
 	fs.StringVar(&debianRelease, "debian-release", "", "Debian codename to bootstrap. Defaults to the built-in release used by Mirage.")
 	fs.StringVar(&extraPackages, "extra-pkg", "", "Comma-separated Debian package names to install in addition to the default rootfs package set.")
+	fs.BoolVar(&includeSudo, "sudo", false, "Install sudo for use with mirage run --sudo.")
 
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -190,6 +192,7 @@ func runRootfsInit(args []string, stdout, stderr io.Writer) error {
 		Architecture:   architecture,
 		DebianRelease:  debianRelease,
 		ExtraPackages:  splitCommaSeparatedList(extraPackages),
+		IncludeSudo:    includeSudo,
 	})
 	if err != nil {
 		return err
@@ -204,7 +207,7 @@ func printRootfsInitHelp(w io.Writer) {
 	_, _ = fmt.Fprint(w, `Bootstrap a Debian minbase rootfs.
 
 Usage:
-  mirage rootfs init --output <path> [--allow-overwrite] [--arch <arch>] [--debian-release <codename>] [--extra-pkg <pkg1,pkg2>]
+  mirage rootfs init --output <path> [--allow-overwrite] [--arch <arch>] [--debian-release <codename>] [--extra-pkg <pkg1,pkg2>] [--sudo]
 
 Notes:
   - The rootfs is created with mmdebstrap.
@@ -216,6 +219,7 @@ Notes:
   - If --arch is omitted, Mirage detects the host architecture and uses that.
   - --debian-release overrides the Debian codename passed to mmdebstrap.
   - --extra-pkg appends Debian packages to the default bootstrap package set.
+  - --sudo installs the guest sudo package for later use with mirage run --sudo.
   - --allow-overwrite clears the existing output directory before rebuilding it.
   - Generated rootfs trees can be validated later with mirage doctor --rootfs ....
 
@@ -224,6 +228,7 @@ Examples:
   mirage rootfs init --output /tmp/mirage/bookworm-rootfs --debian-release bookworm
   mirage rootfs init --output /tmp/mirage/arm64-rootfs --arch arm64
   mirage rootfs init --output /tmp/mirage/dev-rootfs --extra-pkg vim,curl,jq
+  mirage rootfs init --output /tmp/mirage/sudo-rootfs --sudo
   mirage rootfs init --output /tmp/mirage/work --allow-overwrite
 `)
 }
@@ -490,6 +495,7 @@ func runSandbox(args []string, stdout, stderr io.Writer) error {
 	fs.Var(stringSliceValue{target: &cfg.RWBind}, "rw-bind", "Writable bind mount in host:guest form.")
 	fs.Var(stringSliceValue{target: &cfg.Env}, "env", "Environment variable in KEY=VALUE form.")
 	fs.BoolVar(&cfg.RunAsRoot, "run-as-root", false, "Run the workload as root inside the sandbox.")
+	fs.BoolVar(&cfg.EnableSudo, "sudo", false, "Allow the non-root workload to use passwordless sudo inside a dedicated rootfs.")
 	fs.StringVar(&cfg.NetworkPolicyFile, "network-policy-file", "", "Path to a standalone networkPolicy YAML file. Use `mirage network-policy list` for bundled examples.")
 	fs.StringVar(&cfg.ScopeName, "scope-name", "", "Internal: explicit systemd scope unit name.")
 	fs.StringVar(&cfg.PresetFile, "preset-file", "", "Path to a preset YAML file.")
@@ -506,7 +512,7 @@ func runSandbox(args []string, stdout, stderr io.Writer) error {
 	}
 	setFlags := collectSetFlags(fs)
 	if err := rejectPresetFileConflicts("run", cfg.PresetFile, setFlags, []string{
-		"rootfs", "ro-bind", "rw-bind", "env", "run-as-root", "network-policy-file", "cwd", "hostname", "memory", "pids",
+		"rootfs", "ro-bind", "rw-bind", "env", "run-as-root", "sudo", "network-policy-file", "cwd", "hostname", "memory", "pids",
 	}); err != nil {
 		return err
 	}
@@ -548,12 +554,15 @@ Notes:
   - Use -- to separate Mirage flags from the workload command.
   - --preset-file is exclusive with direct config flags such as --rootfs, --network-policy-file, --memory, and --pids.
   - --ro-bind and --rw-bind accept host:guest absolute path pairs.
+  - --sudo grants passwordless guest-root access to the default non-root workload and requires a dedicated rootfs containing /usr/bin/sudo.
+  - --sudo and --run-as-root are mutually exclusive.
   - --pids controls the maximum number of processes/threads in the sandbox process tree.
 
 Examples:
   mirage run --rootfs /tmp/mirage/basic-rootfs --network-policy-file ./examples/network-policies/offline.yaml -- /bin/sh
   mirage run --rootfs /tmp/mirage/basic-rootfs --network-policy-file ./examples/network-policies/offline.yaml --ro-bind /home/user/project:/workspace/project --rw-bind /tmp/mirage-cache:/workspace/cache -- /bin/sh
   mirage run --rootfs /tmp/mirage/basic-rootfs --run-as-root -- /bin/sh
+  mirage run --rootfs /tmp/mirage/basic-rootfs --sudo -- /bin/sh
   mirage run --rootfs /tmp/mirage/basic-rootfs --memory 512M --pids 64 -- /usr/bin/node app.js
   mirage run --preset-file ./examples/presets/openclaw-offline.yaml -- app
 `)

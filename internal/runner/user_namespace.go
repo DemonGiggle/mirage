@@ -81,7 +81,7 @@ func buildBackendLaunchArgs(baseArgs []string, uidMapReadyFile string, targetPID
 	return newArgs
 }
 
-func buildUnshareArgs(runAsRoot bool, networkBackend string) ([]string, error) {
+func buildUnshareArgs(runAsRoot bool, enableSudo bool, networkBackend string) ([]string, error) {
 	args := []string{
 		"--fork",
 		"--kill-child",
@@ -99,10 +99,11 @@ func buildUnshareArgs(runAsRoot bool, networkBackend string) ([]string, error) {
 	}
 	args = append(args, "--user")
 	// A host-root launcher clears supplementary groups before unshare and can
-	// safely lock setgroups afterward. A rootless launcher must keep setgroups
-	// available so the mapped namespace root can clear the caller's inherited
-	// groups immediately before dropping to the guest identity.
-	if !runAsRoot && hostenv.Detect(currentUID()).IsRoot() {
+	// safely lock setgroups afterward for the default identity. Guest sudo must
+	// keep setgroups available because sudo applies the target user's group
+	// vector. A rootless launcher also keeps it available so mapped namespace
+	// root can clear the caller's inherited groups before dropping identity.
+	if !runAsRoot && !enableSudo && hostenv.Detect(currentUID()).IsRoot() {
 		args = append(args, "--setgroups", "deny")
 	}
 	return args, nil
@@ -202,10 +203,10 @@ func hostPIDFromProcStatus(status []byte) (int, error) {
 	return 0, errors.New("NSpid field is missing")
 }
 
-func configureSandboxUIDMappings(pid int, runAsRoot bool) error {
+func configureSandboxUIDMappings(pid int, runAsRoot bool, enableSudo bool) error {
 	rootHostUID := currentUID()
 	rootHostGID := currentGID()
-	uidEntries, gidEntries, err := sandboxIDMapEntries(runAsRoot, rootHostUID, rootHostGID)
+	uidEntries, gidEntries, err := sandboxIDMapEntries(runAsRoot, enableSudo, rootHostUID, rootHostGID)
 	if err != nil {
 		return err
 	}
@@ -227,8 +228,8 @@ func configureSandboxUIDMappings(pid int, runAsRoot bool) error {
 	return nil
 }
 
-func sandboxIDMapEntries(runAsRoot bool, rootHostUID int, rootHostGID int) ([][3]int, [][3]int, error) {
-	if !runAsRoot {
+func sandboxIDMapEntries(runAsRoot bool, enableSudo bool, rootHostUID int, rootHostGID int) ([][3]int, [][3]int, error) {
+	if !runAsRoot && !enableSudo {
 		uidHostID, err := resolveHostSandboxID("/etc/subuid", rootHostUID, sandboxUID)
 		if err != nil {
 			return nil, nil, err
@@ -250,9 +251,67 @@ func sandboxIDMapEntries(runAsRoot bool, rootHostUID int, rootHostGID int) ([][3
 	if err != nil {
 		return nil, nil, err
 	}
+	if enableSudo && !runAsRoot {
+		uidSandboxID, err := resolveHostSandboxID("/etc/subuid", rootHostUID, sandboxUID)
+		if err != nil {
+			return nil, nil, err
+		}
+		gidSandboxID, err := resolveHostSandboxID("/etc/subgid", rootHostGID, sandboxGID)
+		if err != nil {
+			return nil, nil, err
+		}
+		uidEntries, err := sandboxSudoIDMapEntries(rootHostUID, uidStart, uidSandboxID)
+		if err != nil {
+			return nil, nil, fmt.Errorf("build guest sudo UID map: %w", err)
+		}
+		gidEntries, err := sandboxSudoIDMapEntries(rootHostGID, gidStart, gidSandboxID)
+		if err != nil {
+			return nil, nil, fmt.Errorf("build guest sudo GID map: %w", err)
+		}
+		return uidEntries, gidEntries, nil
+	}
 	return [][3]int{{0, rootHostUID, 1}, {1, uidStart, maxMappedGuestID}},
 		[][3]int{{0, rootHostGID, 1}, {1, gidStart, maxMappedGuestID}},
 		nil
+}
+
+func sandboxSudoIDMapEntries(rootHostID int, fullRangeStart int, sandboxHostID int) ([][3]int, error) {
+	// Keep guest 1000 on the same host ID used by the legacy minimal mapping.
+	// The remaining guest IDs consume the full subordinate range around that
+	// reservation. This lets sudo and non-sudo runs safely reuse one rootfs.
+	entries := [][3]int{{0, rootHostID, 1}}
+	hostID := fullRangeStart
+	appendRange := func(guestStart int, size int) error {
+		for size > 0 {
+			if hostID == sandboxHostID {
+				hostID++
+			}
+			if hostID >= fullRangeStart+maxMappedGuestID {
+				return errors.New("subordinate range does not contain enough IDs after reserving the default sandbox identity")
+			}
+			chunk := size
+			if hostID < sandboxHostID && hostID+chunk > sandboxHostID {
+				chunk = sandboxHostID - hostID
+			}
+			available := fullRangeStart + maxMappedGuestID - hostID
+			if chunk > available {
+				chunk = available
+			}
+			entries = append(entries, [3]int{guestStart, hostID, chunk})
+			guestStart += chunk
+			hostID += chunk
+			size -= chunk
+		}
+		return nil
+	}
+	if err := appendRange(1, sandboxUID-1); err != nil {
+		return nil, err
+	}
+	entries = append(entries, [3]int{sandboxUID, sandboxHostID, 1})
+	if err := appendRange(sandboxUID+1, maxMappedGuestID-sandboxUID); err != nil {
+		return nil, err
+	}
+	return entries, nil
 }
 
 func procfsPathForPID(pid int, name string) string {
@@ -390,7 +449,7 @@ func waitForUIDMapReady(path string) error {
 	}
 }
 
-func reexecBackendWithMappedRoot(rootfs string, cwd string, hostname string, networkBackend string, policyConfig string, routedInterface string, routedAddress string, routedGateway string, networkReadyFD int, roBind []string, rwBind []string, envItems []string, runAsRoot bool, command []string) error {
+func reexecBackendWithMappedRoot(rootfs string, cwd string, hostname string, networkBackend string, policyConfig string, routedInterface string, routedAddress string, routedGateway string, networkReadyFD int, roBind []string, rwBind []string, envItems []string, runAsRoot bool, enableSudo bool, command []string) error {
 	self := selfReexecPath()
 
 	args := []string{self, "__backend-exec", "--rootfs", rootfs, "--network-backend", networkBackend, "--mapped-root-ready"}
@@ -426,6 +485,9 @@ func reexecBackendWithMappedRoot(rootfs string, cwd string, hostname string, net
 	}
 	if runAsRoot {
 		args = append(args, "--run-as-root")
+	}
+	if enableSudo {
+		args = append(args, "--sudo")
 	}
 	args = append(args, "--")
 	args = append(args, command...)
