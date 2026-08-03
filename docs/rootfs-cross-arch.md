@@ -17,7 +17,7 @@ Use this setup when the host architecture and the requested rootfs
 architecture differ, for example:
 
 ```bash
-sudo mirage rootfs init --output /tmp/mirage/arm64-rootfs --arch arm64
+mirage rootfs init --output /tmp/mirage/arm64-rootfs --arch arm64
 ```
 
 If the host architecture already matches the requested target architecture, you
@@ -132,7 +132,7 @@ which qemu-riscv64-static
 After the host is configured, retry the rootfs bootstrap:
 
 ```bash
-sudo mirage rootfs init --output /tmp/mirage/arm64-rootfs --arch arm64
+mirage rootfs init --output /tmp/mirage/arm64-rootfs --arch arm64
 ```
 
 ## Notes
@@ -142,4 +142,5 @@ sudo mirage rootfs init --output /tmp/mirage/arm64-rootfs --arch arm64
 - Use the QEMU entry that matches the Mirage `--arch` value:
   `x86_64 -> qemu-x86_64`, `arm64 -> qemu-aarch64`,
   `arm32 -> qemu-arm`, `riscv64 -> qemu-riscv64`.
-- `rootfs init` still requires `sudo`, even after `binfmt_misc` is configured.
+- Configuring `binfmt_misc` and its QEMU handlers requires host administration,
+  but `rootfs init` itself can run rootlessly after that setup is complete.

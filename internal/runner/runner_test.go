@@ -284,6 +284,12 @@ func TestBuildUnshareArgsSkipsNetNamespaceForAllowAllNetworkPolicy(t *testing.T)
 }
 
 func TestBuildUnshareArgsSwitchesRootMode(t *testing.T) {
+	restoreUID := currentUID
+	currentUID = func() int { return 0 }
+	t.Cleanup(func() {
+		currentUID = restoreUID
+	})
+
 	args, err := buildUnshareArgs(false, backendNetworkPolicyIsolated)
 	if err != nil {
 		t.Fatalf("buildUnshareArgs returned error: %v", err)
@@ -307,6 +313,22 @@ func TestBuildUnshareArgsSwitchesRootMode(t *testing.T) {
 	}
 	if slicesContains(rootArgs, "--map-root-user") {
 		t.Fatalf("expected root launch to avoid --map-root-user, got %#v", rootArgs)
+	}
+}
+
+func TestBuildUnshareArgsKeepsSetgroupsAvailableForRootlessHost(t *testing.T) {
+	restoreUID := currentUID
+	currentUID = func() int { return 1000 }
+	t.Cleanup(func() {
+		currentUID = restoreUID
+	})
+
+	args, err := buildUnshareArgs(false, backendNetworkPolicyHost)
+	if err != nil {
+		t.Fatalf("buildUnshareArgs returned error: %v", err)
+	}
+	if slicesContains(args, "--setgroups") {
+		t.Fatalf("expected rootless launch to keep setgroups available, got %#v", args)
 	}
 }
 
