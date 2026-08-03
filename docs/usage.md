@@ -49,19 +49,22 @@ mirage doctor
 mirage network-policy list
 ```
 
-Current operational note:
+Host privilege behavior:
 
-- use `sudo mirage rootfs init ...` for generated rootfs work
-- use `sudo mirage run ...` for sandbox execution
-- `mirage doctor` and `mirage network-policy list` remain normal non-`sudo`
-  commands
+- `mirage rootfs init ...` automatically uses rootless `mmdebstrap` when the
+  caller is not host root
+- `mirage run ...` supports the minimal rootless profile when user namespaces
+  and subordinate IDs are configured
+- `sudo mirage ...` remains supported and preserves privileged behavior
+- routed egress requires host `CAP_NET_ADMIN`; `--memory` and `--pids` require
+  a delegated systemd scope
 
 ## Common Flows
 
 Generate and validate a basic rootfs:
 
 ```bash
-sudo mirage rootfs init --output /tmp/mirage/basic-rootfs
+mirage rootfs init --output /tmp/mirage/basic-rootfs
 mirage doctor --rootfs /tmp/mirage/basic-rootfs --command /bin/ls
 ```
 
@@ -73,28 +76,28 @@ To target a different architecture, pass `--arch` with one of
 host architecture:
 
 ```bash
-sudo mirage rootfs init --output /tmp/mirage/arm64-rootfs --arch arm64
+mirage rootfs init --output /tmp/mirage/arm64-rootfs --arch arm64
 ```
 
 To target a different Debian release than the default `trixie`, pass
 `--debian-release`:
 
 ```bash
-sudo ./bin/mirage rootfs init --output /tmp/mirage/bookworm-rootfs --debian-release bookworm
+./bin/mirage rootfs init --output /tmp/mirage/bookworm-rootfs --debian-release bookworm
 ```
 
 To install extra Debian packages into the generated rootfs, pass
 `--extra-pkg` with a comma-separated list:
 
 ```bash
-sudo ./bin/mirage rootfs init --output /tmp/mirage/dev-rootfs --extra-pkg jq,vim,htop
+./bin/mirage rootfs init --output /tmp/mirage/dev-rootfs --extra-pkg jq,vim,htop
 ```
 
 Allow Mirage to reuse a non-empty output directory only when you intend to
 clear and rebuild the rootfs:
 
 ```bash
-sudo mirage rootfs init \
+mirage rootfs init \
   --output /tmp/mirage/basic-rootfs \
   --allow-overwrite
 ```
@@ -102,7 +105,7 @@ sudo mirage rootfs init \
 Preview a run without executing it:
 
 ```bash
-sudo mirage run \
+mirage run \
   --dry-run \
   --rootfs /tmp/mirage/basic-rootfs \
   --network-policy-file ./examples/network-policies/offline.yaml \
@@ -158,7 +161,8 @@ Important behavior:
 - `--preset-file` is exclusive with direct configuration flags such as
   `--rootfs`, `--network-policy-file`, bind mounts, `--cwd`, `--hostname`,
   `--memory`, and `--pids`.
-- In the current operational model, invoke `mirage run` through `sudo`.
+- Rootless runs support allow-all host-network passthrough and isolated
+  deny-only policies. Routed egress still requires host `CAP_NET_ADMIN`.
 - `--memory` and `--pids` currently depend on `systemd-run` to create the
   delegated cgroup scope before Mirage writes `memory.max` or `pids.max`.
 - The workload becomes sandbox PID 1. Mirage does not run a guest init system.
@@ -170,7 +174,7 @@ Important behavior:
 Example:
 
 ```bash
-sudo mirage run \
+mirage run \
   --rootfs /tmp/mirage/basic-rootfs \
   --network-policy-file ./examples/network-policies/offline.yaml \
   -- /bin/sh
@@ -179,7 +183,7 @@ sudo mirage run \
 Bind mount example:
 
 ```bash
-sudo mirage run \
+mirage run \
   --rootfs /tmp/mirage/basic-rootfs \
   --network-policy-file ./examples/network-policies/offline.yaml \
   --ro-bind /home/user/project:/workspace/project \

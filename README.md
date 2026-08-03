@@ -65,10 +65,9 @@ mkdir -p ./bin /tmp/mirage
 go build -o ./bin/mirage ./cmd/mirage
 ```
 
-The rest of the docs assume `mirage` resolves to this built binary and is
-available in both your normal shell `PATH` and `sudo` command path. For
-commands that require elevated privileges, use `sudo mirage ...`, not
-`sudo go run ...`.
+The rest of the docs assume `mirage` resolves to this built binary. Mirage can
+initialize and run the minimal pipeline without `sudo` when unprivileged user
+namespaces, subordinate IDs, `newuidmap`, and `newgidmap` are available.
 
 Verify the host:
 
@@ -79,20 +78,20 @@ mirage doctor
 Generate and validate a basic rootfs:
 
 ```bash
-sudo mirage rootfs init --output /tmp/mirage/basic-rootfs
+mirage rootfs init --output /tmp/mirage/basic-rootfs
 mirage doctor --rootfs /tmp/mirage/basic-rootfs --command /bin/ls
 ```
 
 Need a different Debian release than the default `trixie`? Pass the codename:
 
 ```bash
-sudo ./bin/mirage rootfs init --output /tmp/mirage/bookworm-rootfs --debian-release bookworm
+./bin/mirage rootfs init --output /tmp/mirage/bookworm-rootfs --debian-release bookworm
 ```
 
 Need extra Debian tools in the generated rootfs? Add them at bootstrap time:
 
 ```bash
-sudo ./bin/mirage rootfs init --output /tmp/mirage/dev-rootfs --extra-pkg jq,vim,htop
+./bin/mirage rootfs init --output /tmp/mirage/dev-rootfs --extra-pkg jq,vim,htop
 ```
 
 If you need to generate a rootfs for a different target architecture such as
@@ -103,11 +102,12 @@ If you need to generate a rootfs for a different target architecture such as
 Run a first sandboxed command:
 
 ```bash
-sudo mirage run --rootfs /tmp/mirage/basic-rootfs --network-policy-file ./examples/network-policies/offline.yaml -- /bin/ls /
+mirage run --rootfs /tmp/mirage/basic-rootfs --network-policy-file ./examples/network-policies/offline.yaml -- /bin/ls /
 ```
 
-`rootfs init` currently requires `sudo`. `run` currently executes through
-`sudo` as well.
+Running the same commands through `sudo` remains supported and preserves the
+original privileged bootstrap behavior. Routed egress still requires host
+`CAP_NET_ADMIN`, and cgroup limits require a delegated systemd scope.
 
 If you plan to use `mirage run --memory ...` or `--pids ...`, the host also
 needs `systemd-run` available on `PATH` so Mirage can create a delegated cgroup

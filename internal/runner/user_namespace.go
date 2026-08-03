@@ -13,6 +13,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/DemonGiggle/mirage/internal/hostenv"
 )
 
 type sandboxLaunchSync struct {
@@ -96,7 +98,11 @@ func buildUnshareArgs(runAsRoot bool, networkBackend string) ([]string, error) {
 		return nil, fmt.Errorf("unsupported backend network mode %q", networkBackend)
 	}
 	args = append(args, "--user")
-	if !runAsRoot {
+	// A host-root launcher clears supplementary groups before unshare and can
+	// safely lock setgroups afterward. A rootless launcher must keep setgroups
+	// available so the mapped namespace root can clear the caller's inherited
+	// groups immediately before dropping to the guest identity.
+	if !runAsRoot && hostenv.Detect(currentUID()).IsRoot() {
 		args = append(args, "--setgroups", "deny")
 	}
 	return args, nil

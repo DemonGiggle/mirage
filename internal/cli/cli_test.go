@@ -673,7 +673,7 @@ func TestRootfsInit(t *testing.T) {
 	}
 	for _, needle := range []string{
 		"command: mmdebstrap",
-		"command: sudo tee",
+		"tee ",
 		"APT::Install-Recommends \"false\";",
 		"architecture:",
 	} {

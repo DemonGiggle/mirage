@@ -26,25 +26,25 @@ A dedicated rootfs is the preferred mode when you care about:
 Generate a rootfs:
 
 ```bash
-sudo mirage rootfs init --output /tmp/mirage/basic-rootfs
+mirage rootfs init --output /tmp/mirage/basic-rootfs
 ```
 
 Generate a rootfs for a specific target architecture:
 
 ```bash
-sudo mirage rootfs init --output /tmp/mirage/arm64-rootfs --arch arm64
+mirage rootfs init --output /tmp/mirage/arm64-rootfs --arch arm64
 ```
 
 Generate a rootfs for a different Debian release:
 
 ```bash
-sudo ./bin/mirage rootfs init --output /tmp/mirage/bookworm-rootfs --debian-release bookworm
+./bin/mirage rootfs init --output /tmp/mirage/bookworm-rootfs --debian-release bookworm
 ```
 
 Add extra Debian packages during bootstrap:
 
 ```bash
-sudo ./bin/mirage rootfs init \
+./bin/mirage rootfs init \
   --output /tmp/mirage/dev-rootfs \
   --extra-pkg jq,vim,htop
 ```
@@ -57,7 +57,7 @@ Reuse an existing non-empty output directory only when you intentionally want
 Mirage to clear and rebuild the rootfs:
 
 ```bash
-sudo mirage rootfs init \
+mirage rootfs init \
   --output /tmp/mirage/basic-rootfs \
   --allow-overwrite
 ```
@@ -135,7 +135,28 @@ Common behavior across generated rootfs trees:
 At runtime, dedicated rootfs runs also receive a managed device layout under
 `/dev`, including `/dev/shm` and `/dev/pts`.
 
-`rootfs init` currently runs through `sudo`.
+## Host Privilege Behavior
+
+Mirage selects the bootstrap strategy from the host effective user ID:
+
+- On a root host, Mirage preserves the original behavior and asks
+  `mmdebstrap` to populate the output directory directly.
+- On a rootless host, Mirage uses `mmdebstrap --mode=unshare --format=tar`,
+  validates the archive while extracting it, omits device nodes that Mirage
+  manages at runtime, and deliberately normalizes archive ownership to the
+  invoking host user.
+
+Ownership normalization makes files owned by the invoking user appear as
+guest root under Mirage's runtime UID map. The default workload still drops to
+the guest `mirage` identity (`1000:1000`), so it cannot rewrite root-owned
+system files. Rootless extraction does not preserve package-specific ownership
+or extended attributes such as file capabilities; it is intended for the
+minimal CLI pipeline. Rootless generation requires unprivileged user
+namespaces, subordinate UID/GID ranges, and working `newuidmap` and `newgidmap`
+helpers.
+
+Running `sudo mirage rootfs init ...` remains supported when an operator wants
+the original privileged directory bootstrap and full Debian ownership data.
 
 When you pass `--allow-overwrite`, Mirage clears the existing output directory
 before running `mmdebstrap` again.

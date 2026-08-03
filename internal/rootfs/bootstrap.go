@@ -9,7 +9,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
+
+	"github.com/DemonGiggle/mirage/internal/hostenv"
 )
 
 func prepareOutputRoot(root string, allowOverwrite bool) error {
@@ -122,19 +125,24 @@ func unescapeMountInfoPath(raw string) string {
 	return replacer.Replace(raw)
 }
 
-func bootstrapDebianBaseRootfs(root string, architecture string, release string, extraPackages []string, logOutput io.Writer) error {
+func bootstrapDebianBaseRootfs(root string, architecture string, release string, extraPackages []string, strategy bootstrapStrategy, logOutput io.Writer) error {
 	includePackages := append([]string{mmdebstrapIncludePackageList}, extraPackages...)
 	includeArg := strings.Join(includePackages, ",")
-	logCommand(logOutput, "mmdebstrap",
-		"--architectures="+architecture,
+	args := []string{
+		"--architectures=" + architecture,
 		"--variant=minbase",
 		`--aptopt=APT::Install-Recommends "false"`,
-		"--include="+includeArg,
+		"--include=" + includeArg,
 		release,
 		root,
 		debianMirror,
-	)
+	}
 	if os.Getenv(testSkipBootstrapEnv) == "1" {
+		loggedArgs := slices.Clone(args)
+		if strategy.hostEnvironment() == hostenv.Rootless {
+			loggedArgs = append([]string{"--mode=unshare", "--format=tar"}, loggedArgs...)
+		}
+		logCommand(logOutput, "mmdebstrap", loggedArgs...)
 		for _, dir := range []string{"proc", "tmp", "run", "dev", "etc/apt/apt.conf.d", "usr/bin", "usr/lib", "usr/lib64"} {
 			if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
 				return fmt.Errorf("prepare fake bootstrap directory %q: %w", dir, err)
@@ -166,34 +174,7 @@ func bootstrapDebianBaseRootfs(root string, architecture string, release string,
 		return nil
 	}
 
-	args := []string{
-		"--architectures=" + architecture,
-		"--variant=minbase",
-		`--aptopt=APT::Install-Recommends "false"`,
-		"--include=" + includeArg,
-		release,
-		root,
-		debianMirror,
-	}
-	var stderrBuf bytes.Buffer
-	cmd := exec.Command("mmdebstrap", args...)
-	if logOutput != nil {
-		cmd.Stdout = logOutput
-		cmd.Stderr = logOutput
-	} else {
-		cmd.Stderr = &stderrBuf
-	}
-	err := cmd.Run()
-	if err != nil {
-		if errors.Is(err, exec.ErrNotFound) {
-			return errors.New("mmdebstrap is required on the host to initialize a rootfs")
-		}
-		if stderr := strings.TrimSpace(stderrBuf.String()); stderr != "" {
-			return fmt.Errorf("bootstrap rootfs with mmdebstrap: %w: %s", err, stderr)
-		}
-		return fmt.Errorf("bootstrap rootfs with mmdebstrap: %w", err)
-	}
-	return nil
+	return strategy.bootstrap(root, args, logOutput)
 }
 
 func normalizeDebianRelease(raw string) (string, error) {
@@ -308,9 +289,9 @@ func copyBootstrapFile(root string, sourcePath string, targetPath string) error 
 	return nil
 }
 
-func writeMinimalAptConfig(root string, logOutput io.Writer) error {
+func writeMinimalAptConfig(root string, environment hostenv.Kind, logOutput io.Writer) error {
 	target := filepath.Join(root, filepath.FromSlash(strings.TrimPrefix(minimalAptConfigPath, "/")))
-	logAptConfigCommand(logOutput, target)
+	logAptConfigCommand(logOutput, environment, target)
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return fmt.Errorf("create apt config directory for %q: %w", minimalAptConfigPath, err)
 	}
@@ -346,11 +327,15 @@ func logLine(w io.Writer, message string) {
 	_, _ = fmt.Fprintln(w, message)
 }
 
-func logAptConfigCommand(w io.Writer, target string) {
+func logAptConfigCommand(w io.Writer, environment hostenv.Kind, target string) {
 	if w == nil {
 		return
 	}
-	_, _ = fmt.Fprintf(w, "command: sudo tee %s >/dev/null <<'EOF'\n", strconvQuote(target))
+	command := "tee"
+	if environment.IsRoot() {
+		command = "sudo tee"
+	}
+	_, _ = fmt.Fprintf(w, "command: %s %s >/dev/null <<'EOF'\n", command, strconvQuote(target))
 	_, _ = fmt.Fprint(w, minimalAptConfigContent)
 	_, _ = fmt.Fprintln(w, "EOF")
 }

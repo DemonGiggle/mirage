@@ -64,25 +64,53 @@ func TestParseLDDOutputCollectsMissingDependency(t *testing.T) {
 	}
 }
 
-func TestBootstrapRequiresRootOutsideTestBypass(t *testing.T) {
-	if err := os.Unsetenv(testSkipBootstrapEnv); err != nil {
-		t.Fatalf("unset test skip env: %v", err)
-	}
-	t.Cleanup(func() {
-		if err := os.Setenv(testSkipBootstrapEnv, "1"); err != nil {
-			t.Fatalf("restore test skip env: %v", err)
-		}
-	})
-
+func TestBootstrapSelectsRootlessHostStrategy(t *testing.T) {
 	previous := currentEUID
 	currentEUID = func() int { return 1000 }
 	t.Cleanup(func() {
 		currentEUID = previous
 	})
 
-	_, err := BootstrapWithReport(filepath.Join(t.TempDir(), "rootfs"))
-	if err == nil || !strings.Contains(err.Error(), "rootfs init requires root privileges") {
-		t.Fatalf("expected root privilege error, got %v", err)
+	var log bytes.Buffer
+	report, err := BootstrapWithReportWithOptions(filepath.Join(t.TempDir(), "rootfs"), GenerateOptions{LogOutput: &log})
+	if err != nil {
+		t.Fatalf("BootstrapWithReportWithOptions returned error: %v", err)
+	}
+	if report.HostEnvironment != "rootless" {
+		t.Fatalf("unexpected host environment %q", report.HostEnvironment)
+	}
+	for _, needle := range []string{"--mode=unshare", "--format=tar"} {
+		if !strings.Contains(log.String(), needle) {
+			t.Fatalf("expected rootless bootstrap log to contain %q, got %q", needle, log.String())
+		}
+	}
+	if !strings.Contains(log.String(), "command: tee") || strings.Contains(log.String(), "command: sudo tee") {
+		t.Fatalf("expected rootless apt config log without sudo, got %q", log.String())
+	}
+}
+
+func TestBootstrapPreservesRootHostStrategy(t *testing.T) {
+	previous := currentEUID
+	currentEUID = func() int { return 0 }
+	t.Cleanup(func() {
+		currentEUID = previous
+	})
+
+	var log bytes.Buffer
+	report, err := BootstrapWithReportWithOptions(filepath.Join(t.TempDir(), "rootfs"), GenerateOptions{LogOutput: &log})
+	if err != nil {
+		t.Fatalf("BootstrapWithReportWithOptions returned error: %v", err)
+	}
+	if report.HostEnvironment != "root" {
+		t.Fatalf("unexpected host environment %q", report.HostEnvironment)
+	}
+	for _, unexpected := range []string{"--mode=unshare", "--format=tar"} {
+		if strings.Contains(log.String(), unexpected) {
+			t.Fatalf("expected root bootstrap log to omit %q, got %q", unexpected, log.String())
+		}
+	}
+	if !strings.Contains(log.String(), "command: sudo tee") {
+		t.Fatalf("expected root bootstrap to preserve privileged apt config log, got %q", log.String())
 	}
 }
 

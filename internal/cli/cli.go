@@ -195,6 +195,7 @@ func runRootfsInit(args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 	_, _ = fmt.Fprintf(stdout, "architecture: %s\n", report.Architecture)
+	_, _ = fmt.Fprintf(stdout, "host-environment: %s\n", report.HostEnvironment)
 	printGenerateWarnings(stdout, report, "")
 	return nil
 }
@@ -207,6 +208,9 @@ Usage:
 
 Notes:
   - The rootfs is created with mmdebstrap.
+  - Host root preserves the direct directory bootstrap behavior.
+  - A non-root host uses mmdebstrap's unshare mode and normalizes extracted ownership for Mirage's runtime UID map.
+  - Rootless mode requires unprivileged user namespaces, subordinate IDs, newuidmap, and newgidmap.
   - The default Debian release is `+rootfs.DefaultDebianRelease()+`.
   - Supported --arch values: x86_64, arm64, arm32, riscv64.
   - If --arch is omitted, Mirage detects the host architecture and uses that.

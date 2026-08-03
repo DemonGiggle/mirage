@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/DemonGiggle/mirage/internal/hostenv"
 )
 
 const (
@@ -44,9 +46,10 @@ func (asset MissingAsset) Message() string {
 }
 
 type GenerateReport struct {
-	Architecture  string
-	MissingAssets []MissingAsset
-	Warnings      []string
+	Architecture    string
+	HostEnvironment hostenv.Kind
+	MissingAssets   []MissingAsset
+	Warnings        []string
 }
 
 type GenerateOptions struct {
@@ -94,17 +97,18 @@ func BootstrapWithReport(outputRoot string) (GenerateReport, error) {
 }
 
 func BootstrapWithReportWithOptions(outputRoot string, options GenerateOptions) (GenerateReport, error) {
-	if os.Getenv(testSkipBootstrapEnv) != "1" && currentEUID() != 0 {
-		return GenerateReport{}, errors.New("rootfs init requires root privileges; run via sudo ./bin/mirage rootfs init ...")
-	}
 	if strings.TrimSpace(outputRoot) == "" {
 		return GenerateReport{}, errors.New("output rootfs path cannot be empty")
 	}
+	strategy := selectBootstrapStrategy(currentEUID())
 	architecture, err := resolveRootfsArchitecture(options.Architecture)
 	if err != nil {
 		return GenerateReport{}, err
 	}
-	report := GenerateReport{Architecture: architecture}
+	report := GenerateReport{
+		Architecture:    architecture,
+		HostEnvironment: strategy.hostEnvironment(),
+	}
 	debianArchitecture, err := debianArchitectureForRootfsArch(architecture)
 	if err != nil {
 		return report, err
@@ -116,7 +120,7 @@ func BootstrapWithReportWithOptions(outputRoot string, options GenerateOptions) 
 	if err := validateBootstrapTarget(root); err != nil {
 		return report, err
 	}
-	if err := prepareOutputRoot(root, options.AllowOverwrite); err != nil {
+	if err := strategy.prepareOutput(root, options.AllowOverwrite); err != nil {
 		return report, err
 	}
 	release, err := normalizeDebianRelease(options.DebianRelease)
@@ -127,10 +131,10 @@ func BootstrapWithReportWithOptions(outputRoot string, options GenerateOptions) 
 	if err != nil {
 		return report, err
 	}
-	if err := bootstrapDebianBaseRootfs(root, debianArchitecture, release, extraPackages, options.LogOutput); err != nil {
+	if err := bootstrapDebianBaseRootfs(root, debianArchitecture, release, extraPackages, strategy, options.LogOutput); err != nil {
 		return report, err
 	}
-	if err := writeMinimalAptConfig(root, options.LogOutput); err != nil {
+	if err := writeMinimalAptConfig(root, strategy.hostEnvironment(), options.LogOutput); err != nil {
 		return report, err
 	}
 
