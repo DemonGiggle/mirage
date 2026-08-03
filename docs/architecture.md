@@ -71,6 +71,14 @@ synchronization and UID/GID mappings, `mounts.go` owns rootfs and bind mounts,
 and `identity.go` owns the sandbox account, environment, and final identity
 drop. `runner.go` sequences those phases rather than reimplementing them.
 
+Guest sudo is modeled as a separate capability rather than a variation of
+`run-as-root`. When enabled, `user_namespace.go` provides the complete guest
+UID/GID range while preserving the default `mirage` ID mapping, and
+`identity.go` validates the guest sudo binary and installs read-only sudoers
+and hostname files. Root-host launches keep supplementary-group changes
+available only for this capability; the existing non-sudo launch behavior is
+unchanged.
+
 ### Rootfs Path Boundary
 
 Rootfs generation and validation share one guest-path mapping helper in

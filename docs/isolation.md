@@ -69,6 +69,13 @@ By default:
 
 Use `--run-as-root` only when the guest workload actually needs root.
 
+Use `--sudo` when the workload should start as `mirage` but may explicitly
+escalate. Mirage supplies a read-only policy granting `mirage` passwordless
+sudo to namespace root. This is intentionally a broad privilege inside the
+sandbox: it allows changing the dedicated rootfs and bypassing guest file
+ownership checks. It does not map namespace root to host root, and `--sudo` is
+not available with `--rootfs /`.
+
 ## Current Guarantees
 
 Today Mirage reliably provides:
@@ -94,6 +101,8 @@ Today you should assume:
   and accidental host path exposure if the runtime gets those details wrong
 - allow-all policy intentionally uses host network passthrough
 - domain-backed selectors fail closed because the runtime does not enforce them
+- `--sudo` deliberately weakens the guest credential boundary; filesystem,
+  namespace, bind-mount, and network boundaries remain the security boundary
 
 ## Practical Guidance
 

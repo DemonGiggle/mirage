@@ -304,6 +304,24 @@ func TestBootstrapLogsExtraPackagesInIncludeList(t *testing.T) {
 	if !strings.Contains(out.String(), "--include=apt,ca-certificates,bash,coreutils,util-linux,procps,psmisc,iproute2,curl,tar,gzip,xz-utils,git,jq,vim") {
 		t.Fatalf("expected bootstrap log to contain merged include list, got %q", out.String())
 	}
+	if strings.Contains(out.String(), ",sudo") {
+		t.Fatalf("expected default bootstrap package set to remain unchanged, got %q", out.String())
+	}
+}
+
+func TestBootstrapLogsSudoWhenRequested(t *testing.T) {
+	t.Setenv(testSkipBootstrapEnv, "1")
+	var out bytes.Buffer
+	_, err := BootstrapWithReportWithOptions(filepath.Join(t.TempDir(), "rootfs"), GenerateOptions{
+		LogOutput:   &out,
+		IncludeSudo: true,
+	})
+	if err != nil {
+		t.Fatalf("BootstrapWithReportWithOptions returned error: %v", err)
+	}
+	if !strings.Contains(out.String(), "--include=apt,ca-certificates,bash,coreutils,util-linux,procps,psmisc,iproute2,curl,tar,gzip,xz-utils,git,sudo") {
+		t.Fatalf("expected bootstrap log to contain sudo, got %q", out.String())
+	}
 }
 
 func TestNormalizeExtraPackagesRejectsInvalidNames(t *testing.T) {

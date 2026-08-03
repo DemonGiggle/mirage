@@ -93,6 +93,13 @@ To install extra Debian packages into the generated rootfs, pass
 ./bin/mirage rootfs init --output /tmp/mirage/dev-rootfs --extra-pkg jq,vim,htop
 ```
 
+To prepare a rootfs for `mirage run --sudo`, install the guest package
+explicitly during bootstrap:
+
+```bash
+mirage rootfs init --output /tmp/mirage/sudo-rootfs --sudo
+```
+
 Allow Mirage to reuse a non-empty output directory only when you intend to
 clear and rebuild the rootfs:
 
@@ -147,6 +154,7 @@ Important flags:
 - `--rw-bind`
 - `--env`
 - `--run-as-root`
+- `--sudo`
 - `--cwd`
 - `--hostname`
 - `--stdout-log`
@@ -170,6 +178,18 @@ Important behavior:
   environment variables are not inherited unless you pass them with `--env`.
 - By default, Mirage drops the workload to the non-root `mirage` user
   (`1000:1000`). That requires host `newuidmap` and `newgidmap`.
+- `--sudo` keeps that default identity but installs a read-only, passwordless
+  guest sudo policy for `mirage`. The resulting UID 0 is root only in the
+  sandbox user namespace, not on the host.
+- `--sudo` requires a dedicated non-`/` rootfs containing a root-owned, setuid
+  `/usr/bin/sudo`. Create one with `mirage rootfs init --sudo`, or install the
+  package by another trusted method.
+- `--sudo` and `--run-as-root` are mutually exclusive. Use `--run-as-root` when
+  the whole workload should start as guest root; use `--sudo` when escalation
+  should remain explicit.
+- A rootless `--sudo` launch needs a usable subordinate UID range and GID range
+  of at least 65,535 IDs. Ordinary non-sudo runs retain the smaller existing
+  mapping requirement.
 
 Example:
 
@@ -179,6 +199,19 @@ mirage run \
   --network-policy-file ./examples/network-policies/offline.yaml \
   -- /bin/sh
 ```
+
+Guest sudo example:
+
+```bash
+mirage run \
+  --rootfs /tmp/mirage/basic-rootfs \
+  --sudo \
+  --network-policy-file ./examples/network-policies/offline.yaml \
+  -- /bin/sh -c 'id -u; sudo -n id -u'
+```
+
+This prints `1000` and then `0`; both IDs are inside the sandbox user
+namespace.
 
 Bind mount example:
 
@@ -212,6 +245,7 @@ Notes:
 - `rwBind`
 - `env`
 - `runAsRoot`
+- `sudo`
 - `cwd`
 - `hostname`
 - `memory`
@@ -229,6 +263,9 @@ networkPolicyFile: ../network-policies/offline.yaml
 cwd: /workspace
 description: Offline OpenClaw workflow preset
 ```
+
+Set `sudo: true` in a preset to enable the same opt-in guest capability. Do not
+combine it with `runAsRoot: true`.
 
 Notes:
 

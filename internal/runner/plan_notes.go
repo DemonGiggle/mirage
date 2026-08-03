@@ -64,5 +64,8 @@ func PlanNotes(cfg spec.Config) []string {
 	} else {
 		notes = append(notes, fmt.Sprintf("workload identity: non-root %s (%d:%d)", defaultSandboxUser, sandboxUID, sandboxGID))
 	}
+	if cfg.EnableSudo {
+		notes = append(notes, "guest sudo: passwordless escalation to namespace root enabled")
+	}
 	return notes
 }

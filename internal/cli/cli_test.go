@@ -414,6 +414,65 @@ func TestRunDryRun(t *testing.T) {
 	}
 }
 
+func TestRunDryRunEnablesGuestSudo(t *testing.T) {
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+
+	err := Run([]string{
+		"run",
+		"--rootfs", "/srv/rootfs",
+		"--network-policy-file", filepath.Join("..", "..", "testdata", "network-policies", "allow-all.yaml"),
+		"--sudo",
+		"--dry-run",
+		"--",
+		"sudo", "id",
+	}, &out, &errBuf)
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	got := out.String()
+	for _, needle := range []string{
+		"sudo: true",
+		"note: guest sudo: passwordless escalation to namespace root enabled",
+		"execution: skipped (--dry-run)",
+	} {
+		if !strings.Contains(got, needle) {
+			t.Fatalf("expected sudo dry run output to contain %q, got %q", needle, got)
+		}
+	}
+}
+
+func TestRunRejectsInvalidGuestSudoModes(t *testing.T) {
+	policyPath := filepath.Join("..", "..", "testdata", "network-policies", "allow-all.yaml")
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "run as root",
+			args: []string{"run", "--rootfs", "/srv/rootfs", "--network-policy-file", policyPath, "--sudo", "--run-as-root", "--", "/bin/sh"},
+			want: "sudo and runAsRoot cannot both be enabled",
+		},
+		{
+			name: "host rootfs",
+			args: []string{"run", "--rootfs", "/", "--network-policy-file", policyPath, "--sudo", "--", "/bin/sh"},
+			want: "sudo requires a dedicated non-/ rootfs",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var out bytes.Buffer
+			var errBuf bytes.Buffer
+			err := Run(tc.args, &out, &errBuf)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("expected error containing %q, got %v", tc.want, err)
+			}
+		})
+	}
+}
+
 func TestRunDryRunWithPresetFile(t *testing.T) {
 	var out bytes.Buffer
 	var errBuf bytes.Buffer
@@ -785,6 +844,24 @@ func TestRootfsInitIncludesExtraPackages(t *testing.T) {
 	}
 }
 
+func TestRootfsInitIncludesSudoOnRequest(t *testing.T) {
+	t.Setenv("MIRAGE_TEST_SKIP_MMDEBSTRAP", "1")
+
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+	err := Run([]string{
+		"rootfs", "init",
+		"--output", filepath.Join(t.TempDir(), "rootfs"),
+		"--sudo",
+	}, &out, &errBuf)
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if !strings.Contains(out.String(), "--include=apt,ca-certificates,bash,coreutils,util-linux,procps,psmisc,iproute2,curl,tar,gzip,xz-utils,git,sudo") {
+		t.Fatalf("expected rootfs init output to contain sudo, got %q", out.String())
+	}
+}
+
 func TestRootfsInitRejectsInvalidArchitecture(t *testing.T) {
 	var out bytes.Buffer
 	var errBuf bytes.Buffer
@@ -845,6 +922,7 @@ func TestRootfsInitHelpListsSupportedArchitectures(t *testing.T) {
 		"--arch <arch>",
 		"--debian-release <codename>",
 		"--extra-pkg <pkg1,pkg2>",
+		"--sudo",
 	} {
 		if !strings.Contains(got, needle) {
 			t.Fatalf("expected rootfs init help to contain %q, got %q", needle, got)

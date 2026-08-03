@@ -176,6 +176,80 @@ runAsRoot: true
 	}
 }
 
+func TestApplyPresetFileEnablesSudo(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "preset.yaml")
+	if err := os.WriteFile(path, []byte(`rootfs:
+  path: /srv/rootfs
+networkPolicy:
+  version: 1
+  loopback:
+    default: allow
+  ingress:
+    default: deny
+    rules: []
+  egress:
+    default: deny
+    rules: []
+sudo: true
+`), 0o644); err != nil {
+		t.Fatalf("write preset file: %v", err)
+	}
+
+	cfg, preset, err := ApplyPresetFile(Config{PresetFile: path})
+	if err != nil {
+		t.Fatalf("ApplyPresetFile returned error: %v", err)
+	}
+	if !cfg.EnableSudo || !preset.Sudo {
+		t.Fatalf("expected preset to enable sudo, got cfg=%#v preset=%#v", cfg, preset)
+	}
+}
+
+func TestValidateRejectsInvalidSudoModes(t *testing.T) {
+	policy := AllowAllNetworkPolicy()
+	tests := []struct {
+		name string
+		cfg  Config
+		want string
+	}{
+		{
+			name: "run as root",
+			cfg: Config{
+				RootFS:        "/srv/rootfs",
+				NetworkPolicy: &policy,
+				EnableSudo:    true,
+				RunAsRoot:     true,
+				Command:       []string{"/bin/sh"},
+			},
+			want: "sudo and runAsRoot cannot both be enabled",
+		},
+		{
+			name: "host rootfs",
+			cfg: Config{
+				RootFS:        "/",
+				NetworkPolicy: &policy,
+				EnableSudo:    true,
+				Command:       []string{"/bin/sh"},
+			},
+			want: "sudo requires a dedicated non-/ rootfs",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := Validate(tc.cfg)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("expected error containing %q, got %v", tc.want, err)
+			}
+		})
+	}
+}
+
+func TestSummaryIncludesGuestSudo(t *testing.T) {
+	got := Summary(Config{RootFS: "/srv/rootfs", EnableSudo: true, Command: []string{"/bin/sh"}})
+	if !strings.Contains(got, "sudo: true\n") {
+		t.Fatalf("expected sudo summary, got %q", got)
+	}
+}
+
 func TestValidateRejectsMissingNetworkPolicy(t *testing.T) {
 	err := Validate(Config{
 		RootFS:  "/srv/rootfs",
