@@ -170,6 +170,17 @@ func bootstrapDebianBaseRootfs(root string, architecture string, release string,
 				return fmt.Errorf("prepare fake bootstrap command %q: %w", name, err)
 			}
 		}
+		if slices.Contains(extraPackages, "sudo") {
+			if source := os.Getenv(testSudoBinaryEnv); source != "" {
+				target := filepath.Join(root, "usr/bin/sudo")
+				if err := copyBootstrapBinary(root, source, "/usr/bin/sudo"); err != nil {
+					return fmt.Errorf("prepare fake bootstrap sudo binary: %w", err)
+				}
+				if err := os.Chmod(target, 0o755|os.ModeSetuid); err != nil {
+					return fmt.Errorf("set fake bootstrap sudo mode: %w", err)
+				}
+			}
+		}
 		logLine(logOutput, "output: [test mode] skipped mmdebstrap execution")
 		return nil
 	}

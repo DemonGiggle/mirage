@@ -659,17 +659,18 @@ func TestProbeBindMountReadOnlyBoundary(t *testing.T) {
 	}
 }
 
-func TestRootlessKeepIDWritableBindUsesCallerOwnership(t *testing.T) {
+func TestRootlessSudoKeepIDWritableBindUsesCallerOwnership(t *testing.T) {
 	requireNamespaceBackend(t)
 	if os.Geteuid() == 0 {
 		t.Skip("keep-ID behavior requires a rootless test user")
 	}
 
 	repoRoot := projectRoot(t)
+	identityProbe := buildProbe(t, repoRoot, "./cmd/probe-euid")
 	rootfs := filepath.Join(t.TempDir(), "keep-id-rootfs")
-	initCmd := exec.Command("go", "run", "./cmd/mirage", "rootfs", "init", "--output", rootfs)
+	initCmd := exec.Command("go", "run", "./cmd/mirage", "rootfs", "init", "--output", rootfs, "--sudo")
 	initCmd.Dir = repoRoot
-	initCmd.Env = append(os.Environ(), "MIRAGE_TEST_FINALIZE_ROOTLESS_OWNERSHIP=1")
+	initCmd.Env = append(os.Environ(), "MIRAGE_TEST_FINALIZE_ROOTLESS_OWNERSHIP=1", "MIRAGE_TEST_SUDO_BINARY="+identityProbe)
 	initOutput, err := initCmd.CombinedOutput()
 	if err != nil {
 		message := string(initOutput)
@@ -700,11 +701,13 @@ func TestRootlessKeepIDWritableBindUsesCallerOwnership(t *testing.T) {
 	output, err := runMirage(t, repoRoot,
 		"run",
 		"--rootfs", rootfs,
+		"--sudo",
 		"--network-policy-file", policyFixturePath(repoRoot, "allow-all.yaml"),
+		"--ro-bind", identityProbe+":/probe-euid",
 		"--rw-bind", hostWritable+":/rw",
 		"--rw-bind", hostFile+":/rw-file",
 		"--",
-		"/bin/sh", "-c", "if printf bad >> /etc/apt/apt.conf.d/99sandbox-minimal; then exit 23; fi; printf keep-id > /rw/created.txt; printf changed > /rw-file",
+		"/bin/sh", "-c", "test \"$(/probe-euid)\" = 1000; test \"$(sudo -n ignored)\" = 0; if printf bad >> /etc/apt/apt.conf.d/99sandbox-minimal; then exit 23; fi; printf keep-id > /rw/created.txt; printf changed > /rw-file",
 	)
 	if err != nil {
 		if strings.Contains(output, "unrecognized option '--map-users") {

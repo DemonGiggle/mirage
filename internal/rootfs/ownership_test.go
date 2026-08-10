@@ -56,22 +56,3 @@ func TestOwnershipHelperRejectsUnexpectedOwnerBeforeUsingFD(t *testing.T) {
 		t.Fatalf("expected owner rejection, got %v", err)
 	}
 }
-
-func TestSudoPackagesRetainLegacyRootlessOwnership(t *testing.T) {
-	tests := []struct {
-		name    string
-		options GenerateOptions
-		want    bool
-	}{
-		{name: "ordinary rootfs", options: GenerateOptions{}, want: false},
-		{name: "sudo option", options: GenerateOptions{IncludeSudo: true}, want: true},
-		{name: "explicit sudo package", options: GenerateOptions{ExtraPackages: []string{"curl", "sudo"}}, want: true},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := requiresLegacyRootlessOwnership(tc.options); got != tc.want {
-				t.Fatalf("requiresLegacyRootlessOwnership() = %t, want %t", got, tc.want)
-			}
-		})
-	}
-}

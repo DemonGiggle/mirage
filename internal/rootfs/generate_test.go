@@ -119,11 +119,21 @@ func TestBootstrapPreservesRootHostStrategy(t *testing.T) {
 	}
 }
 
-func TestRootlessSudoBootstrapRetainsLegacyOwnershipMode(t *testing.T) {
+func TestRootlessSudoBootstrapUsesKeepIDOwnershipMode(t *testing.T) {
 	previous := currentEUID
 	currentEUID = func() int { return 1000 }
 	t.Cleanup(func() {
 		currentEUID = previous
+	})
+	previousFinalize := finalizeRootlessOwnership
+	finalizeRootlessOwnership = WriteKeepIDOwnershipMarker
+	t.Cleanup(func() {
+		finalizeRootlessOwnership = previousFinalize
+	})
+	previousRequire := requireKeepIDUnshareSupport
+	requireKeepIDUnshareSupport = func() error { return nil }
+	t.Cleanup(func() {
+		requireKeepIDUnshareSupport = previousRequire
 	})
 	t.Setenv(testFinalizeOwnershipEnv, "1")
 
@@ -139,8 +149,8 @@ func TestRootlessSudoBootstrapRetainsLegacyOwnershipMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("inspect sudo rootfs ownership marker: %v", err)
 	}
-	if keepID {
-		t.Fatal("rootless sudo rootfs unexpectedly enabled keep-ID ownership")
+	if !keepID {
+		t.Fatal("rootless sudo rootfs did not enable keep-ID ownership")
 	}
 }
 

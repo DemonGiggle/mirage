@@ -185,9 +185,9 @@ Important behavior:
 - `--sudo` keeps that default identity but installs a read-only, passwordless
   guest sudo policy for `mirage`. The resulting UID 0 is root only in the
   sandbox user namespace, not on the host.
-- Rootless rootfs trees generated with `rootfs init --sudo` retain the legacy
-  ownership map so the filesystem can preserve sudo's setuid bit. Keep-ID bind
-  ownership applies to rootless rootfs trees generated without `--sudo`.
+- Rootless rootfs trees generated with `rootfs init --sudo` use the keep-ID
+  ownership map. Caller-owned read-write binds therefore appear as owned by the
+  default `mirage` user, while `/usr/bin/sudo` remains setuid guest root.
 - `--sudo` requires a dedicated non-`/` rootfs containing a root-owned, setuid
   `/usr/bin/sudo`. Create one with `mirage rootfs init --sudo`, or install the
   package by another trusted method.
