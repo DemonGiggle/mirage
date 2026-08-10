@@ -57,7 +57,7 @@ func execute(cfg spec.Config, stdout, stderr io.Writer) error {
 			return fmt.Errorf("inspect rootfs ownership mode: %w", err)
 		}
 		if keepID {
-			if err := rootfs.RequireKeepIDUnshareSupport(); err != nil {
+			if err := rootfs.RequireRootlessIDMapSupport(); err != nil {
 				return err
 			}
 			if err := rootfs.ValidateKeepIDOwnership(cfg.RootFS, currentUID(), currentGID()); err != nil {
@@ -114,13 +114,19 @@ func execute(cfg spec.Config, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
+	var uidEntries, gidEntries [][3]int
 	if keepID {
-		uidEntries, gidEntries, mapErr := rootfs.RootlessKeepIDMapEntries(currentUID(), currentGID())
-		if mapErr != nil {
-			return mapErr
-		}
-		unshareArgs = appendKeepIDUnshareArgs(unshareArgs, uidEntries, gidEntries)
-		launchSync.uidMapReadyFile = ""
+		// The backend is exec'd before its UID/GID maps are installed. Keep the
+		// user-namespace capabilities across that exec so it can switch from the
+		// caller's mapped guest ID to namespace root after the parent applies the
+		// maps with newuidmap/newgidmap.
+		unshareArgs = append(unshareArgs, "--keep-caps")
+		uidEntries, gidEntries, err = rootfs.RootlessKeepIDMapEntries(currentUID(), currentGID())
+	} else {
+		uidEntries, gidEntries, err = sandboxIDMapEntries(cfg.RunAsRoot, cfg.EnableSudo, currentUID(), currentGID())
+	}
+	if err != nil {
+		return err
 	}
 	if !cfg.RunAsRoot && currentUID() == 0 {
 		if err := clearInheritedSupplementaryGroups(); err != nil {
@@ -197,7 +203,7 @@ func execute(cfg spec.Config, stdout, stderr io.Writer) error {
 			_ = cmd.Wait()
 			return err
 		}
-		if err := configureSandboxUIDMappings(targetPID, cfg.RunAsRoot, cfg.EnableSudo); err != nil {
+		if err := configureSandboxUIDMappings(targetPID, uidEntries, gidEntries); err != nil {
 			_ = cmd.Process.Kill()
 			_ = cmd.Wait()
 			return err
@@ -249,7 +255,7 @@ func execute(cfg spec.Config, stdout, stderr io.Writer) error {
 			return err
 		}
 		if launchSync.uidMapReadyFile != "" {
-			if err := configureSandboxUIDMappings(targetPID, cfg.RunAsRoot, cfg.EnableSudo); err != nil {
+			if err := configureSandboxUIDMappings(targetPID, uidEntries, gidEntries); err != nil {
 				_ = cmd.Process.Kill()
 				_ = cmd.Wait()
 				return err
@@ -429,6 +435,11 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 	if uidMapReadyFile != "" && !mappedRootReady {
 		if err := waitForUIDMapReady(uidMapReadyFile); err != nil {
 			return err
+		}
+		if keepID {
+			if err := applyMappedRootIdentity(); err != nil {
+				return err
+			}
 		}
 		if err := reexecBackendWithMappedRoot(rootfs, cwd, hostname, networkBackend, policyConfig, routedInterface, routedAddress, routedGateway, networkReadyFD, roBind, rwBind, envItems, runAsRoot, enableSudo, keepID, command); err != nil {
 			return err

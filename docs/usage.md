@@ -180,8 +180,7 @@ Important behavior:
   (`1000:1000`). For newly generated rootless rootfs trees, that identity maps
   to the invoking host user (keep-ID), while guest root and the remaining guest
   IDs map to the caller's subordinate ranges. This requires host `newuidmap`,
-  `newgidmap`, util-linux 2.39 or newer, and at least 65,535 subordinate UIDs
-  and GIDs.
+  `newgidmap`, and at least 65,535 subordinate UIDs and GIDs.
 - `--sudo` keeps that default identity but installs a read-only, passwordless
   guest sudo policy for `mirage`. The resulting UID 0 is root only in the
   sandbox user namespace, not on the host.

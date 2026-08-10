@@ -130,10 +130,10 @@ func TestRootlessSudoBootstrapUsesKeepIDOwnershipMode(t *testing.T) {
 	t.Cleanup(func() {
 		finalizeRootlessOwnership = previousFinalize
 	})
-	previousRequire := requireKeepIDUnshareSupport
-	requireKeepIDUnshareSupport = func() error { return nil }
+	previousRequire := requireRootlessIDMapSupport
+	requireRootlessIDMapSupport = func() error { return nil }
 	t.Cleanup(func() {
-		requireKeepIDUnshareSupport = previousRequire
+		requireRootlessIDMapSupport = previousRequire
 	})
 	t.Setenv(testFinalizeOwnershipEnv, "1")
 

@@ -136,7 +136,7 @@ func ValidateKeepIDOwnership(root string, hostUID, hostGID int) error {
 }
 
 func shiftRootlessOwnership(root string) error {
-	if err := RequireKeepIDUnshareSupport(); err != nil {
+	if err := RequireRootlessIDMapSupport(); err != nil {
 		return err
 	}
 	if err := WriteKeepIDOwnershipMarker(root); err != nil {
@@ -155,19 +155,11 @@ func shiftRootlessOwnership(root string) error {
 	return nil
 }
 
-func RequireKeepIDUnshareSupport() error {
-	path, err := exec.LookPath("unshare")
-	if err != nil {
-		return fmt.Errorf("rootless keep-ID mode requires util-linux unshare: %w", err)
-	}
-	output, err := exec.Command(path, "--help").CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("inspect util-linux unshare capabilities: %w", err)
-	}
-	help := string(output)
-	if !strings.Contains(help, "--map-users <inneruid>:<outeruid>:<count>") ||
-		!strings.Contains(help, "--map-groups <innergid>:<outergid>:<count>") {
-		return errors.New("rootless keep-ID mode requires util-linux 2.39 or newer with multi-range --map-users and --map-groups support")
+func RequireRootlessIDMapSupport() error {
+	for _, name := range []string{"unshare", "newuidmap", "newgidmap"} {
+		if _, err := exec.LookPath(name); err != nil {
+			return fmt.Errorf("rootless keep-ID mode requires %s on PATH: %w", name, err)
+		}
 	}
 	return nil
 }

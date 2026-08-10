@@ -26,7 +26,7 @@ const (
 
 var currentEUID = os.Geteuid
 var readMountInfo = os.ReadFile
-var requireKeepIDUnshareSupport = RequireKeepIDUnshareSupport
+var requireRootlessIDMapSupport = RequireRootlessIDMapSupport
 var debianPackageNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9+.-]*$`)
 
 type MissingAsset struct {
@@ -130,7 +130,7 @@ func bootstrapWithReportWithOptions(outputRoot string, options GenerateOptions, 
 	}
 	if report.HostEnvironment == hostenv.Rootless &&
 		(os.Getenv(testSkipBootstrapEnv) != "1" || os.Getenv(testFinalizeOwnershipEnv) == "1") {
-		if err := requireKeepIDUnshareSupport(); err != nil {
+		if err := requireRootlessIDMapSupport(); err != nil {
 			return report, err
 		}
 	}

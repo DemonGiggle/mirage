@@ -109,16 +109,6 @@ func buildUnshareArgs(runAsRoot bool, enableSudo bool, networkBackend string) ([
 	return args, nil
 }
 
-func appendKeepIDUnshareArgs(args []string, uidEntries, gidEntries [][3]int) []string {
-	for _, entry := range uidEntries {
-		args = append(args, "--map-users="+strconv.Itoa(entry[0])+":"+strconv.Itoa(entry[1])+":"+strconv.Itoa(entry[2]))
-	}
-	for _, entry := range gidEntries {
-		args = append(args, "--map-groups="+strconv.Itoa(entry[0])+":"+strconv.Itoa(entry[1])+":"+strconv.Itoa(entry[2]))
-	}
-	return append(args, "--setuid=0", "--setgid=0", "--keep-caps")
-}
-
 func waitForSandboxTargetPID(reader *os.File) (int, error) {
 	if reader == nil {
 		return 0, errors.New("sandbox target pid reader is nil")
@@ -213,13 +203,8 @@ func hostPIDFromProcStatus(status []byte) (int, error) {
 	return 0, errors.New("NSpid field is missing")
 }
 
-func configureSandboxUIDMappings(pid int, runAsRoot bool, enableSudo bool) error {
+func configureSandboxUIDMappings(pid int, uidEntries, gidEntries [][3]int) error {
 	rootHostUID := currentUID()
-	rootHostGID := currentGID()
-	uidEntries, gidEntries, err := sandboxIDMapEntries(runAsRoot, enableSudo, rootHostUID, rootHostGID)
-	if err != nil {
-		return err
-	}
 	if rootHostUID == 0 {
 		if err := writeNamespaceIDMap(procfsPathForPID(pid, "uid_map"), uidEntries); err != nil {
 			return fmt.Errorf("write uid_map for pid %d: %w", pid, err)

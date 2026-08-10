@@ -400,23 +400,6 @@ func TestBuildUnshareArgsKeepsSetgroupsAvailableForRootlessHost(t *testing.T) {
 	}
 }
 
-func TestAppendKeepIDUnshareArgsUsesExplicitModernMappings(t *testing.T) {
-	got := appendKeepIDUnshareArgs([]string{"--fork", "--user"},
-		[][3]int{{0, 165536, 1000}, {1000, 1000, 1}},
-		[][3]int{{0, 165536, 1000}, {1000, 1000, 1}})
-	want := []string{
-		"--fork", "--user",
-		"--map-users=0:165536:1000",
-		"--map-users=1000:1000:1",
-		"--map-groups=0:165536:1000",
-		"--map-groups=1000:1000:1",
-		"--setuid=0", "--setgid=0", "--keep-caps",
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("unexpected keep-ID unshare args:\n got: %#v\nwant: %#v", got, want)
-	}
-}
-
 func TestExecutablePathReexecFailsAcrossRestrictedParentDirectory(t *testing.T) {
 	requirePathRestrictedReexecSupport(t)
 
@@ -745,11 +728,9 @@ func TestConfigureSandboxUIDMappingsWritesDirectRootMaps(t *testing.T) {
 	}
 
 	restoreUID := currentUID
-	restoreGID := currentGID
 	restoreProcfs := procfsRoot
 	restoreRunner := idMapCommandRunner
 	currentUID = func() int { return 0 }
-	currentGID = func() int { return 0 }
 	procfsRoot = procRoot
 	idMapCommandRunner = func(string, int, [][3]int) error {
 		t.Fatal("expected direct procfs mapping writes for root caller")
@@ -757,12 +738,12 @@ func TestConfigureSandboxUIDMappingsWritesDirectRootMaps(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		currentUID = restoreUID
-		currentGID = restoreGID
 		procfsRoot = restoreProcfs
 		idMapCommandRunner = restoreRunner
 	})
 
-	if err := configureSandboxUIDMappings(pid, false, true); err != nil {
+	entries := [][3]int{{0, 0, 1}, {1, 1, 999}, {1000, 1000, 1}, {1001, 1001, 64535}}
+	if err := configureSandboxUIDMappings(pid, entries, entries); err != nil {
 		t.Fatalf("configureSandboxUIDMappings returned error: %v", err)
 	}
 
@@ -788,6 +769,39 @@ func TestConfigureSandboxUIDMappingsWritesDirectRootMaps(t *testing.T) {
 1001 1001 64535
 ` {
 		t.Fatalf("unexpected gid_map contents: %q", got)
+	}
+}
+
+func TestConfigureSandboxUIDMappingsUsesHelpersForRootlessMaps(t *testing.T) {
+	restoreUID := currentUID
+	restoreRunner := idMapCommandRunner
+	currentUID = func() int { return 1000 }
+	type mapCall struct {
+		name    string
+		pid     int
+		entries [][3]int
+	}
+	var calls []mapCall
+	idMapCommandRunner = func(name string, pid int, entries [][3]int) error {
+		calls = append(calls, mapCall{name: name, pid: pid, entries: entries})
+		return nil
+	}
+	t.Cleanup(func() {
+		currentUID = restoreUID
+		idMapCommandRunner = restoreRunner
+	})
+
+	uidEntries := [][3]int{{0, 165536, 1000}, {1000, 1000, 1}}
+	gidEntries := [][3]int{{0, 165536, 1000}, {1000, 1000, 1}}
+	if err := configureSandboxUIDMappings(4242, uidEntries, gidEntries); err != nil {
+		t.Fatalf("configureSandboxUIDMappings returned error: %v", err)
+	}
+	want := []mapCall{
+		{name: "newuidmap", pid: 4242, entries: uidEntries},
+		{name: "newgidmap", pid: 4242, entries: gidEntries},
+	}
+	if !reflect.DeepEqual(calls, want) {
+		t.Fatalf("unexpected rootless map helper calls: got %#v want %#v", calls, want)
 	}
 }
 
@@ -1300,6 +1314,38 @@ func TestApplySandboxIdentityClearsSupplementaryGroupsBeforeDroppingIDs(t *testi
 		if calls[idx] != call {
 			t.Fatalf("unexpected call at %d: got %q want %q", idx, calls[idx], call)
 		}
+	}
+}
+
+func TestApplyMappedRootIdentityClearsGroupsBeforeBecomingRoot(t *testing.T) {
+	restoreSetgroups := setgroupsFunc
+	restoreSetgid := setgidFunc
+	restoreSetuid := setuidFunc
+	var calls []string
+	setgroupsFunc = func([]int) error {
+		calls = append(calls, "setgroups")
+		return nil
+	}
+	setgidFunc = func(gid int) error {
+		calls = append(calls, fmt.Sprintf("setgid:%d", gid))
+		return nil
+	}
+	setuidFunc = func(uid int) error {
+		calls = append(calls, fmt.Sprintf("setuid:%d", uid))
+		return nil
+	}
+	t.Cleanup(func() {
+		setgroupsFunc = restoreSetgroups
+		setgidFunc = restoreSetgid
+		setuidFunc = restoreSetuid
+	})
+
+	if err := applyMappedRootIdentity(); err != nil {
+		t.Fatalf("applyMappedRootIdentity returned error: %v", err)
+	}
+	want := []string{"setgroups", "setgid:0", "setuid:0"}
+	if !reflect.DeepEqual(calls, want) {
+		t.Fatalf("unexpected mapped-root identity calls: got %#v want %#v", calls, want)
 	}
 }
 

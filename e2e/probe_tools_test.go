@@ -674,8 +674,8 @@ func TestRootlessSudoKeepIDWritableBindUsesCallerOwnership(t *testing.T) {
 	initOutput, err := initCmd.CombinedOutput()
 	if err != nil {
 		message := string(initOutput)
-		if strings.Contains(message, "requires util-linux 2.39") {
-			t.Skipf("util-linux lacks multi-range user mappings: %s", strings.TrimSpace(message))
+		if strings.Contains(message, "requires newuidmap") || strings.Contains(message, "requires newgidmap") {
+			t.Skipf("rootless ID mapping helpers unavailable: %s", strings.TrimSpace(message))
 		}
 		if strings.Contains(message, "newuidmap") && strings.Contains(message, "Operation not permitted") {
 			t.Skipf("multi-ID rootless mapping unavailable: %s", strings.TrimSpace(message))
@@ -710,9 +710,6 @@ func TestRootlessSudoKeepIDWritableBindUsesCallerOwnership(t *testing.T) {
 		"/bin/sh", "-c", "test \"$(/probe-euid)\" = 1000; test \"$(sudo -n ignored)\" = 0; if printf bad >> /etc/apt/apt.conf.d/99sandbox-minimal; then exit 23; fi; printf keep-id > /rw/created.txt; printf changed > /rw-file",
 	)
 	if err != nil {
-		if strings.Contains(output, "unrecognized option '--map-users") {
-			t.Skipf("util-linux lacks multi-range user mappings: %s", strings.TrimSpace(output))
-		}
 		t.Fatalf("write caller-owned keep-ID bind: %v\noutput:\n%s", err, output)
 	}
 	written, err := os.ReadFile(filepath.Join(hostWritable, "created.txt"))
