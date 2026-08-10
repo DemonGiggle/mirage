@@ -13,6 +13,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/DemonGiggle/mirage/internal/rootfs"
 	"github.com/DemonGiggle/mirage/internal/spec"
 )
 
@@ -49,6 +50,21 @@ func execute(cfg spec.Config, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
+	keepID := false
+	if currentUID() != 0 && !cfg.RunAsRoot && cfg.RootFS != "" && cfg.RootFS != "/" {
+		keepID, err = rootfs.HasKeepIDOwnership(cfg.RootFS)
+		if err != nil {
+			return fmt.Errorf("inspect rootfs ownership mode: %w", err)
+		}
+		if keepID {
+			if err := rootfs.RequireKeepIDUnshareSupport(); err != nil {
+				return err
+			}
+			if err := rootfs.ValidateKeepIDOwnership(cfg.RootFS, currentUID(), currentGID()); err != nil {
+				return err
+			}
+		}
+	}
 	if policyPlan.BackendMode == backendNetworkPolicyRouted && requiresCgroupScope(cfg) {
 		return errors.New("routed network policy backend does not yet support delegated cgroup execution")
 	}
@@ -70,6 +86,7 @@ func execute(cfg spec.Config, stdout, stderr io.Writer) error {
 		Env:              cfg.Env,
 		RunAsRoot:        cfg.RunAsRoot,
 		EnableSudo:       cfg.EnableSudo,
+		KeepID:           keepID,
 		Command:          cfg.Command,
 	}
 	var routedConfig routedNetworkConfig
@@ -96,6 +113,14 @@ func execute(cfg spec.Config, stdout, stderr io.Writer) error {
 	unshareArgs, err := buildUnshareArgs(cfg.RunAsRoot, cfg.EnableSudo, policyPlan.BackendMode)
 	if err != nil {
 		return err
+	}
+	if keepID {
+		uidEntries, gidEntries, mapErr := rootfs.RootlessKeepIDMapEntries(currentUID(), currentGID())
+		if mapErr != nil {
+			return mapErr
+		}
+		unshareArgs = appendKeepIDUnshareArgs(unshareArgs, uidEntries, gidEntries)
+		launchSync.uidMapReadyFile = ""
 	}
 	if !cfg.RunAsRoot && currentUID() == 0 {
 		if err := clearInheritedSupplementaryGroups(); err != nil {
@@ -364,6 +389,7 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 	var envItems []string
 	var runAsRoot bool
 	var enableSudo bool
+	var keepID bool
 	var targetPIDFD int
 	var uidMapReadyFile string
 	var mappedRootReady bool
@@ -382,6 +408,7 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 	fs.Var(stringSliceValue{target: &envItems}, "env", "backend environment variable")
 	fs.BoolVar(&runAsRoot, "run-as-root", false, "backend workload identity")
 	fs.BoolVar(&enableSudo, "sudo", false, "backend guest sudo capability")
+	fs.BoolVar(&keepID, "keep-id", false, "backend rootless keep-ID ownership mode")
 	fs.IntVar(&targetPIDFD, "target-pid-fd", -1, "backend target pid publication fd")
 	fs.StringVar(&uidMapReadyFile, "uid-map-ready-file", "", "backend uid/gid mapping readiness file")
 	fs.BoolVar(&mappedRootReady, "mapped-root-ready", false, "backend privilege handoff completion marker")
@@ -403,10 +430,13 @@ func RunBackendHelper(args []string, stdout, stderr io.Writer) error {
 		if err := waitForUIDMapReady(uidMapReadyFile); err != nil {
 			return err
 		}
-		if err := reexecBackendWithMappedRoot(rootfs, cwd, hostname, networkBackend, policyConfig, routedInterface, routedAddress, routedGateway, networkReadyFD, roBind, rwBind, envItems, runAsRoot, enableSudo, command); err != nil {
+		if err := reexecBackendWithMappedRoot(rootfs, cwd, hostname, networkBackend, policyConfig, routedInterface, routedAddress, routedGateway, networkReadyFD, roBind, rwBind, envItems, runAsRoot, enableSudo, keepID, command); err != nil {
 			return err
 		}
 		return nil
+	}
+	if keepID && (os.Geteuid() != 0 || os.Getegid() != 0) {
+		return fmt.Errorf("keep-ID launch did not acquire namespace root (identity %d:%d)", os.Geteuid(), os.Getegid())
 	}
 	if rootfs != "/" || len(roBind) > 0 || len(rwBind) > 0 || !runAsRoot {
 		if err := makeMountNamespacePrivate(); err != nil {

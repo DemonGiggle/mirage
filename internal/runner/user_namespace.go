@@ -109,6 +109,16 @@ func buildUnshareArgs(runAsRoot bool, enableSudo bool, networkBackend string) ([
 	return args, nil
 }
 
+func appendKeepIDUnshareArgs(args []string, uidEntries, gidEntries [][3]int) []string {
+	for _, entry := range uidEntries {
+		args = append(args, "--map-users="+strconv.Itoa(entry[0])+":"+strconv.Itoa(entry[1])+":"+strconv.Itoa(entry[2]))
+	}
+	for _, entry := range gidEntries {
+		args = append(args, "--map-groups="+strconv.Itoa(entry[0])+":"+strconv.Itoa(entry[1])+":"+strconv.Itoa(entry[2]))
+	}
+	return append(args, "--setuid=0", "--setgid=0", "--keep-caps")
+}
+
 func waitForSandboxTargetPID(reader *os.File) (int, error) {
 	if reader == nil {
 		return 0, errors.New("sandbox target pid reader is nil")
@@ -449,7 +459,7 @@ func waitForUIDMapReady(path string) error {
 	}
 }
 
-func reexecBackendWithMappedRoot(rootfs string, cwd string, hostname string, networkBackend string, policyConfig string, routedInterface string, routedAddress string, routedGateway string, networkReadyFD int, roBind []string, rwBind []string, envItems []string, runAsRoot bool, enableSudo bool, command []string) error {
+func reexecBackendWithMappedRoot(rootfs string, cwd string, hostname string, networkBackend string, policyConfig string, routedInterface string, routedAddress string, routedGateway string, networkReadyFD int, roBind []string, rwBind []string, envItems []string, runAsRoot bool, enableSudo bool, keepID bool, command []string) error {
 	self := selfReexecPath()
 
 	args := []string{self, "__backend-exec", "--rootfs", rootfs, "--network-backend", networkBackend, "--mapped-root-ready"}
@@ -488,6 +498,9 @@ func reexecBackendWithMappedRoot(rootfs string, cwd string, hostname string, net
 	}
 	if enableSudo {
 		args = append(args, "--sudo")
+	}
+	if keepID {
+		args = append(args, "--keep-id")
 	}
 	args = append(args, "--")
 	args = append(args, command...)

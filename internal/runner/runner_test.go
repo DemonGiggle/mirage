@@ -77,6 +77,26 @@ func TestBackendLaunchConfigArgsEnablesGuestSudo(t *testing.T) {
 	}
 }
 
+func TestBackendLaunchConfigArgsEnablesKeepID(t *testing.T) {
+	cfg := backendLaunchConfig{
+		Self:           "/proc/self/exe",
+		RootFS:         "/sandbox",
+		NetworkBackend: backendNetworkPolicyHost,
+		KeepID:         true,
+		Command:        []string{"/bin/id"},
+	}
+	want := []string{
+		"/proc/self/exe", "__backend-exec",
+		"--rootfs", "/sandbox",
+		"--network-backend", backendNetworkPolicyHost,
+		"--keep-id",
+		"--", "/bin/id",
+	}
+	if got := cfg.args(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("backend args mismatch:\n got: %#v\nwant: %#v", got, want)
+	}
+}
+
 func TestResolveCommandBinaryMentionsRootfsWhenPathLookupFails(t *testing.T) {
 	sandboxEnv, err := buildSandboxEnv(nil, defaultSandboxIdentity("/tmp/test-rootfs", false))
 	if err != nil {
@@ -377,6 +397,23 @@ func TestBuildUnshareArgsKeepsSetgroupsAvailableForRootlessHost(t *testing.T) {
 	}
 	if slicesContains(args, "--setgroups") {
 		t.Fatalf("expected rootless launch to keep setgroups available, got %#v", args)
+	}
+}
+
+func TestAppendKeepIDUnshareArgsUsesExplicitModernMappings(t *testing.T) {
+	got := appendKeepIDUnshareArgs([]string{"--fork", "--user"},
+		[][3]int{{0, 165536, 1000}, {1000, 1000, 1}},
+		[][3]int{{0, 165536, 1000}, {1000, 1000, 1}})
+	want := []string{
+		"--fork", "--user",
+		"--map-users=0:165536:1000",
+		"--map-users=1000:1000:1",
+		"--map-groups=0:165536:1000",
+		"--map-groups=1000:1000:1",
+		"--setuid=0", "--setgid=0", "--keep-caps",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("unexpected keep-ID unshare args:\n got: %#v\nwant: %#v", got, want)
 	}
 }
 

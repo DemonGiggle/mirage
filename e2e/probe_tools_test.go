@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -655,6 +656,84 @@ func TestProbeBindMountReadOnlyBoundary(t *testing.T) {
 	}
 	if string(written) != "rw-data" {
 		t.Fatalf("unexpected writable bind content: %q", string(written))
+	}
+}
+
+func TestRootlessKeepIDWritableBindUsesCallerOwnership(t *testing.T) {
+	requireNamespaceBackend(t)
+	if os.Geteuid() == 0 {
+		t.Skip("keep-ID behavior requires a rootless test user")
+	}
+
+	repoRoot := projectRoot(t)
+	rootfs := filepath.Join(t.TempDir(), "keep-id-rootfs")
+	initCmd := exec.Command("go", "run", "./cmd/mirage", "rootfs", "init", "--output", rootfs)
+	initCmd.Dir = repoRoot
+	initCmd.Env = append(os.Environ(), "MIRAGE_TEST_FINALIZE_ROOTLESS_OWNERSHIP=1")
+	initOutput, err := initCmd.CombinedOutput()
+	if err != nil {
+		message := string(initOutput)
+		if strings.Contains(message, "requires util-linux 2.39") {
+			t.Skipf("util-linux lacks multi-range user mappings: %s", strings.TrimSpace(message))
+		}
+		if strings.Contains(message, "newuidmap") && strings.Contains(message, "Operation not permitted") {
+			t.Skipf("multi-ID rootless mapping unavailable: %s", strings.TrimSpace(message))
+		}
+		t.Fatalf("create keep-ID test rootfs: %v\noutput:\n%s", err, message)
+	}
+	defer func() {
+		cleanupCmd := exec.Command("go", "run", "./cmd/mirage", "rootfs", "init", "--output", rootfs, "--allow-overwrite")
+		cleanupCmd.Dir = repoRoot
+		if cleanupOutput, cleanupErr := cleanupCmd.CombinedOutput(); cleanupErr != nil {
+			t.Errorf("reclaim keep-ID test rootfs: %v\noutput:\n%s", cleanupErr, string(cleanupOutput))
+		}
+	}()
+
+	hostWritable := t.TempDir()
+	if err := os.Chmod(hostWritable, 0o700); err != nil {
+		t.Fatalf("restrict caller-owned writable bind: %v", err)
+	}
+	hostFile := filepath.Join(hostWritable, "existing.txt")
+	if err := os.WriteFile(hostFile, []byte("before"), 0o600); err != nil {
+		t.Fatalf("write caller-owned file bind: %v", err)
+	}
+	output, err := runMirage(t, repoRoot,
+		"run",
+		"--rootfs", rootfs,
+		"--network-policy-file", policyFixturePath(repoRoot, "allow-all.yaml"),
+		"--rw-bind", hostWritable+":/rw",
+		"--rw-bind", hostFile+":/rw-file",
+		"--",
+		"/bin/sh", "-c", "if printf bad >> /etc/apt/apt.conf.d/99sandbox-minimal; then exit 23; fi; printf keep-id > /rw/created.txt; printf changed > /rw-file",
+	)
+	if err != nil {
+		if strings.Contains(output, "unrecognized option '--map-users") {
+			t.Skipf("util-linux lacks multi-range user mappings: %s", strings.TrimSpace(output))
+		}
+		t.Fatalf("write caller-owned keep-ID bind: %v\noutput:\n%s", err, output)
+	}
+	written, err := os.ReadFile(filepath.Join(hostWritable, "created.txt"))
+	if err != nil || string(written) != "keep-id" {
+		t.Fatalf("unexpected host bind result %q, err=%v", string(written), err)
+	}
+	info, err := os.Stat(filepath.Join(hostWritable, "created.txt"))
+	if err != nil {
+		t.Fatalf("stat host bind result: %v", err)
+	}
+	stat := info.Sys().(*syscall.Stat_t)
+	if int(stat.Uid) != os.Getuid() || int(stat.Gid) != os.Getgid() {
+		t.Fatalf("host bind result owner %d:%d, want caller %d:%d", stat.Uid, stat.Gid, os.Getuid(), os.Getgid())
+	}
+	changed, err := os.ReadFile(hostFile)
+	if err != nil || string(changed) != "changed" {
+		t.Fatalf("unexpected caller-owned file bind result %q, err=%v", string(changed), err)
+	}
+	rootConfig, err := os.ReadFile(filepath.Join(rootfs, "etc/apt/apt.conf.d/99sandbox-minimal"))
+	if err != nil {
+		t.Fatalf("read protected rootfs config: %v", err)
+	}
+	if strings.Contains(string(rootConfig), "bad") {
+		t.Fatalf("default keep-ID workload modified root-owned rootfs config: %q", string(rootConfig))
 	}
 }
 

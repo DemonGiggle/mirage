@@ -15,6 +15,7 @@ import (
 
 const (
 	testSkipBootstrapEnv         = "MIRAGE_TEST_SKIP_MMDEBSTRAP"
+	testFinalizeOwnershipEnv     = "MIRAGE_TEST_FINALIZE_ROOTLESS_OWNERSHIP"
 	defaultDebianRelease         = "trixie"
 	debianMirror                 = "http://deb.debian.org/debian"
 	minimalAptConfigPath         = "/etc/apt/apt.conf.d/99sandbox-minimal"
@@ -98,6 +99,10 @@ func BootstrapWithReport(outputRoot string) (GenerateReport, error) {
 }
 
 func BootstrapWithReportWithOptions(outputRoot string, options GenerateOptions) (GenerateReport, error) {
+	return bootstrapWithReportWithOptions(outputRoot, options, true)
+}
+
+func bootstrapWithReportWithOptions(outputRoot string, options GenerateOptions, finalize bool) (GenerateReport, error) {
 	if strings.TrimSpace(outputRoot) == "" {
 		return GenerateReport{}, errors.New("output rootfs path cannot be empty")
 	}
@@ -120,6 +125,12 @@ func BootstrapWithReportWithOptions(outputRoot string, options GenerateOptions) 
 	}
 	if err := validateBootstrapTarget(root); err != nil {
 		return report, err
+	}
+	if report.HostEnvironment == hostenv.Rootless && !requiresLegacyRootlessOwnership(options) &&
+		(os.Getenv(testSkipBootstrapEnv) != "1" || os.Getenv(testFinalizeOwnershipEnv) == "1") {
+		if err := RequireKeepIDUnshareSupport(); err != nil {
+			return report, err
+		}
 	}
 	if err := strategy.prepareOutput(root, options.AllowOverwrite); err != nil {
 		return report, err
@@ -148,6 +159,13 @@ func BootstrapWithReportWithOptions(outputRoot string, options GenerateOptions) 
 		return report, err
 	}
 	report.merge(nssReport)
+	if finalize && report.HostEnvironment == hostenv.Rootless && !requiresLegacyRootlessOwnership(options) {
+		if os.Getenv(testSkipBootstrapEnv) != "1" || os.Getenv(testFinalizeOwnershipEnv) == "1" {
+			if err := finalizeRootlessOwnership(root); err != nil {
+				return report, fmt.Errorf("finalize rootless rootfs ownership: %w", err)
+			}
+		}
+	}
 	return report, nil
 }
 
@@ -165,7 +183,7 @@ func GenerateWithReportWithOptions(outputRoot string, template Template, options
 		return GenerateReport{}, err
 	}
 
-	report, err := BootstrapWithReportWithOptions(outputRoot, options)
+	report, err := bootstrapWithReportWithOptions(outputRoot, options, false)
 	if err != nil {
 		return report, err
 	}
@@ -214,7 +232,26 @@ func GenerateWithReportWithOptions(outputRoot string, template Template, options
 		return generator.report, err
 	}
 	generator.report.merge(nssReport)
+	if generator.report.HostEnvironment == hostenv.Rootless && !requiresLegacyRootlessOwnership(options) {
+		if os.Getenv(testSkipBootstrapEnv) != "1" || os.Getenv(testFinalizeOwnershipEnv) == "1" {
+			if err := finalizeRootlessOwnership(root); err != nil {
+				return generator.report, fmt.Errorf("finalize rootless rootfs ownership: %w", err)
+			}
+		}
+	}
 	return generator.report, nil
+}
+
+func requiresLegacyRootlessOwnership(options GenerateOptions) bool {
+	if options.IncludeSudo {
+		return true
+	}
+	for _, name := range options.ExtraPackages {
+		if strings.TrimSpace(name) == "sudo" {
+			return true
+		}
+	}
+	return false
 }
 
 type generator struct {
