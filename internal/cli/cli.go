@@ -37,6 +37,8 @@ func Run(args []string, stdout, stderr io.Writer) error {
 		return runner.RunBackendHelper(args[1:], stdout, stderr)
 	case "__cgroup-exec":
 		return runner.RunCgroupHelper(args[1:], stdout, stderr)
+	case "__rootfs-ownership":
+		return rootfs.RunOwnershipHelper(args[1:], stdout, stderr)
 	case "rootfs":
 		return runRootfs(args[1:], stdout, stderr)
 	case "doctor":

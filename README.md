@@ -67,7 +67,11 @@ go build -o ./bin/mirage ./cmd/mirage
 
 The rest of the docs assume `mirage` resolves to this built binary. Mirage can
 initialize and run the minimal pipeline without `sudo` when unprivileged user
-namespaces, subordinate IDs, `newuidmap`, and `newgidmap` are available.
+namespaces, a subordinate range of at least 65,535 UIDs and GIDs, `newuidmap`,
+and `newgidmap` are available. Newly generated
+rootless rootfs trees use a keep-ID mapping, so caller-owned `--rw-bind` sources
+are writable by the default non-root sandbox user without broad host permission
+changes. This also applies to trees generated with guest sudo.
 
 Verify the host:
 

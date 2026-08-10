@@ -203,13 +203,8 @@ func hostPIDFromProcStatus(status []byte) (int, error) {
 	return 0, errors.New("NSpid field is missing")
 }
 
-func configureSandboxUIDMappings(pid int, runAsRoot bool, enableSudo bool) error {
+func configureSandboxUIDMappings(pid int, uidEntries, gidEntries [][3]int) error {
 	rootHostUID := currentUID()
-	rootHostGID := currentGID()
-	uidEntries, gidEntries, err := sandboxIDMapEntries(runAsRoot, enableSudo, rootHostUID, rootHostGID)
-	if err != nil {
-		return err
-	}
 	if rootHostUID == 0 {
 		if err := writeNamespaceIDMap(procfsPathForPID(pid, "uid_map"), uidEntries); err != nil {
 			return fmt.Errorf("write uid_map for pid %d: %w", pid, err)
@@ -449,7 +444,7 @@ func waitForUIDMapReady(path string) error {
 	}
 }
 
-func reexecBackendWithMappedRoot(rootfs string, cwd string, hostname string, networkBackend string, policyConfig string, routedInterface string, routedAddress string, routedGateway string, networkReadyFD int, roBind []string, rwBind []string, envItems []string, runAsRoot bool, enableSudo bool, command []string) error {
+func reexecBackendWithMappedRoot(rootfs string, cwd string, hostname string, networkBackend string, policyConfig string, routedInterface string, routedAddress string, routedGateway string, networkReadyFD int, roBind []string, rwBind []string, envItems []string, runAsRoot bool, enableSudo bool, keepID bool, command []string) error {
 	self := selfReexecPath()
 
 	args := []string{self, "__backend-exec", "--rootfs", rootfs, "--network-backend", networkBackend, "--mapped-root-ready"}
@@ -488,6 +483,9 @@ func reexecBackendWithMappedRoot(rootfs string, cwd string, hostname string, net
 	}
 	if enableSudo {
 		args = append(args, "--sudo")
+	}
+	if keepID {
+		args = append(args, "--keep-id")
 	}
 	args = append(args, "--")
 	args = append(args, command...)

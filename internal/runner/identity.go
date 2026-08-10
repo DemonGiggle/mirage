@@ -393,6 +393,19 @@ func applySandboxIdentity(identity sandboxIdentity) error {
 	return nil
 }
 
+func applyMappedRootIdentity() error {
+	if err := clearInheritedSupplementaryGroups(); err != nil {
+		return fmt.Errorf("clear supplementary groups before mapped-root handoff: %w", err)
+	}
+	if err := setgidFunc(0); err != nil {
+		return fmt.Errorf("become mapped root gid: %w", err)
+	}
+	if err := setuidFunc(0); err != nil {
+		return fmt.Errorf("become mapped root uid: %w", err)
+	}
+	return nil
+}
+
 func clearInheritedSupplementaryGroups() error {
 	if err := setgroupsFunc(nil); err != nil {
 		if errors.Is(err, syscall.EPERM) {

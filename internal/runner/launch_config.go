@@ -20,6 +20,7 @@ type backendLaunchConfig struct {
 	Env              []string
 	RunAsRoot        bool
 	EnableSudo       bool
+	KeepID           bool
 	Command          []string
 }
 
@@ -56,6 +57,9 @@ func (cfg backendLaunchConfig) args() []string {
 	}
 	if cfg.EnableSudo {
 		args = append(args, "--sudo")
+	}
+	if cfg.KeepID {
+		args = append(args, "--keep-id")
 	}
 	args = append(args, "--")
 	return append(args, cfg.Command...)

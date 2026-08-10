@@ -177,19 +177,25 @@ Important behavior:
 - Mirage starts the sandbox with an explicit managed environment. Host
   environment variables are not inherited unless you pass them with `--env`.
 - By default, Mirage drops the workload to the non-root `mirage` user
-  (`1000:1000`). That requires host `newuidmap` and `newgidmap`.
+  (`1000:1000`). For newly generated rootless rootfs trees, that identity maps
+  to the invoking host user (keep-ID), while guest root and the remaining guest
+  IDs map to the caller's subordinate ranges. This requires host `newuidmap`,
+  `newgidmap`, and at least 65,535 subordinate UIDs and GIDs.
 - `--sudo` keeps that default identity but installs a read-only, passwordless
   guest sudo policy for `mirage`. The resulting UID 0 is root only in the
   sandbox user namespace, not on the host.
+- Rootless rootfs trees generated with `rootfs init --sudo` use the keep-ID
+  ownership map. Caller-owned read-write binds therefore appear as owned by the
+  default `mirage` user, while `/usr/bin/sudo` remains setuid guest root.
 - `--sudo` requires a dedicated non-`/` rootfs containing a root-owned, setuid
   `/usr/bin/sudo`. Create one with `mirage rootfs init --sudo`, or install the
   package by another trusted method.
 - `--sudo` and `--run-as-root` are mutually exclusive. Use `--run-as-root` when
   the whole workload should start as guest root; use `--sudo` when escalation
   should remain explicit.
-- A rootless `--sudo` launch needs a usable subordinate UID range and GID range
-  of at least 65,535 IDs. Ordinary non-sudo runs retain the smaller existing
-  mapping requirement.
+- A rootless launch of a newly generated keep-ID rootfs needs usable subordinate
+  UID and GID ranges of at least 65,535 IDs. Legacy rootfs trees without the
+  ownership marker retain their previous mapping for compatibility.
 
 Example:
 
@@ -228,6 +234,9 @@ Notes:
 
 - `--ro-bind` mounts a host file or directory into the sandbox and remounts it read-only.
 - `--rw-bind` mounts a host file or directory into the sandbox with write access.
+  With a newly generated rootless rootfs, caller-owned sources are also owned by
+  the default `mirage` user inside the sandbox, so normal owner permissions work
+  without `chmod 777` or `--run-as-root`.
 - Bind entries use `host:guest` form and both paths must be absolute.
 - The guest path must not be `/`.
 - Existing bind targets must match the source type: directories mount onto directories, and files mount onto files.

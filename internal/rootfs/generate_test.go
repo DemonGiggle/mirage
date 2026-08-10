@@ -72,7 +72,8 @@ func TestBootstrapSelectsRootlessHostStrategy(t *testing.T) {
 	})
 
 	var log bytes.Buffer
-	report, err := BootstrapWithReportWithOptions(filepath.Join(t.TempDir(), "rootfs"), GenerateOptions{LogOutput: &log})
+	root := filepath.Join(t.TempDir(), "rootfs")
+	report, err := BootstrapWithReportWithOptions(root, GenerateOptions{LogOutput: &log})
 	if err != nil {
 		t.Fatalf("BootstrapWithReportWithOptions returned error: %v", err)
 	}
@@ -97,7 +98,8 @@ func TestBootstrapPreservesRootHostStrategy(t *testing.T) {
 	})
 
 	var log bytes.Buffer
-	report, err := BootstrapWithReportWithOptions(filepath.Join(t.TempDir(), "rootfs"), GenerateOptions{LogOutput: &log})
+	root := filepath.Join(t.TempDir(), "rootfs")
+	report, err := BootstrapWithReportWithOptions(root, GenerateOptions{LogOutput: &log})
 	if err != nil {
 		t.Fatalf("BootstrapWithReportWithOptions returned error: %v", err)
 	}
@@ -109,8 +111,46 @@ func TestBootstrapPreservesRootHostStrategy(t *testing.T) {
 			t.Fatalf("expected root bootstrap log to omit %q, got %q", unexpected, log.String())
 		}
 	}
+	if keepID, markerErr := HasKeepIDOwnership(root); markerErr != nil || keepID {
+		t.Fatalf("expected root bootstrap without keep-ID marker, got keepID=%t err=%v", keepID, markerErr)
+	}
 	if !strings.Contains(log.String(), "command: sudo tee") {
 		t.Fatalf("expected root bootstrap to preserve privileged apt config log, got %q", log.String())
+	}
+}
+
+func TestRootlessSudoBootstrapUsesKeepIDOwnershipMode(t *testing.T) {
+	previous := currentEUID
+	currentEUID = func() int { return 1000 }
+	t.Cleanup(func() {
+		currentEUID = previous
+	})
+	previousFinalize := finalizeRootlessOwnership
+	finalizeRootlessOwnership = WriteKeepIDOwnershipMarker
+	t.Cleanup(func() {
+		finalizeRootlessOwnership = previousFinalize
+	})
+	previousRequire := requireRootlessIDMapSupport
+	requireRootlessIDMapSupport = func() error { return nil }
+	t.Cleanup(func() {
+		requireRootlessIDMapSupport = previousRequire
+	})
+	t.Setenv(testFinalizeOwnershipEnv, "1")
+
+	root := filepath.Join(t.TempDir(), "sudo-rootfs")
+	report, err := BootstrapWithReportWithOptions(root, GenerateOptions{IncludeSudo: true})
+	if err != nil {
+		t.Fatalf("rootless sudo bootstrap: %v", err)
+	}
+	if report.HostEnvironment != "rootless" {
+		t.Fatalf("unexpected host environment %q", report.HostEnvironment)
+	}
+	keepID, err := HasKeepIDOwnership(root)
+	if err != nil {
+		t.Fatalf("inspect sudo rootfs ownership marker: %v", err)
+	}
+	if !keepID {
+		t.Fatal("rootless sudo rootfs did not enable keep-ID ownership")
 	}
 }
 

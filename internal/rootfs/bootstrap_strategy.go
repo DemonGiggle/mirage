@@ -49,6 +49,20 @@ func (rootlessHostBootstrapStrategy) prepareOutput(root string, allowOverwrite b
 	default:
 		return fmt.Errorf("lstat rootless output rootfs %q: %w", root, err)
 	}
+	if err == nil && allowOverwrite {
+		keepID, markerErr := HasKeepIDOwnership(root)
+		if markerErr != nil {
+			return fmt.Errorf("inspect rootless output ownership: %w", markerErr)
+		}
+		if keepID {
+			if validateErr := ValidateKeepIDOwnership(root, os.Getuid(), os.Getgid()); validateErr != nil {
+				return validateErr
+			}
+			if reclaimErr := reclaimRootlessOwnership(root); reclaimErr != nil {
+				return fmt.Errorf("reclaim rootless output rootfs %q: %w", root, reclaimErr)
+			}
+		}
+	}
 	return prepareOutputRoot(root, allowOverwrite)
 }
 
