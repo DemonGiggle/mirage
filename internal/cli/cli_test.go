@@ -41,7 +41,7 @@ func TestRootHelpMentionsCommandSurface(t *testing.T) {
 	got := out.String()
 	for _, needle := range []string{
 		"mirage <command> [flags]",
-		"rootfs          bootstrap a Debian rootfs",
+		"rootfs          bootstrap a Debian or Tiny Core rootfs",
 		"network-policy  list bundled example network policy files",
 		"package         assemble a standalone release bundle",
 	} {
@@ -62,7 +62,7 @@ func TestRootfsHelpIncludesSubcommands(t *testing.T) {
 	got := out.String()
 	for _, needle := range []string{
 		"mirage rootfs <subcommand> [flags]",
-		"init            bootstrap a Debian rootfs",
+		"init            bootstrap a Debian or Tiny Core rootfs",
 	} {
 		if !strings.Contains(got, needle) {
 			t.Fatalf("expected rootfs help to contain %q, got %q", needle, got)
@@ -338,7 +338,7 @@ func TestSubcommandHelpTopics(t *testing.T) {
 		{
 			name: "rootfs_init_help_topic",
 			args: []string{"rootfs", "help", "init"},
-			want: "Bootstrap a Debian minbase rootfs.",
+			want: "Bootstrap a Debian minbase or Tiny Core rootfs.",
 		},
 		{
 			name: "network_policy_list_help_topic",
@@ -747,6 +747,63 @@ func TestRootfsInit(t *testing.T) {
 	}
 }
 
+func TestRootfsInitTinyCore(t *testing.T) {
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+	outputRoot := filepath.Join(t.TempDir(), "tinycore-rootfs")
+	err := Run([]string{
+		"rootfs", "init",
+		"--output", outputRoot,
+		"--distro", "tinycore",
+		"--arch", "x86_64",
+	}, &out, &errBuf)
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	for _, needle := range []string{
+		"download: http://tinycorelinux.net/",
+		"expected-sha256:",
+		"distribution: tinycore",
+		"release: 16.1",
+		"architecture: x86_64",
+	} {
+		if !strings.Contains(out.String(), needle) {
+			t.Fatalf("expected Tiny Core init output to contain %q, got %q", needle, out.String())
+		}
+	}
+	for _, target := range []string{"bin/sh", "bin/ls", "proc", "tmp", "run", "dev", "etc/os-release"} {
+		if _, err := os.Stat(filepath.Join(outputRoot, target)); err != nil {
+			t.Fatalf("expected Tiny Core target %q to exist: %v", target, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(outputRoot, "etc", "apt")); !os.IsNotExist(err) {
+		t.Fatalf("Tiny Core rootfs unexpectedly contains apt state: %v", err)
+	}
+}
+
+func TestRootfsInitTinyCoreRejectsUnsupportedOptions(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "architecture", args: []string{"--arch", "arm64"}, want: "supports only x86_64"},
+		{name: "extra package", args: []string{"--extra-pkg", "curl"}, want: "--extra-pkg is not supported"},
+		{name: "sudo", args: []string{"--sudo"}, want: "--sudo is not supported"},
+		{name: "Debian release", args: []string{"--debian-release", "bookworm"}, want: "--debian-release requires --distro debian"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			args := []string{"rootfs", "init", "--output", filepath.Join(t.TempDir(), "rootfs"), "--distro", "tinycore"}
+			args = append(args, tc.args...)
+			err := Run(args, &bytes.Buffer{}, &bytes.Buffer{})
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("expected error containing %q, got %v", tc.want, err)
+			}
+		})
+	}
+}
+
 func TestRootfsInitAllowOverwrite(t *testing.T) {
 	outputRoot := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(outputRoot, "etc"), 0o755); err != nil {
@@ -918,9 +975,12 @@ func TestRootfsInitHelpListsSupportedArchitectures(t *testing.T) {
 	got := out.String()
 	for _, needle := range []string{
 		"The default Debian release is trixie.",
+		"The default Tiny Core release is 16.1",
 		"Supported --arch values: x86_64, arm64, arm32, riscv64.",
 		"--arch <arch>",
+		"--distro <debian|tinycore>",
 		"--debian-release <codename>",
+		"--tinycore-release <version>",
 		"--extra-pkg <pkg1,pkg2>",
 		"--sudo",
 	} {

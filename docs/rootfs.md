@@ -2,7 +2,7 @@
 
 This document explains what Mirage expects from `--rootfs`, how `mirage rootfs
 init` bootstraps generated root filesystems, and what Mirage expects from the
-resulting Debian tree.
+resulting Debian or Tiny Core tree.
 
 ## Rootfs Modes
 
@@ -27,6 +27,14 @@ Generate a rootfs:
 
 ```bash
 mirage rootfs init --output /tmp/mirage/basic-rootfs
+```
+
+Generate the pinned Tiny Core rootfs:
+
+```bash
+mirage rootfs init \
+  --output /tmp/mirage/tinycore-rootfs \
+  --distro tinycore
 ```
 
 Generate a rootfs for a specific target architecture:
@@ -75,6 +83,11 @@ mirage doctor --rootfs /tmp/mirage/basic-rootfs --command /bin/ls
 ```
 
 ## What `rootfs init` Does
+
+`--distro` selects the rootfs provider. It defaults to `debian` for backward
+compatibility and also accepts `tinycore`.
+
+### Debian
 
 `rootfs init` bootstraps a Debian `trixie` `minbase` rootfs with
 `mmdebstrap`.
@@ -134,13 +147,37 @@ APT::Install-Suggests "false";
 APT::Sandbox::User "root";
 ```
 
+### Tiny Core
+
+`rootfs init --distro tinycore` downloads Tiny Core 16.1's archived
+`rootfs64.gz` initramfs and extracts it as the dedicated rootfs. Mirage pins
+the archive URL and SHA-256 digest so a changed or corrupted download is
+rejected before extraction. Tiny Core's download server currently serves this
+archive over HTTP, making the pinned SHA-256 check part of the trust boundary.
+
+The extractor handles the `newc` CPIO format directly. It rejects absolute and
+traversing paths, refuses to descend through archive-created symlinks, rejects
+device nodes outside `/dev`, and does not materialize `/dev` device nodes
+because Mirage replaces `/dev` with its managed runtime layout.
+
+The first Tiny Core backend intentionally supports only:
+
+- Tiny Core `16.1`
+- `x86_64`
+- the base rootfs without `.tcz` extensions
+
+Consequently, `--extra-pkg` and `--sudo` are rejected with `--distro
+tinycore`. Tiny Core extensions and additional architectures require separate
+archive, dependency, and checksum definitions.
+
 Common behavior across generated rootfs trees:
 
-- Mirage creates a Debian base userspace first.
-- Mirage writes a minimal guest apt policy file that disables recommends and
-  suggests.
-- Mirage preserves a standard Debian userspace instead of copying host tools
-  into the rootfs.
+- Mirage validates the selected distribution and its options before clearing
+  an existing output directory.
+- Mirage creates or extracts a complete userspace instead of copying a host
+  shell into production rootfs trees.
+- Debian generation writes the minimal guest apt policy described above;
+  Tiny Core generation does not create Debian or apt state.
 
 At runtime, dedicated rootfs runs also receive a managed device layout under
 `/dev`, including `/dev/shm` and `/dev/pts`.
@@ -150,11 +187,13 @@ At runtime, dedicated rootfs runs also receive a managed device layout under
 Mirage selects the bootstrap strategy from the host effective user ID:
 
 - On a root host, Mirage preserves the original behavior and asks
-  `mmdebstrap` to populate the output directory directly.
+  `mmdebstrap` to populate Debian output directories directly. Tiny Core is
+  downloaded and extracted directly.
 - On a rootless host, Mirage uses `mmdebstrap --mode=unshare --format=tar`,
   validates the archive while extracting it, and omits device nodes that Mirage
-  manages at runtime. Mirage then enters a temporary mapped user namespace and
-  shifts the normalized tree to the caller's subordinate root ID.
+  manages at runtime. The Tiny Core backend performs equivalent safe handling
+  for its CPIO archive. Mirage then enters a temporary mapped user namespace
+  and shifts the normalized tree to the caller's subordinate root ID.
 
 The resulting ownership marker enables a keep-ID runtime map: the invoking host
 user appears as guest `mirage` (`1000:1000`), while guest root and other guest
