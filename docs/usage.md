@@ -9,7 +9,7 @@ see [rootfs.md](rootfs.md). For current isolation boundaries, see
 
 - Linux
 - Go `1.24.4` or newer if you build from source
-- `mmdebstrap` on `PATH` when you use `mirage rootfs init`
+- `mmdebstrap` on `PATH` when you use the default Debian `mirage rootfs init`
 - `unshare` on `PATH`
 - `newuidmap` and `newgidmap` from the host `uidmap` package
 - `ip` on `PATH`
@@ -51,8 +51,9 @@ mirage network-policy list
 
 Host privilege behavior:
 
-- `mirage rootfs init ...` automatically uses rootless `mmdebstrap` when the
-  caller is not host root
+- Debian `mirage rootfs init ...` automatically uses rootless `mmdebstrap`
+  when the caller is not host root; Tiny Core uses its verified initramfs
+  extractor
 - `mirage run ...` supports the minimal rootless profile when user namespaces
   and subordinate IDs are configured
 - `sudo mirage ...` remains supported and preserves privileged behavior
@@ -68,8 +69,22 @@ mirage rootfs init --output /tmp/mirage/basic-rootfs
 mirage doctor --rootfs /tmp/mirage/basic-rootfs --command /bin/ls
 ```
 
+Generate and validate the pinned Tiny Core 16.1 x86_64 rootfs:
+
+```bash
+mirage rootfs init \
+  --output /tmp/mirage/tinycore-rootfs \
+  --distro tinycore
+mirage doctor --rootfs /tmp/mirage/tinycore-rootfs --command /bin/sh
+```
+
+Tiny Core support currently provides only the base x86_64 rootfs. The
+Debian-specific `--extra-pkg` and `--sudo` options are rejected; `.tcz`
+extension handling is not yet implemented.
+
 `mirage rootfs init` prints the exact bootstrap command and streams the
-underlying tool output while it runs.
+underlying tool output while it runs. Tiny Core initialization prints the
+pinned download URL and expected SHA-256 digest.
 
 To target a different architecture, pass `--arch` with one of
 `x86_64`, `arm64`, `arm32`, or `riscv64`; if omitted, Mirage defaults to the

@@ -3,6 +3,9 @@
 This document explains how to run `mirage rootfs init --arch <arch>` on a host
 with a different CPU architecture.
 
+This workflow currently applies to the Debian backend. The initial Tiny Core
+backend supports only an x86_64 rootfs on an x86_64 host.
+
 For example, on an `x86_64` host, `mirage rootfs init --arch arm64 ...` can
 fail unless the host is configured to run foreign-architecture binaries through
 `binfmt_misc` and QEMU user emulation.

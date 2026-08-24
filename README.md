@@ -86,6 +86,16 @@ mirage rootfs init --output /tmp/mirage/basic-rootfs
 mirage doctor --rootfs /tmp/mirage/basic-rootfs --command /bin/ls
 ```
 
+Or generate the pinned Tiny Core 16.1 x86_64 base rootfs without
+`mmdebstrap`:
+
+```bash
+mirage rootfs init --output /tmp/mirage/tinycore-rootfs --distro tinycore
+mirage doctor --rootfs /tmp/mirage/tinycore-rootfs --command /bin/sh
+```
+
+Tiny Core `.tcz` extensions, `--extra-pkg`, and `--sudo` are not yet supported.
+
 Need a different Debian release than the default `trixie`? Pass the codename:
 
 ```bash

@@ -22,6 +22,7 @@ const (
 	minimalAptConfigPath         = "/etc/apt/apt.conf.d/99sandbox-minimal"
 	minimalAptConfigContent      = "APT::Install-Recommends \"false\";\nAPT::Install-Suggests \"false\";\nAPT::Sandbox::User \"root\";\n"
 	mmdebstrapIncludePackageList = "apt,ca-certificates,bash,coreutils,util-linux,procps,psmisc,iproute2,curl,tar,gzip,xz-utils,git"
+	defaultDistribution          = "debian"
 )
 
 var currentEUID = os.Geteuid
@@ -49,6 +50,8 @@ func (asset MissingAsset) Message() string {
 }
 
 type GenerateReport struct {
+	Distribution    string
+	Release         string
 	Architecture    string
 	HostEnvironment hostenv.Kind
 	MissingAssets   []MissingAsset
@@ -56,16 +59,22 @@ type GenerateReport struct {
 }
 
 type GenerateOptions struct {
-	AllowOverwrite bool
-	LogOutput      io.Writer
-	Architecture   string
-	DebianRelease  string
-	ExtraPackages  []string
-	IncludeSudo    bool
+	AllowOverwrite  bool
+	LogOutput       io.Writer
+	Distribution    string
+	Architecture    string
+	DebianRelease   string
+	TinyCoreRelease string
+	ExtraPackages   []string
+	IncludeSudo     bool
 }
 
 func DefaultDebianRelease() string {
 	return defaultDebianRelease
+}
+
+func SupportedDistributions() []string {
+	return []string{"debian", "tinycore"}
 }
 
 func (report *GenerateReport) addMissing(asset MissingAsset) {
@@ -109,23 +118,27 @@ func bootstrapWithReportWithOptions(outputRoot string, options GenerateOptions, 
 		return GenerateReport{}, errors.New("output rootfs path cannot be empty")
 	}
 	strategy := selectBootstrapStrategy(currentEUID())
+	distribution, err := normalizeDistribution(options.Distribution)
+	if err != nil {
+		return GenerateReport{}, err
+	}
 	architecture, err := resolveRootfsArchitecture(options.Architecture)
 	if err != nil {
 		return GenerateReport{}, err
 	}
 	report := GenerateReport{
+		Distribution:    distribution,
 		Architecture:    architecture,
 		HostEnvironment: strategy.hostEnvironment(),
-	}
-	debianArchitecture, err := debianArchitectureForRootfsArch(architecture)
-	if err != nil {
-		return report, err
 	}
 	root, err := filepath.Abs(outputRoot)
 	if err != nil {
 		return report, fmt.Errorf("resolve output rootfs %q: %w", outputRoot, err)
 	}
 	if err := validateBootstrapTarget(root); err != nil {
+		return report, err
+	}
+	if err := validateDistributionOptions(distribution, architecture, options); err != nil {
 		return report, err
 	}
 	if report.HostEnvironment == hostenv.Rootless &&
@@ -137,30 +150,58 @@ func bootstrapWithReportWithOptions(outputRoot string, options GenerateOptions, 
 	if err := strategy.prepareOutput(root, options.AllowOverwrite); err != nil {
 		return report, err
 	}
-	release, err := normalizeDebianRelease(options.DebianRelease)
-	if err != nil {
-		return report, err
+	switch distribution {
+	case "debian":
+		if strings.TrimSpace(options.TinyCoreRelease) != "" {
+			return report, errors.New("--tinycore-release requires --distro tinycore")
+		}
+		debianArchitecture, err := debianArchitectureForRootfsArch(architecture)
+		if err != nil {
+			return report, err
+		}
+		release, err := normalizeDebianRelease(options.DebianRelease)
+		if err != nil {
+			return report, err
+		}
+		report.Release = release
+		rawExtraPackages := append([]string{}, options.ExtraPackages...)
+		if options.IncludeSudo {
+			rawExtraPackages = append(rawExtraPackages, "sudo")
+		}
+		extraPackages, err := normalizeExtraPackages(rawExtraPackages)
+		if err != nil {
+			return report, err
+		}
+		if err := bootstrapDebianBaseRootfs(root, debianArchitecture, release, extraPackages, strategy, options.LogOutput); err != nil {
+			return report, err
+		}
+		if err := writeMinimalAptConfig(root, strategy.hostEnvironment(), options.LogOutput); err != nil {
+			return report, err
+		}
+		nssReport, err := EnsureNSSRuntimeWithReport(root)
+		if err != nil {
+			return report, err
+		}
+		report.merge(nssReport)
+	case "tinycore":
+		if strings.TrimSpace(options.DebianRelease) != "" {
+			return report, errors.New("--debian-release requires --distro debian")
+		}
+		if len(options.ExtraPackages) > 0 {
+			return report, errors.New("--extra-pkg is not supported with --distro tinycore; Tiny Core .tcz extensions are not yet supported")
+		}
+		if options.IncludeSudo {
+			return report, errors.New("--sudo is not supported with --distro tinycore")
+		}
+		release, err := normalizeTinyCoreRelease(options.TinyCoreRelease)
+		if err != nil {
+			return report, err
+		}
+		report.Release = release
+		if err := bootstrapTinyCoreBaseRootfs(root, architecture, release, options.LogOutput); err != nil {
+			return report, err
+		}
 	}
-	rawExtraPackages := append([]string{}, options.ExtraPackages...)
-	if options.IncludeSudo {
-		rawExtraPackages = append(rawExtraPackages, "sudo")
-	}
-	extraPackages, err := normalizeExtraPackages(rawExtraPackages)
-	if err != nil {
-		return report, err
-	}
-	if err := bootstrapDebianBaseRootfs(root, debianArchitecture, release, extraPackages, strategy, options.LogOutput); err != nil {
-		return report, err
-	}
-	if err := writeMinimalAptConfig(root, strategy.hostEnvironment(), options.LogOutput); err != nil {
-		return report, err
-	}
-
-	nssReport, err := EnsureNSSRuntimeWithReport(root)
-	if err != nil {
-		return report, err
-	}
-	report.merge(nssReport)
 	if finalize && report.HostEnvironment == hostenv.Rootless {
 		if os.Getenv(testSkipBootstrapEnv) != "1" || os.Getenv(testFinalizeOwnershipEnv) == "1" {
 			if err := finalizeRootlessOwnership(root); err != nil {
@@ -169,6 +210,52 @@ func bootstrapWithReportWithOptions(outputRoot string, options GenerateOptions, 
 		}
 	}
 	return report, nil
+}
+
+func normalizeDistribution(raw string) (string, error) {
+	value := strings.ToLower(strings.TrimSpace(raw))
+	if value == "" {
+		return defaultDistribution, nil
+	}
+	if value == "debian" || value == "tinycore" {
+		return value, nil
+	}
+	return "", fmt.Errorf("unsupported rootfs distribution %q (supported: %s)", raw, strings.Join(SupportedDistributions(), ", "))
+}
+
+func validateDistributionOptions(distribution, architecture string, options GenerateOptions) error {
+	switch distribution {
+	case "debian":
+		if strings.TrimSpace(options.TinyCoreRelease) != "" {
+			return errors.New("--tinycore-release requires --distro tinycore")
+		}
+		if _, err := normalizeDebianRelease(options.DebianRelease); err != nil {
+			return err
+		}
+		rawExtraPackages := append([]string{}, options.ExtraPackages...)
+		if options.IncludeSudo {
+			rawExtraPackages = append(rawExtraPackages, "sudo")
+		}
+		_, err := normalizeExtraPackages(rawExtraPackages)
+		return err
+	case "tinycore":
+		if architecture != "x86_64" {
+			return fmt.Errorf("Tiny Core rootfs initialization supports only x86_64, got %q", architecture)
+		}
+		if strings.TrimSpace(options.DebianRelease) != "" {
+			return errors.New("--debian-release requires --distro debian")
+		}
+		if len(options.ExtraPackages) > 0 {
+			return errors.New("--extra-pkg is not supported with --distro tinycore; Tiny Core .tcz extensions are not yet supported")
+		}
+		if options.IncludeSudo {
+			return errors.New("--sudo is not supported with --distro tinycore")
+		}
+		_, err := normalizeTinyCoreRelease(options.TinyCoreRelease)
+		return err
+	default:
+		return fmt.Errorf("unsupported rootfs distribution %q", distribution)
+	}
 }
 
 func GenerateWithReport(outputRoot string, template Template) (GenerateReport, error) {

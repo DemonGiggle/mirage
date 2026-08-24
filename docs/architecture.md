@@ -46,7 +46,8 @@ This layer decides what should happen. It does not enforce the sandbox itself.
 The rootfs layer:
 
 - bootstraps Debian rootfs trees with `mmdebstrap`
-- writes the minimal guest apt policy file
+- downloads, verifies, and safely extracts pinned Tiny Core initramfs trees
+- writes the minimal guest apt policy file for Debian rootfses
 - validates generated rootfs paths and command resolution for `mirage doctor`
 
 ### Runner

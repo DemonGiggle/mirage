@@ -85,7 +85,7 @@ Usage:
 Commands:
   run             launch a sandboxed workload
   doctor          inspect host capabilities and optionally validate a rootfs
-  rootfs          bootstrap a Debian rootfs
+  rootfs          bootstrap a Debian or Tiny Core rootfs
   network-policy  list bundled example network policy files
   package         assemble a standalone release bundle
   version         print version
@@ -143,7 +143,7 @@ Usage:
   mirage rootfs <subcommand> [flags]
 
 Subcommands:
-  init            bootstrap a Debian rootfs
+  init            bootstrap a Debian or Tiny Core rootfs
 
 Help:
   mirage rootfs init --help
@@ -164,15 +164,19 @@ func runRootfsInit(args []string, stdout, stderr io.Writer) error {
 
 	var outputRoot string
 	var allowOverwrite bool
+	var distribution string
 	var architecture string
 	var debianRelease string
+	var tinyCoreRelease string
 	var extraPackages string
 	var includeSudo bool
 
 	fs.StringVar(&outputRoot, "output", "", "Path to the generated rootfs directory.")
 	fs.BoolVar(&allowOverwrite, "allow-overwrite", false, "Allow writing into an existing non-empty output directory.")
+	fs.StringVar(&distribution, "distro", "debian", "Rootfs distribution. Supported: debian, tinycore.")
 	fs.StringVar(&architecture, "arch", "", "Target rootfs architecture. Supported: x86_64, arm64, arm32, riscv64. Defaults to the host architecture.")
 	fs.StringVar(&debianRelease, "debian-release", "", "Debian codename to bootstrap. Defaults to the built-in release used by Mirage.")
+	fs.StringVar(&tinyCoreRelease, "tinycore-release", "", "Tiny Core release to bootstrap. Currently supports 16.1.")
 	fs.StringVar(&extraPackages, "extra-pkg", "", "Comma-separated Debian package names to install in addition to the default rootfs package set.")
 	fs.BoolVar(&includeSudo, "sudo", false, "Install sudo for use with mirage run --sudo.")
 
@@ -189,16 +193,20 @@ func runRootfsInit(args []string, stdout, stderr io.Writer) error {
 	_, _ = fmt.Fprintln(stdout, "mirage rootfs init")
 	_, _ = fmt.Fprintf(stdout, "output: %s\n", outputRoot)
 	report, err := rootfs.BootstrapWithReportWithOptions(outputRoot, rootfs.GenerateOptions{
-		AllowOverwrite: allowOverwrite,
-		LogOutput:      stdout,
-		Architecture:   architecture,
-		DebianRelease:  debianRelease,
-		ExtraPackages:  splitCommaSeparatedList(extraPackages),
-		IncludeSudo:    includeSudo,
+		AllowOverwrite:  allowOverwrite,
+		LogOutput:       stdout,
+		Distribution:    distribution,
+		Architecture:    architecture,
+		DebianRelease:   debianRelease,
+		TinyCoreRelease: tinyCoreRelease,
+		ExtraPackages:   splitCommaSeparatedList(extraPackages),
+		IncludeSudo:     includeSudo,
 	})
 	if err != nil {
 		return err
 	}
+	_, _ = fmt.Fprintf(stdout, "distribution: %s\n", report.Distribution)
+	_, _ = fmt.Fprintf(stdout, "release: %s\n", report.Release)
 	_, _ = fmt.Fprintf(stdout, "architecture: %s\n", report.Architecture)
 	_, _ = fmt.Fprintf(stdout, "host-environment: %s\n", report.HostEnvironment)
 	printGenerateWarnings(stdout, report, "")
@@ -206,27 +214,32 @@ func runRootfsInit(args []string, stdout, stderr io.Writer) error {
 }
 
 func printRootfsInitHelp(w io.Writer) {
-	_, _ = fmt.Fprint(w, `Bootstrap a Debian minbase rootfs.
+	_, _ = fmt.Fprint(w, `Bootstrap a Debian minbase or Tiny Core rootfs.
 
 Usage:
-  mirage rootfs init --output <path> [--allow-overwrite] [--arch <arch>] [--debian-release <codename>] [--extra-pkg <pkg1,pkg2>] [--sudo]
+  mirage rootfs init --output <path> [--distro <debian|tinycore>] [--allow-overwrite] [--arch <arch>] [--debian-release <codename>] [--tinycore-release <version>] [--extra-pkg <pkg1,pkg2>] [--sudo]
 
 Notes:
-  - The rootfs is created with mmdebstrap.
+  - Debian rootfses are created with mmdebstrap.
+  - Tiny Core rootfses are downloaded as pinned, SHA-256-verified initramfs archives and safely extracted.
   - Host root preserves the direct directory bootstrap behavior.
-  - A non-root host uses mmdebstrap's unshare mode and normalizes extracted ownership for Mirage's runtime UID map.
+  - A non-root host uses mmdebstrap's unshare mode for Debian and normalizes generated ownership for Mirage's runtime UID map.
   - Rootless mode requires unprivileged user namespaces, subordinate IDs, newuidmap, and newgidmap.
   - The default Debian release is `+rootfs.DefaultDebianRelease()+`.
   - Supported --arch values: x86_64, arm64, arm32, riscv64.
   - If --arch is omitted, Mirage detects the host architecture and uses that.
   - --debian-release overrides the Debian codename passed to mmdebstrap.
+  - The default Tiny Core release is `+rootfs.DefaultTinyCoreRelease()+` and currently supports only x86_64.
+  - --tinycore-release selects the pinned Tiny Core release used with --distro tinycore.
   - --extra-pkg appends Debian packages to the default bootstrap package set.
   - --sudo installs the guest sudo package for later use with mirage run --sudo.
+  - --extra-pkg and --sudo are currently Debian-only.
   - --allow-overwrite clears the existing output directory before rebuilding it.
   - Generated rootfs trees can be validated later with mirage doctor --rootfs ....
 
 Examples:
   mirage rootfs init --output /tmp/mirage/basic-rootfs
+  mirage rootfs init --output /tmp/mirage/tinycore-rootfs --distro tinycore
   mirage rootfs init --output /tmp/mirage/bookworm-rootfs --debian-release bookworm
   mirage rootfs init --output /tmp/mirage/arm64-rootfs --arch arm64
   mirage rootfs init --output /tmp/mirage/dev-rootfs --extra-pkg vim,curl,jq
