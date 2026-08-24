@@ -37,6 +37,7 @@ sudo apt install -y \
     ca-certificates \
     curl \
     tar \
+    squashfs-tools \
     debian-archive-keyring \
     mmdebstrap
 ```
@@ -86,15 +87,34 @@ mirage rootfs init --output /tmp/mirage/basic-rootfs
 mirage doctor --rootfs /tmp/mirage/basic-rootfs --command /bin/ls
 ```
 
-Or generate the pinned Tiny Core 16.1 x86_64 base rootfs without
-`mmdebstrap`:
+Or generate the pinned Tiny Core 16.1 x86_64 rootfs without `mmdebstrap`.
+Tiny Core generation requires the host `unsquashfs` command from
+`squashfs-tools`:
 
 ```bash
 mirage rootfs init --output /tmp/mirage/tinycore-rootfs --distro tinycore
 mirage doctor --rootfs /tmp/mirage/tinycore-rootfs --command /bin/sh
 ```
 
-Tiny Core `.tcz` extensions, `--extra-pkg`, and `--sudo` are not yet supported.
+Install Tiny Core `.tcz` extensions with `tce-load`. Package installation must
+opt in to guest sudo because it writes into the rootfs; installed commands run
+normally afterward:
+
+```bash
+mirage run \
+  --sudo \
+  --rootfs /tmp/mirage/tinycore-rootfs \
+  --network-policy-file ./examples/network-policies/allow-all.yaml \
+  -- tce-load -wi vim
+mirage run \
+  --rootfs /tmp/mirage/tinycore-rootfs \
+  --network-policy-file ./examples/network-policies/offline.yaml \
+  -- vim --version
+```
+
+Mirage configures `tce-load` to copy extensions into the rootfs using
+userspace extraction, since a rootless sandbox cannot create SquashFS loop
+mounts. `--extra-pkg` remains Debian-only.
 
 Need a different Debian release than the default `trixie`? Pass the codename:
 

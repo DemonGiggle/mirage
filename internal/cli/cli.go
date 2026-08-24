@@ -178,7 +178,7 @@ func runRootfsInit(args []string, stdout, stderr io.Writer) error {
 	fs.StringVar(&debianRelease, "debian-release", "", "Debian codename to bootstrap. Defaults to the built-in release used by Mirage.")
 	fs.StringVar(&tinyCoreRelease, "tinycore-release", "", "Tiny Core release to bootstrap. Currently supports 16.1.")
 	fs.StringVar(&extraPackages, "extra-pkg", "", "Comma-separated Debian package names to install in addition to the default rootfs package set.")
-	fs.BoolVar(&includeSudo, "sudo", false, "Install sudo for use with mirage run --sudo.")
+	fs.BoolVar(&includeSudo, "sudo", false, "Prepare sudo for use with mirage run --sudo. Debian installs the package; Tiny Core includes it in the base rootfs.")
 
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -222,6 +222,7 @@ Usage:
 Notes:
   - Debian rootfses are created with mmdebstrap.
   - Tiny Core rootfses are downloaded as pinned, SHA-256-verified initramfs archives and safely extracted.
+  - Tiny Core generation requires unsquashfs from the host squashfs-tools package so tce-load can install extensions without sandbox mounts.
   - Host root preserves the direct directory bootstrap behavior.
   - A non-root host uses mmdebstrap's unshare mode for Debian and normalizes generated ownership for Mirage's runtime UID map.
   - Rootless mode requires unprivileged user namespaces, subordinate IDs, newuidmap, and newgidmap.
@@ -232,8 +233,8 @@ Notes:
   - The default Tiny Core release is `+rootfs.DefaultTinyCoreRelease()+` and currently supports only x86_64.
   - --tinycore-release selects the pinned Tiny Core release used with --distro tinycore.
   - --extra-pkg appends Debian packages to the default bootstrap package set.
-  - --sudo installs the guest sudo package for later use with mirage run --sudo.
-  - --extra-pkg and --sudo are currently Debian-only.
+  - --sudo installs the Debian guest package; Tiny Core already includes a compatible sudo binary.
+  - --extra-pkg is currently Debian-only; use mirage run --sudo ... -- tce-load -wi <extension> for Tiny Core.
   - --allow-overwrite clears the existing output directory before rebuilding it.
   - Generated rootfs trees can be validated later with mirage doctor --rootfs ....
 

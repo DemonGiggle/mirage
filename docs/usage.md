@@ -10,6 +10,7 @@ see [rootfs.md](rootfs.md). For current isolation boundaries, see
 - Linux
 - Go `1.24.4` or newer if you build from source
 - `mmdebstrap` on `PATH` when you use the default Debian `mirage rootfs init`
+- `unsquashfs` from `squashfs-tools` when you initialize a Tiny Core rootfs
 - `unshare` on `PATH`
 - `newuidmap` and `newgidmap` from the host `uidmap` package
 - `ip` on `PATH`
@@ -20,7 +21,7 @@ On Debian or Ubuntu:
 
 ```bash
 sudo apt update
-sudo apt install -y mmdebstrap util-linux uidmap iproute2 iptables systemd
+sudo apt install -y mmdebstrap squashfs-tools util-linux uidmap iproute2 iptables systemd
 ```
 
 Run `mirage doctor` after installation to verify the host environment.
@@ -78,12 +79,23 @@ mirage rootfs init \
 mirage doctor --rootfs /tmp/mirage/tinycore-rootfs --command /bin/sh
 ```
 
-Tiny Core support currently provides only the base x86_64 rootfs. The
-Debian-specific `--extra-pkg` and `--sudo` options are rejected; `.tcz`
-extension handling is not yet implemented.
+Tiny Core currently supports x86_64. Mirage prepares its `tce-load` command to
+copy `.tcz` contents into the rootfs without a SquashFS mount. Use guest sudo
+for the installation command because it modifies root-owned paths:
+
+```bash
+mirage run \
+  --sudo \
+  --rootfs /tmp/mirage/tinycore-rootfs \
+  --network-policy-file ./examples/network-policies/allow-all.yaml \
+  -- tce-load -wi vim
+```
+
+The installed program can then run under Mirage's normal non-root workload
+identity. `--extra-pkg` remains Debian-only; use `tce-load` for Tiny Core.
 
 `mirage rootfs init` prints the exact bootstrap command and streams the
-underlying tool output while it runs. Tiny Core initialization prints the
+underlying tool output while it runs. Tiny Core initialization prints each
 pinned download URL and expected SHA-256 digest.
 
 To target a different architecture, pass `--arch` with one of

@@ -756,6 +756,7 @@ func TestRootfsInitTinyCore(t *testing.T) {
 		"--output", outputRoot,
 		"--distro", "tinycore",
 		"--arch", "x86_64",
+		"--sudo",
 	}, &out, &errBuf)
 	if err != nil {
 		t.Fatalf("Run returned error: %v", err)
@@ -789,7 +790,6 @@ func TestRootfsInitTinyCoreRejectsUnsupportedOptions(t *testing.T) {
 	}{
 		{name: "architecture", args: []string{"--arch", "arm64"}, want: "supports only x86_64"},
 		{name: "extra package", args: []string{"--extra-pkg", "curl"}, want: "--extra-pkg is not supported"},
-		{name: "sudo", args: []string{"--sudo"}, want: "--sudo is not supported"},
 		{name: "Debian release", args: []string{"--debian-release", "bookworm"}, want: "--debian-release requires --distro debian"},
 	}
 	for _, tc := range tests {
