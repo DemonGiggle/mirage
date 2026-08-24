@@ -150,25 +150,49 @@ APT::Sandbox::User "root";
 ### Tiny Core
 
 `rootfs init --distro tinycore` downloads Tiny Core 16.1's archived
-`rootfs64.gz` initramfs and extracts it as the dedicated rootfs. Mirage pins
-the archive URL and SHA-256 digest so a changed or corrupted download is
-rejected before extraction. Tiny Core's download server currently serves this
-archive over HTTP, making the pinned SHA-256 check part of the trust boundary.
+`rootfs64.gz` initramfs and extracts it as the dedicated rootfs. It also
+downloads the `squashfs-tools` extension and its required libraries so
+`tce-load` can extract extensions in userspace. Mirage pins every archive URL
+and SHA-256 digest, so a changed or corrupted download is rejected before
+extraction. Tiny Core's download server currently serves these archives over
+HTTP, making the pinned SHA-256 checks part of the trust boundary. The host
+must provide `unsquashfs` from the `squashfs-tools` package during generation.
 
 The extractor handles the `newc` CPIO format directly. It rejects absolute and
 traversing paths, refuses to descend through archive-created symlinks, rejects
 device nodes outside `/dev`, and does not materialize `/dev` device nodes
 because Mirage replaces `/dev` with its managed runtime layout.
 
-The first Tiny Core backend intentionally supports only:
+The Tiny Core backend currently supports:
 
 - Tiny Core `16.1`
 - `x86_64`
-- the base rootfs without `.tcz` extensions
+- runtime `.tcz` installation through `tce-load` copy-to-filesystem mode
 
-Consequently, `--extra-pkg` and `--sudo` are rejected with `--distro
-tinycore`. Tiny Core extensions and additional architectures require separate
-archive, dependency, and checksum definitions.
+Tiny Core's normal copy mode still mounts each SquashFS extension before
+copying it. That mount is unavailable in Mirage's rootless user namespace, so
+Mirage patches `tce-load` to call the bootstrapped `unsquashfs` instead. It
+also creates Tiny Core's extension state directories, enables
+`copy2fs.flg`, and seeds `/etc/resolv.conf` from the host for repository
+lookups.
+
+Run extension installation with `mirage run --sudo` so `tce-load` can copy
+files into root-owned system paths:
+
+```bash
+mirage run \
+  --sudo \
+  --rootfs /tmp/mirage/tinycore-rootfs \
+  --network-policy-file ./examples/network-policies/allow-all.yaml \
+  -- tce-load -wi vim
+```
+
+Only the installation needs that capability; installed commands can run as
+the default non-root `mirage` user. `rootfs init --sudo` is accepted for
+workflow compatibility, but Tiny Core already ships its sudo binary.
+`--extra-pkg` remains Debian-only; use `tce-load` for Tiny Core packages.
+Additional Tiny Core architectures require separate archive, dependency, and
+checksum definitions.
 
 Common behavior across generated rootfs trees:
 

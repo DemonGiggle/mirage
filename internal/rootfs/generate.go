@@ -188,10 +188,7 @@ func bootstrapWithReportWithOptions(outputRoot string, options GenerateOptions, 
 			return report, errors.New("--debian-release requires --distro debian")
 		}
 		if len(options.ExtraPackages) > 0 {
-			return report, errors.New("--extra-pkg is not supported with --distro tinycore; Tiny Core .tcz extensions are not yet supported")
-		}
-		if options.IncludeSudo {
-			return report, errors.New("--sudo is not supported with --distro tinycore")
+			return report, errors.New("--extra-pkg is not supported with --distro tinycore; install extensions at runtime with tce-load")
 		}
 		release, err := normalizeTinyCoreRelease(options.TinyCoreRelease)
 		if err != nil {
@@ -246,10 +243,7 @@ func validateDistributionOptions(distribution, architecture string, options Gene
 			return errors.New("--debian-release requires --distro debian")
 		}
 		if len(options.ExtraPackages) > 0 {
-			return errors.New("--extra-pkg is not supported with --distro tinycore; Tiny Core .tcz extensions are not yet supported")
-		}
-		if options.IncludeSudo {
-			return errors.New("--sudo is not supported with --distro tinycore")
+			return errors.New("--extra-pkg is not supported with --distro tinycore; install extensions at runtime with tce-load")
 		}
 		_, err := normalizeTinyCoreRelease(options.TinyCoreRelease)
 		return err
